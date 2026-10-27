@@ -215,6 +215,10 @@ func (api *restAPI) registerPosts() {
 		api.register("wp/v2", "/wp/v2/"+base+`/(?P<id>[\d]+)/revisions`, map[string]restHandler{
 			http.MethodGet: func(c *gin.Context, r *restRequest) { api.listRevisions(c, r, typ) },
 		}, nil)
+		api.register("wp/v2", "/wp/v2/"+base+`/(?P<parent>[\d]+)/revisions/(?P<id>[\d]+)`, map[string]restHandler{
+			http.MethodGet:    func(c *gin.Context, r *restRequest) { api.getRevision(c, r, typ) },
+			http.MethodDelete: func(c *gin.Context, r *restRequest) { api.deleteRevision(c, r, typ) },
+		}, nil)
 	}
 }
 
@@ -712,6 +716,61 @@ func (api *restAPI) listRevisions(c *gin.Context, r *restRequest, typ string) {
 	}
 	paginate(c, len(out), 100, 1)
 	restJSON(c, http.StatusOK, out)
+}
+
+// loadRevision is WP_REST_Revisions_Controller::get_revision() + get_parent().
+func (api *restAPI) loadRevision(c *gin.Context, r *restRequest, typ string) (*store.Post, revision, bool) {
+	s := api.s
+	u := restCurrent(c)
+	parentID, _ := strconv.ParseInt(r.Params["parent"], 10, 64)
+	p, err := s.store.GetPost(c, parentID)
+	if err != nil || p.Type != typ {
+		restErr(c, http.StatusNotFound, "rest_post_invalid_parent", "Invalid post parent ID.")
+		return nil, revision{}, false
+	}
+	if u == nil || !u.Can("edit_post", p) {
+		forbidden(c, "rest_cannot_read", "Sorry, you are not allowed to view revisions of this post.")
+		return nil, revision{}, false
+	}
+	var rv revision
+	err = s.store.Pool.QueryRow(c, `SELECT id, post_id, coalesce(author_id,0), title, excerpt, content, is_autosave, created_at FROM post_revisions
+		WHERE id = $1 AND post_id = $2 AND NOT is_autosave`, r.ID(), p.ID).Scan(&rv.ID, &rv.PostID, &rv.AuthorID, &rv.Title, &rv.Excerpt, &rv.Content, &rv.IsAutosave, &rv.CreatedAt)
+	if err != nil {
+		restErr(c, http.StatusNotFound, "rest_post_invalid_id", "Invalid revision ID.")
+		return nil, revision{}, false
+	}
+	return p, rv, true
+}
+
+func (api *restAPI) getRevision(c *gin.Context, r *restRequest, typ string) {
+	p, rv, ok := api.loadRevision(c, r, typ)
+	if !ok {
+		return
+	}
+	restJSON(c, http.StatusOK, api.s.restRevision(c, rv, p))
+}
+
+// deleteRevision is delete_item(): revisions cannot be trashed, force=true is required.
+func (api *restAPI) deleteRevision(c *gin.Context, r *restRequest, typ string) {
+	s := api.s
+	p, rv, ok := api.loadRevision(c, r, typ)
+	if !ok {
+		return
+	}
+	if !restCurrent(c).Can("delete_post", p) {
+		restErr(c, http.StatusForbidden, "rest_cannot_delete", "Sorry, you are not allowed to delete this revision.")
+		return
+	}
+	if force, _ := r.Bool(c, "force"); !force {
+		restErr(c, http.StatusNotImplemented, "rest_trash_not_supported", "Revisions do not support trashing. Set 'force=true' to delete.")
+		return
+	}
+	prev := s.restRevision(c, rv, p)
+	if _, err := s.store.Pool.Exec(c, `DELETE FROM post_revisions WHERE id = $1`, rv.ID); err != nil {
+		restErr(c, http.StatusInternalServerError, "rest_cannot_delete", "The post cannot be deleted.")
+		return
+	}
+	restJSON(c, http.StatusOK, map[string]any{"deleted": true, "previous": prev})
 }
 
 var _ = errors.New

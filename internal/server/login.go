@@ -19,6 +19,9 @@ type loginView struct {
 	Login, RedirectTo                string
 	Remember                         bool
 	ResetKey                         string
+	// CanRegister is get_option( 'users_can_register' ): the "Register" link and the registration form.
+	CanRegister bool
+	Email       string // user_email on the registration form
 }
 
 // login handles wp-login.php: the form, the POST and ?action=logout.
@@ -33,11 +36,12 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 	v := loginView{
-		Title:      "Log In",
-		Action:     "login",
-		SiteName:   s.settings.String("blogname"),
-		HomeURL:    s.links(c).HomeURL("/"),
-		RedirectTo: c.Query("redirect_to"),
+		Title:       "Log In",
+		Action:      "login",
+		SiteName:    s.settings.String("blogname"),
+		HomeURL:     s.links(c).HomeURL("/"),
+		RedirectTo:  c.Query("redirect_to"),
+		CanRegister: s.settings.Bool("users_can_register"),
 	}
 	switch action {
 	case "lostpassword", "retrievepassword":
@@ -49,9 +53,21 @@ func (s *Server) login(c *gin.Context) {
 	case "rp", "resetpass":
 		s.resetPassword(c, v)
 		return
+	case "register":
+		s.register(c, v)
+		return
+	case "confirmaction":
+		s.confirmAction(c, v)
+		return
 	}
 	if c.Query("checkemail") == "confirm" {
 		v.Message = "Check your email for the confirmation link, then visit the login page."
+	}
+	if c.Query("checkemail") == "registered" {
+		v.Message = "Registration complete. Please check your email, then visit the login page."
+	}
+	if c.Query("registration") == "disabled" {
+		v.Error = "<strong>Error:</strong> User registration is currently not allowed."
 	}
 	if c.Query("password") == "changed" {
 		v.Message = "Your password has been reset. You can now log in."

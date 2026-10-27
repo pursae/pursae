@@ -47,7 +47,7 @@
 		</p>
 	</form>
 	<p id="nav">
-		<a class="wp-login-lost-password" href="/wp-login?action=lostpassword">Lost your password?</a>
+		{{if .CanRegister}}<a class="wp-login-register" href="/wp-login?action=register">Register</a> | {{end}}<a class="wp-login-lost-password" href="/wp-login?action=lostpassword">Lost your password?</a>
 	</p>
 	<p id="backtoblog"><a href="{{.HomeURL}}">&larr; Go to {{.SiteName}}</a></p>
 </div>
@@ -106,7 +106,30 @@
 		<input type="text" name="user_login" id="user_login" class="input" value="" size="20" autocapitalize="off" autocomplete="username" required="required" /></p>
 		<p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="Get New Password" /></p>
 	</form>
-	<p id="nav"><a class="wp-login-log-in" href="/wp-login">Log in</a></p>
+	<p id="nav"><a class="wp-login-log-in" href="/wp-login">Log in</a>{{if .CanRegister}} | <a class="wp-login-register" href="/wp-login?action=register">Register</a>{{end}}</p>
+	<p id="backtoblog"><a href="{{.HomeURL}}">&larr; Go to {{.SiteName}}</a></p>
+</div>
+</body></html>{{end}}
+
+{{define "admin/login-register"}}{{template "login-head" .}}
+	{{if .Message}}<div class="notice notice-info message"><p>{{.Message}}</p></div>{{end}}
+	<form name="registerform" id="registerform" action="/wp-login?action=register" method="post" novalidate="novalidate">
+		<p><label for="user_login">Username</label>
+		<input type="text" name="user_login" id="user_login" class="input" value="{{.Login}}" size="20" autocapitalize="off" autocomplete="username" required="required" /></p>
+		<p><label for="user_email">Email</label>
+		<input type="email" name="user_email" id="user_email" class="input" value="{{.Email}}" size="25" autocomplete="email" required="required" /></p>
+		<p id="reg_passmail">Registration confirmation will be emailed to you.</p>
+		<br class="clear" />
+		<input type="hidden" name="redirect_to" value="{{.RedirectTo}}" />
+		<p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="Register" /></p>
+	</form>
+	<p id="nav"><a class="wp-login-log-in" href="/wp-login">Log in</a> | <a class="wp-login-lost-password" href="/wp-login?action=lostpassword">Lost your password?</a></p>
+	<p id="backtoblog"><a href="{{.HomeURL}}">&larr; Go to {{.SiteName}}</a></p>
+</div>
+</body></html>{{end}}
+
+{{define "admin/login-confirmaction"}}{{template "login-head" .}}
+	{{if .Message}}<div class="notice notice-info message"><p>{{.Message}}</p></div>{{end}}
 	<p id="backtoblog"><a href="{{.HomeURL}}">&larr; Go to {{.SiteName}}</a></p>
 </div>
 </body></html>{{end}}

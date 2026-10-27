@@ -1,16 +1,20 @@
 package server
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"html/template"
 	"net/http"
-	"net/mail"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"wpgo/internal/auth"
+	"wpgo/internal/mail"
 	"wpgo/internal/store"
 )
 
@@ -33,6 +37,12 @@ type profileData struct {
 	CanPromote bool
 	Roles      []roleChoice
 	CapRows    []capRow
+	// PendingEmail is the _new_email user meta: an e-mail change waiting for confirmation (own profile only).
+	PendingEmail string
+	DismissURL   string
+	// Application Passwords (profile.php's application-passwords section).
+	AppPasswords   []appPasswordRow
+	NewAppPassword *appPasswordCreated
 }
 
 type roleChoice struct {
@@ -96,12 +106,64 @@ func (s *Server) profileView(c *gin.Context, target *store.User) profileData {
 		sort.Slice(d.CapRows, func(i, j int) bool { return d.CapRows[i].Cap < d.CapRows[j].Cap })
 	}
 	s.avatarPicker(c, target, &d)
+	if d.Self {
+		if ne := pendingEmail(target); ne != "" && ne != target.Email {
+			d.PendingEmail = ne
+			d.DismissURL = "/wp-admin/profile?dismiss=" + itoa64(target.ID) + "_new_email&_wpnonce=" + s.nonce(c, "dismiss-"+itoa64(target.ID)+"_new_email")
+		}
+	}
+	d.AppPasswords = s.appPasswordRows(c, target)
 	return d
 }
 
+// pendingEmail reads the _new_email user meta (send_confirmation_on_profile_email()).
+func pendingEmail(u *store.User) string {
+	rec, _ := u.Meta["_new_email"].(map[string]any)
+	ne, _ := rec["newemail"].(string)
+	return ne
+}
+
+// profile is profile.php: the screen, plus the ?newuseremail= confirmation and ?dismiss= cancel links
+// of a pending e-mail change.
 func (s *Server) profile(c *gin.Context) {
 	u := currentUser(c)
-	s.adminPage(c, "profile", "Profile", "profile-php", "admin/profile", s.profileView(c, u))
+	if hash := c.Query("newuseremail"); hash != "" {
+		rec, _ := u.Meta["_new_email"].(map[string]any)
+		want, _ := rec["hash"].(string)
+		ne, _ := rec["newemail"].(string)
+		if want != "" && ne != "" && subtle.ConstantTimeCompare([]byte(want), []byte(hash)) == 1 {
+			if _, _, err := s.store.LoginOrEmailTaken(c, "", ne); err == nil {
+				u.Email = ne
+				if err := s.store.UpdateUserProfile(c, u); err == nil {
+					_ = s.setUserMeta(c, u, "_new_email", nil)
+					s.purgeAll(c)
+					c.Redirect(http.StatusFound, "/wp-admin/profile?updated=1")
+					return
+				}
+			}
+		}
+		c.Redirect(http.StatusFound, "/wp-admin/profile?error=new-email")
+		return
+	}
+	if d := c.Query("dismiss"); d != "" && d == itoa64(u.ID)+"_new_email" {
+		if !s.checkNonce(c, "dismiss-"+itoa64(u.ID)+"_new_email") {
+			s.denyNonce(c)
+			return
+		}
+		_ = s.setUserMeta(c, u, "_new_email", nil)
+		c.Redirect(http.StatusFound, "/wp-admin/profile?updated=1")
+		return
+	}
+	var notices []notice
+	if c.Query("error") == "new-email" {
+		notices = append(notices, notice{Type: "error", Message: "Error while saving the new email address. Please try again."})
+	}
+	if c.Query("updated") == "1" {
+		if ne := pendingEmail(u); ne != "" {
+			notices = append(notices, notice{Type: "warning", Message: template.HTML("Your email address has not been updated yet. Please check your inbox at <code>" + template.HTMLEscapeString(ne) + "</code> for a confirmation email."), Dismissible: true})
+		}
+	}
+	s.adminPage(c, "profile", "Profile", "profile-php", "admin/profile", s.profileView(c, u), notices...)
 }
 
 func (s *Server) profileSave(c *gin.Context) {
@@ -153,14 +215,22 @@ func (s *Server) saveUser(c *gin.Context, target *store.User) {
 		c.Redirect(http.StatusFound, back)
 		return
 	}
+	if _, ok := c.GetPostForm("do_new_application_password"); ok || c.PostForm("action") == "revoke-application-password" || c.PostForm("action") == "revoke-all-application-passwords" {
+		s.appPasswordsForm(c, target, back)
+		return
+	}
 	var errs []string
 	nickname := strings.TrimSpace(c.PostForm("nickname"))
 	email := strings.TrimSpace(c.PostForm("email"))
 	if nickname == "" {
 		errs = append(errs, "<strong>Error:</strong> Please enter a nickname.")
 	}
-	if _, err := mail.ParseAddress(email); err != nil || email == "" {
+	if !validEmail(email) {
 		errs = append(errs, "<strong>Error:</strong> Please enter an email address.")
+	} else if !strings.EqualFold(email, target.Email) {
+		if _, taken, _ := s.store.LoginOrEmailTaken(c, "", email); taken {
+			errs = append(errs, "<strong>Error:</strong> The email address is already used.")
+		}
 	}
 	pass1, pass2 := c.PostForm("pass1"), c.PostForm("pass2")
 	if pass1 != "" && pass2 != "" && pass1 != pass2 {
@@ -185,7 +255,12 @@ func (s *Server) saveUser(c *gin.Context, target *store.User) {
 	if dn := strings.TrimSpace(c.PostForm("display_name")); dn != "" {
 		target.DisplayName = dn
 	}
-	target.Email = email
+	if self && !strings.EqualFold(email, target.Email) {
+		// send_confirmation_on_profile_email(): the new address becomes active once confirmed.
+		s.sendEmailChangeConfirmation(c, target, email)
+	} else {
+		target.Email = email
+	}
 	target.URL = strings.TrimSpace(c.PostForm("url"))
 	if err := s.store.UpdateUserProfile(c, target); err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
@@ -225,6 +300,22 @@ func (s *Server) saveUser(c *gin.Context, target *store.User) {
 	}
 	s.purgeAll(c) // names and avatars appear in bylines and comment lists across the site
 	c.Redirect(http.StatusFound, back)
+}
+
+// sendEmailChangeConfirmation is send_confirmation_on_profile_email(): stores the pending address in
+// the _new_email user meta and mails the confirmation link to it.
+func (s *Server) sendEmailChangeConfirmation(c *gin.Context, u *store.User, newEmail string) {
+	sum := sha256.Sum256([]byte(newEmail + itoa64(time.Now().UnixNano()) + auth.RandomToken(8)))
+	hash := hex.EncodeToString(sum[:16])
+	_ = s.setUserMeta(c, u, "_new_email", map[string]any{"hash": hash, "newemail": newEmail})
+	site := s.settings.String("blogname")
+	body := "Howdy ###USERNAME###,\n\nYou recently requested to have the email address on your account changed.\n\n" +
+		"If this is correct, please click on the following link to change it:\n###ADMIN_URL###\n\n" +
+		"You can safely ignore and delete this email if you do not want to\ntake this action.\n\n" +
+		"This email has been sent to ###EMAIL###\n\nRegards,\nAll at ###SITENAME###\n###SITEURL###\n"
+	body = strings.NewReplacer("###USERNAME###", u.Login, "###ADMIN_URL###", s.links(c).HomeURL("/wp-admin/profile?newuseremail="+hash),
+		"###EMAIL###", newEmail, "###SITENAME###", site, "###SITEURL###", s.links(c).HomeURL("/")).Replace(body)
+	s.sendMail(c, mail.Message{To: []string{newEmail}, Subject: "[" + site + "] Email Change Request", Body: body})
 }
 
 // avatarPicker wires the profile picture field to the media modal (wp.media), the same frame used for

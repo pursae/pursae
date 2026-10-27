@@ -1,7 +1,10 @@
 package server
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	_ "embed"
+	"encoding/hex"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"wpgo/internal/auth"
+	"wpgo/internal/mail"
 	"wpgo/internal/settings"
 	"wpgo/internal/store"
 	"wpgo/internal/wp"
@@ -20,7 +25,7 @@ var timezoneList string
 
 // optionPages whitelists the settings each screen may write (register_setting()).
 var optionPages = map[string][]string{
-	"general": {"blogname", "blogdescription", "siteurl", "home", "admin_email", "users_can_register", "default_role",
+	"general": {"blogname", "blogdescription", "siteurl", "home", "new_admin_email", "users_can_register", "default_role",
 		"timezone_string", "gmt_offset", "date_format", "time_format", "start_of_week"},
 	"writing": {"default_category", "default_post_format", "classic-editor-replace", "classic-editor-allow-users"},
 	"reading": {"show_on_front", "page_on_front", "page_for_posts", "posts_per_page", "posts_per_rss", "rss_use_excerpt", "blog_public"},
@@ -61,6 +66,9 @@ type optionsData struct {
 	Now                      time.Time
 	Roles                    []choice
 	Depths                   []int
+	// PendingAdminEmail is the new_admin_email option: a change of the admin address awaiting confirmation.
+	PendingAdminEmail string
+	DismissURL        string
 }
 
 func (s *Server) optionsScreen(page string) gin.HandlerFunc {
@@ -103,6 +111,10 @@ func (s *Server) optionsScreen(page string) gin.HandlerFunc {
 			d.Weekdays = []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 			for _, r := range [][2]string{{"subscriber", "Subscriber"}, {"contributor", "Contributor"}, {"author", "Author"}, {"editor", "Editor"}, {"administrator", "Administrator"}} {
 				d.Roles = append(d.Roles, choice{Value: r[0], Label: r[1], Checked: r[0] == s.settings.String("default_role")})
+			}
+			if ne := s.settings.String("new_admin_email"); ne != "" && ne != s.settings.String("admin_email") {
+				d.PendingAdminEmail = ne
+				d.DismissURL = "/wp-admin/options?dismiss=new_admin_email&_wpnonce=" + s.nonce(c, "dismiss-1-new_admin_email")
 			}
 		case "writing":
 			d.Categories, _ = s.store.HierarchicalTerms(ctx, "category", false)
@@ -213,8 +225,12 @@ func (s *Server) optionsSave(c *gin.Context) {
 				values[k] = strings.TrimRight(v, "/")
 			}
 		}
-		if v, ok := values["admin_email"].(string); ok && !strings.Contains(v, "@") {
-			delete(values, "admin_email")
+		// update_option_new_admin_email(): the address changes once the link in the e-mail is followed.
+		if v, ok := values["new_admin_email"].(string); ok {
+			delete(values, "new_admin_email")
+			if validEmail(v) && v != s.settings.String("admin_email") {
+				s.sendNewAdminEmail(c, v)
+			}
 		}
 		if v, ok := values["default_role"].(string); ok && v == "administrator" {
 			// WordPress allows it but warns; keep the choice.
@@ -258,4 +274,50 @@ func (s *Server) optionsSave(c *gin.Context) {
 	s.purgeAll(c)
 	target := "/wp-admin/options-" + page + "?settings-updated=true"
 	c.Redirect(http.StatusFound, target)
+}
+
+// sendNewAdminEmail is update_option_new_admin_email(): stores adminhash + new_admin_email and mails the
+// confirmation link to the new address.
+func (s *Server) sendNewAdminEmail(c *gin.Context, email string) {
+	sum := sha256.Sum256([]byte(email + itoa64(time.Now().UnixNano()) + auth.RandomToken(8)))
+	hash := hex.EncodeToString(sum[:16])
+	_ = s.settings.Set(c, map[string]any{"adminhash": map[string]any{"hash": hash, "newemail": email}, "new_admin_email": email})
+	site := s.settings.String("blogname")
+	body := "Howdy ###USERNAME###,\n\nSomeone with administrator capabilities recently requested to have the\nadministration email address changed on this site:\n###SITEURL###\n\n" +
+		"To confirm this change, please click on the following link:\n###ADMIN_URL###\n\n" +
+		"You can safely ignore and delete this email if you do not want to\ntake this action.\n\n" +
+		"This email has been sent to ###EMAIL###\n\nRegards,\nAll at ###SITENAME###\n###SITEURL###\n"
+	body = strings.NewReplacer("###USERNAME###", currentUser(c).Login, "###ADMIN_URL###", s.links(c).HomeURL("/wp-admin/options?adminhash="+hash),
+		"###EMAIL###", email, "###SITENAME###", site, "###SITEURL###", s.links(c).HomeURL("/")).Replace(body)
+	s.sendMail(c, mail.Message{To: []string{email}, Subject: "[" + site + "] New Admin Email Address", Body: body})
+}
+
+// optionsConfirm is options.php's GET side: ?adminhash= confirms the pending admin e-mail, ?dismiss=new_admin_email cancels it.
+func (s *Server) optionsConfirm(c *gin.Context) {
+	if !currentUser(c).Can("manage_options", nil) {
+		c.String(http.StatusForbidden, "Sorry, you are not allowed to manage options for this site.")
+		return
+	}
+	if hash := c.Query("adminhash"); hash != "" {
+		rec, _ := s.settings.Get("adminhash").(map[string]any)
+		want, _ := rec["hash"].(string)
+		ne, _ := rec["newemail"].(string)
+		target := "/wp-admin/options-general?updated=false"
+		if want != "" && ne != "" && subtle.ConstantTimeCompare([]byte(want), []byte(hash)) == 1 {
+			_ = s.settings.Set(c, map[string]any{"admin_email": ne, "adminhash": nil, "new_admin_email": ""})
+			target = "/wp-admin/options-general?updated=true"
+		}
+		c.Redirect(http.StatusFound, target)
+		return
+	}
+	if c.Query("dismiss") == "new_admin_email" {
+		if !s.checkNonce(c, "dismiss-1-new_admin_email") {
+			s.denyNonce(c)
+			return
+		}
+		_ = s.settings.Set(c, map[string]any{"adminhash": nil, "new_admin_email": ""})
+		c.Redirect(http.StatusFound, "/wp-admin/options-general?updated=true")
+		return
+	}
+	c.Redirect(http.StatusFound, "/wp-admin/options-general")
 }

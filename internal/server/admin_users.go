@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/mail"
@@ -21,6 +22,7 @@ type userRow struct {
 	RoleNames          string
 	Posts              int
 	EditURL, DeleteURL string
+	ResetURL           string // "Send password reset" row action (users.php?action=resetpassword)
 	PostsURL           string
 	IsSelf             bool
 }
@@ -50,12 +52,19 @@ func (s *Server) usersScreen(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	switch c.Query("action") {
+	action := c.Query("action")
+	if action == "" || action == "-1" {
+		action = c.Query("action2")
+	}
+	switch action {
 	case "delete":
 		s.userDeleteConfirm(c)
 		return
 	case "dodelete":
 		s.userDelete(c)
+		return
+	case "resetpassword":
+		s.usersSendReset(c)
 		return
 	}
 	r := c.Query("new_role")
@@ -114,8 +123,13 @@ func (s *Server) usersScreen(c *gin.Context) {
 			PostsURL: "/wp-admin/edit?author=" + itoa64(x.ID)}
 		if row.IsSelf {
 			row.EditURL = "/wp-admin/profile"
-		} else if u.Can("delete_users", nil) {
-			row.DeleteURL = "/wp-admin/users?action=delete&user=" + itoa64(x.ID) + "&_wpnonce=" + s.nonce(c, "bulk-users")
+		} else {
+			if u.Can("delete_users", nil) {
+				row.DeleteURL = "/wp-admin/users?action=delete&user=" + itoa64(x.ID) + "&_wpnonce=" + s.nonce(c, "bulk-users")
+			}
+			if u.Can("edit_users", nil) {
+				row.ResetURL = "/wp-admin/users?action=resetpassword&users=" + itoa64(x.ID) + "&_wpnonce=" + s.nonce(c, "bulk-users")
+			}
 		}
 		d.Rows = append(d.Rows, row)
 	}
@@ -128,51 +142,87 @@ func (s *Server) usersScreen(c *gin.Context) {
 		notices = append(notices, notice{Type: "success", Message: "User deleted.", Dismissible: true})
 	case "promote":
 		notices = append(notices, notice{Type: "success", Message: "Changed roles.", Dismissible: true})
+	case "resetpassword":
+		if n, _ := strconv.Atoi(c.Query("reset_count")); n == 1 {
+			notices = append(notices, notice{Type: "success", Message: "Password reset link sent to 1 user.", Dismissible: true})
+		} else if n > 1 {
+			notices = append(notices, notice{Type: "success", Message: template.HTML(template.HTMLEscapeString(fmt.Sprintf("Password reset links sent to %d users.", n))), Dismissible: true})
+		}
+	case "err_admin_reset":
+		notices = append(notices, notice{Type: "error", Message: "Sorry, you are not allowed to send a password reset link for that user.", Dismissible: true})
 	}
 	s.adminPage(c, "users", "Users", "users-php", "admin/users-list", d, notices...)
 }
 
 type userDeleteData struct {
-	Target   *store.User
+	Targets  []*store.User
 	Others   []*store.User
 	Nonce    string
 	HasPosts bool
 }
 
+// selectedUserIDs reads the users of a row action (user=, users=) or a bulk action (users[]=), never the current user.
+func selectedUserIDs(c *gin.Context) []int64 {
+	raw := append(c.QueryArray("users[]"), c.QueryArray("users")...)
+	if v := c.Query("user"); v != "" {
+		raw = append(raw, v)
+	}
+	var ids []int64
+	seen := map[int64]bool{}
+	for _, r := range raw {
+		if id, err := strconv.ParseInt(r, 10, 64); err == nil && id > 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func (s *Server) userDeleteConfirm(c *gin.Context) {
 	u := currentUser(c)
-	id, _ := strconv.ParseInt(c.Query("user"), 10, 64)
-	if !u.Can("delete_users", nil) || id == u.ID {
-		c.String(http.StatusForbidden, "Sorry, you are not allowed to delete this user.")
+	if !u.Can("delete_users", nil) {
+		c.String(http.StatusForbidden, "Sorry, you are not allowed to delete users.")
 		return
 	}
 	if !s.checkNonce(c, "bulk-users") {
 		s.denyNonce(c)
 		return
 	}
-	target, err := s.store.UserByID(c, id)
-	if err != nil {
-		c.String(http.StatusNotFound, "Invalid user ID.")
+	d := userDeleteData{Nonce: s.nonce(c, "delete-users")}
+	ids := map[int64]bool{}
+	for _, id := range selectedUserIDs(c) {
+		if id == u.ID {
+			c.String(http.StatusForbidden, "Sorry, you are not allowed to delete this user.")
+			return
+		}
+		target, err := s.store.UserByID(c, id)
+		if err != nil {
+			c.String(http.StatusNotFound, "Invalid user ID.")
+			return
+		}
+		d.Targets = append(d.Targets, target)
+		ids[id] = true
+		var n int
+		_ = s.store.Pool.QueryRow(c, `SELECT count(*) FROM posts WHERE author_id = $1`, id).Scan(&n)
+		d.HasPosts = d.HasPosts || n > 0
+	}
+	if len(d.Targets) == 0 {
+		c.Redirect(http.StatusFound, "/wp-admin/users")
 		return
 	}
-	d := userDeleteData{Target: target, Nonce: s.nonce(c, "delete-users")}
 	all, _, _ := s.store.QueryUsers(c, store.UserQuery{PerPage: 500})
 	for _, x := range all {
-		if x.ID != id {
+		if !ids[x.ID] {
 			d.Others = append(d.Others, x)
 		}
 	}
-	var n int
-	_ = s.store.Pool.QueryRow(c, `SELECT count(*) FROM posts WHERE author_id = $1`, id).Scan(&n)
-	d.HasPosts = n > 0
 	s.adminPage(c, "users", "Delete Users", "users-php", "admin/user-delete", d)
 }
 
 func (s *Server) userDelete(c *gin.Context) {
 	u := currentUser(c)
-	id, _ := strconv.ParseInt(c.Query("user"), 10, 64)
-	if !u.Can("delete_users", nil) || id == u.ID {
-		c.String(http.StatusForbidden, "Sorry, you are not allowed to delete this user.")
+	if !u.Can("delete_users", nil) {
+		c.String(http.StatusForbidden, "Sorry, you are not allowed to delete users.")
 		return
 	}
 	if !s.checkNonce(c, "delete-users") {
@@ -183,12 +233,52 @@ func (s *Server) userDelete(c *gin.Context) {
 	if c.Query("delete_option") == "reassign" {
 		reassign, _ = strconv.ParseInt(c.Query("reassign_user"), 10, 64)
 	}
-	if err := s.store.DeleteUser(c, id, reassign); err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
-		return
+	for _, id := range selectedUserIDs(c) {
+		if id == u.ID || id == reassign {
+			c.String(http.StatusForbidden, "Sorry, you are not allowed to delete this user.")
+			return
+		}
+		if err := s.store.DeleteUser(c, id, reassign); err != nil {
+			c.String(http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	s.purgeAll(c)
 	c.Redirect(http.StatusFound, "/wp-admin/users?update=del")
+}
+
+// usersSendReset is users.php?action=resetpassword (row action and bulk action): retrieve_password() for each user.
+func (s *Server) usersSendReset(c *gin.Context) {
+	u := currentUser(c)
+	if !s.checkNonce(c, "bulk-users") {
+		s.denyNonce(c)
+		return
+	}
+	if !u.Can("edit_users", nil) {
+		c.String(http.StatusForbidden, "Sorry, you are not allowed to edit users.")
+		return
+	}
+	ids := selectedUserIDs(c)
+	if len(ids) == 0 {
+		c.Redirect(http.StatusFound, "/wp-admin/users")
+		return
+	}
+	count, self := 0, false
+	for _, id := range ids {
+		if id == u.ID {
+			self = true // "Sorry, you are not allowed to send a password reset link for that user."
+			continue
+		}
+		if target, err := s.store.UserByID(c, id); err == nil {
+			s.sendResetLink(c, target)
+			count++
+		}
+	}
+	if self {
+		c.Redirect(http.StatusFound, "/wp-admin/users?update=err_admin_reset")
+		return
+	}
+	c.Redirect(http.StatusFound, "/wp-admin/users?update=resetpassword&reset_count="+strconv.Itoa(count))
 }
 
 type userNewData struct {

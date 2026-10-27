@@ -91,7 +91,8 @@
 <table class="form-table" role="presentation">
 <tr class="user-email-wrap"><th><label for="email">Email <span class="description">(required)</span></label></th>
 <td><input type="email" name="email" id="email" aria-describedby="email-description" value="{{$u.Email}}" class="regular-text ltr" />
-<p class="description" id="email-description">If you change this, an email will be sent at your new address to confirm it. <strong>The new address will not become active until confirmed.</strong></p></td></tr>
+{{if .Self}}<p class="description" id="email-description">If you change this, an email will be sent at your new address to confirm it. <strong>The new address will not become active until confirmed.</strong></p>{{end}}
+{{if .PendingEmail}}<div class="updated inline"><p>There is a pending change of your email to <code>{{.PendingEmail}}</code>. <a href="{{.DismissURL}}">Cancel</a></p></div>{{end}}</td></tr>
 <tr class="user-url-wrap"><th><label for="url">Website</label></th>
 <td><input type="url" name="url" id="url" value="{{$u.URL}}" class="regular-text code" /></td></tr>
 </table>
@@ -121,9 +122,93 @@
 <p class="description">Did you lose your phone or leave your account logged in at a public computer? You can log out everywhere else, and stay logged in here.</p>{{else}}<div class="destroy-sessions"><button type="button" disabled class="button">Log Out Everywhere Else</button></div>
 <p class="description">You are only logged in at this location.</p>{{end}}</td></tr>{{end}}
 </table>
+<div class="application-passwords" id="application-passwords-section">
+<h2>Application Passwords</h2>
+<p>Application passwords allow authentication via non-interactive systems, such as XML-RPC or the REST API, without providing your actual password. Application passwords can be easily revoked. They cannot be used for traditional logins to your website.</p>
+{{with .NewAppPassword}}<div class="notice notice-success is-dismissible new-application-password-notice" role="alert" tabindex="-1">
+	<p class="application-password-display"><label for="new-application-password-value">Your new password for <strong>{{.Name}}</strong> is:</label>
+	<input id="new-application-password-value" type="text" class="code" readonly="readonly" value="{{.Password}}" /></p>
+	<p>Be sure to save this in a safe location. You will not be able to retrieve it.</p>
+	<button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>
+</div>{{end}}
+<div class="create-application-password form-wrap">
+	<div class="form-field">
+		<label for="new_application_password_name">New Application Password Name</label>
+		<input type="text" size="30" id="new_application_password_name" name="new_application_password_name" class="input" aria-required="true" aria-describedby="new_application_password_name_desc" />
+		<p class="description" id="new_application_password_name_desc">Required to create an Application Password, but not to update the user.</p>
+	</div>
+	<button type="submit" name="do_new_application_password" value="1" id="do_new_application_password" class="button button-secondary">Add New Application Password</button>
+</div>
+<div class="application-passwords-list-table-wrapper">
+<table class="wp-list-table widefat fixed striped table-view-list application-passwords-user">
+<thead><tr>
+	<th scope="col" id="name" class="manage-column column-name column-primary">Name</th>
+	<th scope="col" id="created" class="manage-column column-created">Created</th>
+	<th scope="col" id="last_used" class="manage-column column-last_used">Last Used</th>
+	<th scope="col" id="last_ip" class="manage-column column-last_ip">Last IP</th>
+	<th scope="col" id="revoke" class="manage-column column-revoke">Revoke</th>
+</tr></thead>
+<tbody id="the-list">
+{{range .AppPasswords}}<tr data-uuid="{{.UUID}}">
+	<td class="name column-name has-row-actions column-primary" data-colname="Name">{{.Name}}</td>
+	<td class="created column-created" data-colname="Created">{{.Created}}</td>
+	<td class="last_used column-last_used" data-colname="Last Used">{{.Used}}</td>
+	<td class="last_ip column-last_ip" data-colname="Last IP">{{.LastIP}}</td>
+	<td class="revoke column-revoke" data-colname="Revoke"><button type="submit" name="revoke_application_password" value="{{.UUID}}" class="button delete" aria-label="Revoke &#8220;{{.Name}}&#8221;">Revoke</button></td>
+</tr>{{else}}<tr class="no-items"><td class="colspanchange" colspan="5">No items found.</td></tr>{{end}}
+</tbody>
+<tfoot><tr>
+	<th scope="col" class="manage-column column-name column-primary">Name</th>
+	<th scope="col" class="manage-column column-created">Created</th>
+	<th scope="col" class="manage-column column-last_used">Last Used</th>
+	<th scope="col" class="manage-column column-last_ip">Last IP</th>
+	<th scope="col" class="manage-column column-revoke">Revoke</th>
+</tr></tfoot>
+</table>
+{{if .AppPasswords}}<div class="tablenav bottom"><div class="alignright"><button type="submit" name="revoke_all_application_passwords" value="1" id="revoke-all-application-passwords" class="button delete">Revoke all application passwords</button></div><br class="clear" /></div>{{end}}
+</div>
+</div>
 <input type="hidden" name="action" value="update" />
 <input type="hidden" name="user_id" id="user_id" value="{{$u.ID}}" />
 <p class="submit"><input type="submit" name="submit" id="submit" class="button button-primary" value="{{if .Self}}Update Profile{{else}}Update User{{end}}" /></p>
 </form>
+</div>
+{{end}}{{template "admin-footer" .}}{{end}}
+
+{{define "admin/authorize-application"}}{{template "admin-header" .}}{{with .Data}}
+<div class="wrap">
+<h1>Authorize Application</h1>
+{{template "notices" $}}
+{{if .Error}}<div class="notice notice-error"><p>{{.Error}}</p></div>{{end}}
+{{if .NewPassword}}
+<div class="notice notice-success notice-alt below-h2">
+	<p class="application-password-display">
+		<label for="new-application-password-value">Your new password for <strong>{{.AppName}}</strong> is:</label>
+		<input id="new-application-password-value" type="text" class="code" readonly="readonly" value="{{.NewPassword}}" />
+	</p>
+	<p>Be sure to save this in a safe location. You will not be able to retrieve it.</p>
+</div>
+<p><a href="/wp-admin/">&larr; Go to the Dashboard</a></p>
+{{else}}
+<div class="card auth-app-card">
+	<h2 class="title">An application would like to connect to your account.</h2>
+	<p>Would you like to give the application identifying itself as <strong>{{.AppName}}</strong> access to your account? You should only do this if you trust the application in question.</p>
+	<form action="/wp-admin/authorize-application" method="post" class="form-wrap">
+		<input type="hidden" name="_wpnonce" value="{{.Nonce}}" />
+		<input type="hidden" name="action" value="authorize_application_password" />
+		<input type="hidden" name="app_id" value="{{.AppID}}" />
+		<input type="hidden" name="success_url" value="{{.SuccessURL}}" />
+		<input type="hidden" name="reject_url" value="{{.RejectURL}}" />
+		<div class="form-field">
+			<label for="app_name">New Application Password Name</label>
+			<input type="text" id="app_name" name="app_name" value="{{.AppName}}" required />
+		</div>
+		<p class="submit"><input type="submit" name="approve" id="approve" class="button button-primary" value="Yes, I approve of this connection" aria-describedby="description-approve" /></p>
+		<p class="description" id="description-approve">{{if .SuccessURL}}You will be sent to <strong>{{.SuccessURL}}</strong>{{else}}You will be given a password to manually enter into the application in question.{{end}}</p>
+		<p class="submit"><input type="submit" name="reject" id="reject" class="button button-secondary" value="No, I do not approve of this connection" aria-describedby="description-reject" /></p>
+		<p class="description" id="description-reject">{{if .RejectURL}}You will be sent to <strong>{{.RejectURL}}</strong>{{else}}You will be returned to the WordPress Dashboard, and no changes will be made.{{end}}</p>
+	</form>
+</div>
+{{end}}
 </div>
 {{end}}{{template "admin-footer" .}}{{end}}

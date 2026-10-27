@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"wpgo/internal/auth"
 	"wpgo/internal/store"
 	"wpgo/internal/wp"
 )
@@ -65,12 +66,6 @@ func (api *restAPI) registerMisc() {
 		},
 	}, nil)
 	api.register("wp/v2", "/wp/v2/block-types", g(func(c *gin.Context, r *restRequest) { restJSON(c, http.StatusOK, []any{}) }), nil)
-	api.register("wp/v2", "/wp/v2/menu-locations", g(func(c *gin.Context, r *restRequest) {
-		restJSON(c, http.StatusOK, map[string]any{
-			"primary": map[string]any{"name": "primary", "description": "Primary Menu", "menu": 0},
-			"social":  map[string]any{"name": "social", "description": "Social Links Menu", "menu": 0},
-		})
-	}), nil)
 	api.register("oembed/1.0", "/oembed/1.0/proxy", g(api.oembedProxy), nil)
 	api.register("wp-block-editor/v1", "/wp-block-editor/v1/url-details", g(func(c *gin.Context, r *restRequest) {
 		restJSON(c, http.StatusOK, map[string]any{"title": "", "icon": "", "description": "", "image": ""})
@@ -548,15 +543,23 @@ func (s *Server) restUser(c *gin.Context, u *store.User, ctxName string) map[str
 		out["first_name"] = u.Profile["first_name"]
 		out["last_name"] = u.Profile["last_name"]
 		out["nickname"] = u.Profile["nickname"]
-		out["locale"] = "en_US"
+		out["locale"] = defaultStr(u.Locale, "en_US")
 		out["registered_date"] = u.RegisteredAt.UTC().Format(time.RFC3339)
-		out["roles"] = u.Roles
+		roles := u.Roles
+		if roles == nil {
+			roles = []string{}
+		}
+		out["roles"] = roles
 		capsOut := map[string]bool{}
 		for k, v := range u.Caps {
 			capsOut[k] = v
 		}
 		out["capabilities"] = capsOut
-		out["extra_capabilities"] = map[string]bool{u.PrimaryRole(): true}
+		extra := map[string]bool{}
+		for _, r := range u.Roles {
+			extra[r] = true
+		}
+		out["extra_capabilities"] = extra
 	}
 	if ctxName == "embed" {
 		return map[string]any{"id": u.ID, "name": u.DisplayName, "url": u.URL, "description": u.Profile["description"],
@@ -573,44 +576,154 @@ func orEmptyAny(v any) any {
 }
 
 func (api *restAPI) registerUsers() {
-	api.register("wp/v2", "/wp/v2/users", map[string]restHandler{http.MethodGet: api.listUsers}, nil)
-	api.register("wp/v2", "/wp/v2/users/me", map[string]restHandler{http.MethodGet: api.getMe, http.MethodPost: api.updateMe, http.MethodPut: api.updateMe}, nil)
-	api.register("wp/v2", `/wp/v2/users/(?P<id>[\d]+)`, map[string]restHandler{http.MethodGet: func(c *gin.Context, r *restRequest) {
-		u, err := api.s.store.UserByID(c, r.ID())
-		if err != nil {
-			restErr(c, http.StatusNotFound, "rest_user_invalid_id", "Invalid user ID.")
-			return
+	api.register("wp/v2", "/wp/v2/users", map[string]restHandler{http.MethodGet: api.listUsers, http.MethodPost: api.createUser}, nil)
+	api.register("wp/v2", "/wp/v2/users/me", map[string]restHandler{http.MethodGet: api.getMe, http.MethodPost: api.updateMe, http.MethodPut: api.updateMe, http.MethodDelete: api.deleteMe}, nil)
+	api.register("wp/v2", `/wp/v2/users/(?P<id>[\d]+)`, map[string]restHandler{
+		http.MethodGet:    api.getUser,
+		http.MethodPost:   api.updateUser,
+		http.MethodPut:    api.updateUser,
+		http.MethodDelete: api.deleteUser,
+	}, nil)
+}
+
+// userForbidden is 401 for visitors, 403 for logged-in users.
+func userForbidden(c *gin.Context, code, msg string) { forbidden(c, code, msg) }
+
+func (api *restAPI) getUser(c *gin.Context, r *restRequest) {
+	cur := restCurrent(c)
+	u, err := api.s.store.UserByID(c, r.ID())
+	if err != nil {
+		restErr(c, http.StatusNotFound, "rest_user_invalid_id", "Invalid user ID.")
+		return
+	}
+	ctxName := restContext(c)
+	self := cur != nil && cur.ID == u.ID
+	if ctxName == "edit" && !self && !(cur != nil && cur.Can("list_users", nil)) {
+		userForbidden(c, "rest_user_cannot_view", "Sorry, you are not allowed to list users.")
+		return
+	}
+	if !self && !(cur != nil && cur.Can("list_users", nil)) {
+		// Only users with published content are public.
+		n, _ := api.s.store.UserPostCounts(c, []int64{u.ID})
+		if n[u.ID] == 0 {
+			var pages int
+			_ = api.s.store.Pool.QueryRow(c, `SELECT count(*) FROM posts WHERE author_id = $1 AND status = 'publish' AND type IN ('post','page')`, u.ID).Scan(&pages)
+			if pages == 0 {
+				userForbidden(c, "rest_user_cannot_view", "Sorry, you are not allowed to list users.")
+				return
+			}
 		}
-		ctxName := restContext(c)
-		if ctxName == "edit" && !(restCurrent(c) != nil && (restCurrent(c).ID == u.ID || restCurrent(c).Can("list_users", nil))) {
-			ctxName = "view"
-		}
-		restJSON(c, http.StatusOK, api.s.restUser(c, u, ctxName))
-	}}, nil)
+	}
+	restJSON(c, http.StatusOK, api.s.restUser(c, u, ctxName))
 }
 
 func (api *restAPI) listUsers(c *gin.Context, r *restRequest) {
 	s := api.s
+	cur := restCurrent(c)
 	page, per := pageArgs(c)
-	var users []*store.User
-	if c.Query("who") == "authors" || c.Query("capabilities") != "" {
-		users, _ = s.store.Authors(c)
-	} else {
-		users, _ = s.store.Authors(c)
-	}
-	search := strings.ToLower(c.Query("search"))
-	out := []map[string]any{}
 	ctxName := restContext(c)
-	if ctxName == "edit" && !restCurrent(c).Can("list_users", nil) {
-		ctxName = "view"
-	}
-	for _, u := range users {
-		if search != "" && !strings.Contains(strings.ToLower(u.DisplayName+" "+u.Login+" "+u.Email), search) {
-			continue
+	canList := cur != nil && cur.Can("list_users", nil)
+	orderby := c.DefaultQuery("orderby", "name")
+	if !canList {
+		if ctxName == "edit" {
+			userForbidden(c, "rest_forbidden_context", "Sorry, you are not allowed to list users.")
+			return
 		}
+		if orderby == "email" || orderby == "registered_date" {
+			userForbidden(c, "rest_forbidden_orderby", "Sorry, you are not allowed to order users by this parameter.")
+			return
+		}
+		if c.Query("who") == "authors" && !(cur != nil && cur.Can("edit_posts", nil)) {
+			userForbidden(c, "rest_forbidden_who", "Sorry, you are not allowed to query users by this parameter.")
+			return
+		}
+		if c.Query("roles") != "" || c.Query("capabilities") != "" {
+			userForbidden(c, "rest_user_cannot_view", "Sorry, you are not allowed to filter users by role.")
+			return
+		}
+	}
+	q := store.UserQuery{Search: strings.TrimSpace(c.Query("search")), Page: page, PerPage: per, Order: c.DefaultQuery("order", "asc")}
+	switch orderby {
+	case "id", "include":
+		q.OrderBy = orderby
+	case "name":
+		q.OrderBy = "name"
+	case "registered_date":
+		q.OrderBy = "registered"
+	case "slug", "include_slugs":
+		q.OrderBy = "slug"
+	case "email", "url":
+		q.OrderBy = orderby
+	}
+	if ids, ok := r.IDs(c, "include"); ok {
+		q.IDs = ids
+	}
+	if ids, ok := r.IDs(c, "exclude"); ok {
+		q.Exclude = ids
+	}
+	if roles := c.Query("roles"); roles != "" {
+		q.Roles = strings.Split(roles, ",")
+	}
+	if slugs := c.QueryArray("slug[]"); len(slugs) > 0 {
+		q.Nicenames = slugs
+	} else if slug := c.Query("slug"); slug != "" {
+		q.Nicenames = strings.Split(slug, ",")
+	}
+	caps := strings.Split(c.Query("capabilities"), ",")
+	if c.Query("who") == "authors" {
+		caps = append(caps, "edit_posts")
+	}
+	if !canList {
+		q.HasPublishedPosts = true
+	}
+	var wantCaps []string
+	for _, cp := range caps {
+		if cp = strings.TrimSpace(cp); cp != "" {
+			wantCaps = append(wantCaps, cp)
+		}
+	}
+	if len(wantCaps) > 0 {
+		// Capabilities are resolved per user (roles + exceptions): fetch everything matching the rest and filter here.
+		q.Page, q.PerPage = 1, 100000
+	}
+	if offset, _ := strconv.Atoi(c.Query("offset")); offset > 0 && len(wantCaps) == 0 {
+		q.Page, q.PerPage = 1, 100000
+	}
+	users, total, err := s.store.QueryUsers(c, q)
+	if err != nil {
+		restErr(c, http.StatusInternalServerError, "rest_query_error", err.Error())
+		return
+	}
+	if len(wantCaps) > 0 || q.PerPage == 100000 {
+		var kept []*store.User
+		for _, u := range users {
+			ok := true
+			for _, cp := range wantCaps {
+				if !u.Can(cp, nil) {
+					ok = false
+				}
+			}
+			if ok {
+				kept = append(kept, u)
+			}
+		}
+		total = len(kept)
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset <= 0 {
+			offset = (page - 1) * per
+		}
+		users = nil
+		for i, u := range kept {
+			if i >= offset && i < offset+per {
+				users = append(users, u)
+			}
+		}
+	}
+	out := []map[string]any{}
+	for _, u := range users {
 		out = append(out, s.restUser(c, u, ctxName))
 	}
-	paginate(c, len(out), per, page)
+	paginate(c, total, per, page)
 	restJSON(c, http.StatusOK, out)
 }
 
@@ -623,13 +736,161 @@ func (api *restAPI) getMe(c *gin.Context, r *restRequest) {
 	restJSON(c, http.StatusOK, api.s.restUser(c, u, restContext(c)))
 }
 
-// updateMe stores editor preferences (meta.persisted_preferences) and basic profile fields.
+// updateMe is /users/me: the current user's own profile (and the editor's persisted preferences).
 func (api *restAPI) updateMe(c *gin.Context, r *restRequest) {
-	s := api.s
 	u := restCurrent(c)
 	if u == nil {
 		restErr(c, http.StatusUnauthorized, "rest_not_logged_in", "You are not currently logged in.")
 		return
+	}
+	api.saveUser(c, r, u)
+}
+
+func (api *restAPI) updateUser(c *gin.Context, r *restRequest) {
+	u, err := api.s.store.UserByID(c, r.ID())
+	if err != nil {
+		restErr(c, http.StatusNotFound, "rest_user_invalid_id", "Invalid user ID.")
+		return
+	}
+	api.saveUser(c, r, u)
+}
+
+// restRoles reads the roles parameter (a list or a comma string).
+func (r *restRequest) roles(c *gin.Context) ([]string, bool) {
+	if v, ok := r.Body["roles"]; ok {
+		switch t := v.(type) {
+		case []any:
+			var out []string
+			for _, x := range t {
+				if sv, ok := x.(string); ok && sv != "" {
+					out = append(out, sv)
+				}
+			}
+			return out, true
+		case string:
+			return strings.Split(t, ","), true
+		}
+	}
+	if v, ok := c.GetPostForm("roles"); ok {
+		return strings.Split(v, ","), true
+	}
+	if vs := c.PostFormArray("roles[]"); len(vs) > 0 {
+		return vs, true
+	}
+	return nil, false
+}
+
+// checkRoleUpdate is check_role_update(): every role must exist and the editor must be able to promote users
+// without stripping their own administrator role.
+func (api *restAPI) checkRoleUpdate(c *gin.Context, target *store.User, roles []string) bool {
+	cur := restCurrent(c)
+	known, _ := api.s.store.Roles(c)
+	for _, want := range roles {
+		found := false
+		for _, kr := range known {
+			if kr.Slug == want {
+				found = true
+			}
+		}
+		if !found {
+			restErr(c, http.StatusBadRequest, "rest_user_invalid_role", "The role "+want+" does not exist.")
+			return false
+		}
+		if !cur.Can("promote_users", nil) {
+			restErr(c, http.StatusForbidden, "rest_cannot_edit_roles", "Sorry, you are not allowed to give users that role.")
+			return false
+		}
+	}
+	if target != nil && target.ID == cur.ID && cur.Can("manage_options", nil) {
+		keeps := false
+		for _, want := range roles {
+			if want == "administrator" {
+				keeps = true
+			}
+		}
+		if !keeps {
+			restErr(c, http.StatusForbidden, "rest_user_invalid_role", "Sorry, you are not allowed to give users that role.")
+			return false
+		}
+	}
+	return true
+}
+
+// saveUser is update_item(): profile fields, password, slug, roles and the editor's persisted preferences.
+func (api *restAPI) saveUser(c *gin.Context, r *restRequest, u *store.User) {
+	s := api.s
+	cur := restCurrent(c)
+	if cur == nil {
+		restErr(c, http.StatusUnauthorized, "rest_cannot_edit", "Sorry, you are not allowed to edit this user.")
+		return
+	}
+	if cur.ID != u.ID && !cur.Can("edit_users", nil) {
+		restErr(c, http.StatusForbidden, "rest_cannot_edit", "Sorry, you are not allowed to edit this user.")
+		return
+	}
+	if v, ok := r.Str(c, "username"); ok && v != u.Login {
+		restErr(c, http.StatusBadRequest, "rest_user_invalid_argument", "Username is not editable.")
+		return
+	}
+	if v, ok := r.Str(c, "email"); ok {
+		if !validEmail(v) {
+			restErr(c, http.StatusBadRequest, "rest_user_invalid_email", "Invalid email address.")
+			return
+		}
+		if !strings.EqualFold(v, u.Email) {
+			if _, taken, _ := s.store.LoginOrEmailTaken(c, "", v); taken {
+				restErr(c, http.StatusBadRequest, "rest_user_invalid_email", "Invalid email address.")
+				return
+			}
+		}
+		u.Email = v
+	}
+	if v, ok := r.Str(c, "slug"); ok && v != u.Nicename {
+		slug := wp.SanitizeTitle(v)
+		if taken, _ := s.store.NicenameTaken(c, slug, u.ID); taken || slug == "" {
+			restErr(c, http.StatusBadRequest, "rest_user_invalid_slug", "Invalid slug.")
+			return
+		}
+		u.Nicename = slug
+	}
+	roles, hasRoles := r.roles(c)
+	if hasRoles && !api.checkRoleUpdate(c, u, roles) {
+		return
+	}
+	if v, ok := r.Str(c, "password"); ok {
+		if v == "" {
+			restErr(c, http.StatusBadRequest, "rest_user_invalid_password", "Passwords cannot be empty.")
+			return
+		}
+		if strings.Contains(v, "\\") {
+			restErr(c, http.StatusBadRequest, "rest_user_invalid_password", "Passwords cannot contain the \"\\\" character.")
+			return
+		}
+		if hash, err := auth.HashPassword(v); err == nil {
+			_ = s.store.SetUserPassword(c, u.ID, hash)
+		}
+	}
+	for field, dst := range map[string]*string{"name": &u.DisplayName, "url": &u.URL, "locale": &u.Locale} {
+		if v, ok := r.Str(c, field); ok {
+			*dst = v
+		}
+	}
+	for _, field := range []string{"first_name", "last_name", "nickname", "description"} {
+		if v, ok := r.Str(c, field); ok {
+			u.Profile[field] = v
+		}
+	}
+	if err := s.store.UpdateUserFields(c, u); err != nil {
+		restErr(c, http.StatusInternalServerError, "rest_user_update_error", err.Error())
+		return
+	}
+	if hasRoles {
+		var extra []string
+		primary := ""
+		if len(roles) > 0 {
+			primary, extra = roles[0], roles[1:]
+		}
+		_ = s.store.SetUserRoles(c, u.ID, primary, extra)
 	}
 	if meta, ok := r.Body["meta"].(map[string]any); ok {
 		if prefs, ok := meta["persisted_preferences"]; ok {
@@ -638,10 +899,158 @@ func (api *restAPI) updateMe(c *gin.Context, r *restRequest) {
 				restErr(c, http.StatusInternalServerError, "rest_user_error", err.Error())
 				return
 			}
-			u.Meta["persisted_preferences"] = prefs
 		}
 	}
+	s.purgeAll(c)
+	u, _ = s.store.UserByID(c, u.ID)
 	restJSON(c, http.StatusOK, s.restUser(c, u, "edit"))
+}
+
+// createUser is create_item(): POST /wp/v2/users.
+func (api *restAPI) createUser(c *gin.Context, r *restRequest) {
+	s := api.s
+	cur := restCurrent(c)
+	if cur == nil || !cur.Can("create_users", nil) {
+		userForbidden(c, "rest_cannot_create_user", "Sorry, you are not allowed to create new users.")
+		return
+	}
+	if id, _ := r.Int(c, "id"); id != 0 {
+		restErr(c, http.StatusBadRequest, "rest_user_exists", "Cannot create existing user.")
+		return
+	}
+	login, _ := r.Str(c, "username")
+	email, _ := r.Str(c, "email")
+	pass, _ := r.Str(c, "password")
+	var missing []string
+	for _, f := range []string{"username", "email", "password"} {
+		if _, ok := r.get(c, f); !ok {
+			missing = append(missing, f)
+		}
+	}
+	if len(missing) > 0 {
+		restErr(c, http.StatusBadRequest, "rest_missing_callback_param", "Missing parameter(s): "+strings.Join(missing, ", "), map[string]any{"params": missing})
+		return
+	}
+	login = strings.TrimSpace(login)
+	switch {
+	case login == "" || !validUsername.MatchString(login):
+		restErr(c, http.StatusBadRequest, "rest_user_invalid_username", "Username contains invalid characters.")
+		return
+	case !validEmail(email):
+		restErr(c, http.StatusBadRequest, "rest_user_invalid_email", "Invalid email address.")
+		return
+	case pass == "":
+		restErr(c, http.StatusBadRequest, "rest_user_invalid_password", "Passwords cannot be empty.")
+		return
+	case strings.Contains(pass, "\\"):
+		restErr(c, http.StatusBadRequest, "rest_user_invalid_password", "Passwords cannot contain the \"\\\" character.")
+		return
+	}
+	if lt, et, _ := s.store.LoginOrEmailTaken(c, login, email); lt {
+		restErr(c, http.StatusBadRequest, "existing_user_login", "Sorry, that username already exists!")
+		return
+	} else if et {
+		restErr(c, http.StatusBadRequest, "existing_user_email", "Sorry, that email address is already used!")
+		return
+	}
+	roles, hasRoles := r.roles(c)
+	if hasRoles && !api.checkRoleUpdate(c, nil, roles) {
+		return
+	}
+	if !hasRoles || len(roles) == 0 {
+		roles = []string{s.settings.String("default_role")}
+	}
+	hash, err := auth.HashPassword(pass)
+	if err != nil {
+		restErr(c, http.StatusInternalServerError, "rest_user_create", err.Error())
+		return
+	}
+	profile := map[string]string{}
+	for _, field := range []string{"first_name", "last_name", "nickname", "description"} {
+		if v, ok := r.Str(c, field); ok {
+			profile[field] = v
+		}
+	}
+	name, _ := r.Str(c, "name")
+	id, err := s.store.CreateUser(c, store.NewUser{Login: login, Email: email, PasswordHash: hash, DisplayName: name, Role: roles[0], Profile: profile})
+	if err != nil {
+		restErr(c, http.StatusInternalServerError, "rest_user_create", "Error creating new user.")
+		return
+	}
+	if len(roles) > 1 {
+		_ = s.store.SetUserRoles(c, id, roles[0], roles[1:])
+	}
+	u, _ := s.store.UserByID(c, id)
+	changed := false
+	for field, dst := range map[string]*string{"url": &u.URL, "locale": &u.Locale} {
+		if v, ok := r.Str(c, field); ok {
+			*dst, changed = v, true
+		}
+	}
+	if v, ok := r.Str(c, "slug"); ok && v != "" {
+		u.Nicename, changed = wp.SanitizeTitle(v), true
+	}
+	if changed {
+		_ = s.store.UpdateUserFields(c, u)
+		u, _ = s.store.UserByID(c, id)
+	}
+	c.Header("Location", s.links(c).HomeURL("/wp-json/wp/v2/users/"+itoa64(u.ID)))
+	restJSON(c, http.StatusCreated, s.restUser(c, u, "edit"))
+}
+
+func (api *restAPI) deleteMe(c *gin.Context, r *restRequest) {
+	u := restCurrent(c)
+	if u == nil {
+		restErr(c, http.StatusUnauthorized, "rest_not_logged_in", "You are not currently logged in.")
+		return
+	}
+	api.removeUser(c, r, u)
+}
+
+func (api *restAPI) deleteUser(c *gin.Context, r *restRequest) {
+	u, err := api.s.store.UserByID(c, r.ID())
+	if err != nil {
+		restErr(c, http.StatusNotFound, "rest_user_invalid_id", "Invalid user ID.")
+		return
+	}
+	api.removeUser(c, r, u)
+}
+
+// removeUser is delete_item(): force=true is required (users cannot be trashed); reassign moves the
+// user's content to another user, otherwise it is deleted (wp_delete_user()).
+func (api *restAPI) removeUser(c *gin.Context, r *restRequest, u *store.User) {
+	s := api.s
+	cur := restCurrent(c)
+	if cur == nil || !cur.Can("delete_users", nil) {
+		userForbidden(c, "rest_user_cannot_delete", "Sorry, you are not allowed to delete this user.")
+		return
+	}
+	if force, _ := r.Bool(c, "force"); !force {
+		restErr(c, http.StatusNotImplemented, "rest_trash_not_supported", "Users do not support trashing. Set 'force=true' to delete.")
+		return
+	}
+	var reassign int64
+	if v, ok := r.get(c, "reassign"); ok && v != "" && v != nil {
+		id, valid := r.Int(c, "reassign")
+		if !valid || id == u.ID {
+			restErr(c, http.StatusBadRequest, "rest_user_invalid_reassign", "Invalid user ID for reassignment.")
+			return
+		}
+		if id != 0 {
+			if _, err := s.store.UserByID(c, id); err != nil {
+				restErr(c, http.StatusBadRequest, "rest_user_invalid_reassign", "Invalid user ID for reassignment.")
+				return
+			}
+		}
+		reassign = id
+	}
+	prev := s.restUser(c, u, "edit")
+	if err := s.store.DeleteUser(c, u.ID, reassign); err != nil {
+		restErr(c, http.StatusInternalServerError, "rest_cannot_delete", "The user cannot be deleted.")
+		return
+	}
+	s.purgeAll(c)
+	restJSON(c, http.StatusOK, map[string]any{"deleted": true, "previous": prev})
 }
 
 // Media ------------------------------------------------------------------------

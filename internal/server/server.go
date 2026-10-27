@@ -202,7 +202,10 @@ func (s *Server) routes() *gin.Engine {
 	admin.GET("/options-discussion", s.optionsScreen("discussion"))
 	admin.GET("/options-media", s.optionsScreen("media"))
 	admin.GET("/options-permalink", s.optionsScreen("permalink"))
+	admin.GET("/options", s.optionsConfirm) // ?adminhash= / ?dismiss= of a pending admin e-mail change
 	admin.POST("/options", s.optionsSave)
+	admin.GET("/authorize-application", s.authorizeApplication)
+	admin.POST("/authorize-application", s.authorizeApplication)
 	admin.POST("/options-permalink", s.optionsSave)
 	admin.GET("/profile", s.profile)
 	admin.POST("/profile", s.profileSave)
@@ -262,7 +265,7 @@ func (s *Server) routes() *gin.Engine {
 		r.Handle(m, "/wp-json", restHandler)
 	}
 
-	r.NoRoute(s.gwePreview, s.site) // Golementor's preview iframe, then the site
+	r.NoRoute(s.gwePreview, s.embedRoute, s.site) // Golementor's preview iframe, /<post>/embed/ (rest_oembed.go), then the site
 	return r
 }
 

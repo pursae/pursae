@@ -47,6 +47,10 @@ func (s *Server) optionsPrivacy(c *gin.Context) {
 		c.String(http.StatusForbidden, "Sorry, you are not allowed to manage privacy options on this site.")
 		return
 	}
+	if c.Query("tab") == "policyguide" { // the Policy Guide tab (privacy-policy-guide.php, admin_tools2.go)
+		s.privacyPolicyGuide(c)
+		return
+	}
 	if c.Request.Method == http.MethodPost {
 		if !s.checkNonce(c, "set-privacy-page") {
 			s.denyNonce(c)

@@ -9,15 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"wpgo/internal/store"
-	"wpgo/internal/wp"
 )
 
 //go:embed defaults/block-patterns.json
@@ -125,90 +120,6 @@ func (api *restAPI) oembedProxy(c *gin.Context, r *restRequest) {
 	restJSON(c, http.StatusOK, data)
 }
 
-// Comments --------------------------------------------------------------------
-
-func (s *Server) restComment(c *gin.Context, cm *store.Comment) map[string]any {
-	home := s.links(c).Home
-	loc := s.loc()
-	link := ""
-	if p, err := s.store.GetPost(c, cm.PostID); err == nil {
-		link = s.links(c).Permalink(p) + "#comment-" + itoa64(cm.ID)
-	}
-	status := cm.Status
-	if status == "pending" {
-		status = "hold"
-	}
-	return map[string]any{
-		"id": cm.ID, "post": cm.PostID, "parent": cm.ParentID, "author": cm.UserID, "author_name": cm.AuthorName,
-		"author_url": cm.AuthorURL, "date": cm.CreatedAt.In(loc).Format("2006-01-02T15:04:05"), "date_gmt": gmt(cm.CreatedAt),
-		"content": map[string]any{"rendered": commentText(cm.Content)}, "link": link, "status": status, "type": cm.Type,
-		"author_avatar_urls": map[string]string{"24": s.avatarURL(c, cm.AuthorEmail, 24), "48": s.avatarURL(c, cm.AuthorEmail, 48), "96": s.avatarURL(c, cm.AuthorEmail, 96)},
-		"meta":               []any{},
-		"_links":             restLinks(home+"/wp-json/wp/v2/comments/"+itoa64(cm.ID), home+"/wp-json/wp/v2/comments", nil),
-	}
-}
-
-func (api *restAPI) registerComments() {
-	api.register("wp/v2", "/wp/v2/comments", map[string]restHandler{
-		http.MethodGet: func(c *gin.Context, r *restRequest) {
-			s := api.s
-			postID, _ := strconv.ParseInt(c.Query("post"), 10, 64)
-			var list []*store.Comment
-			if postID > 0 {
-				p, err := s.store.GetPost(c, postID)
-				if err != nil || !api.readable(c, p) {
-					restJSON(c, http.StatusOK, []any{})
-					return
-				}
-				list, _ = s.store.ApprovedComments(c, postID, c.DefaultQuery("order", "asc"), "")
-			} else {
-				list, _ = s.store.RecentComments(c, 100, false)
-			}
-			page, per := pageArgs(c)
-			out := []map[string]any{}
-			start := (page - 1) * per
-			for i, cm := range list {
-				if i < start || i >= start+per {
-					continue
-				}
-				out = append(out, s.restComment(c, cm))
-			}
-			paginate(c, len(list), per, page)
-			restJSON(c, http.StatusOK, out)
-		},
-		// Anonymous comments through the API are allowed only when the site allows them (rest_allow_anonymous_comments is off in WordPress by default; logged-in users may always comment).
-		http.MethodPost: func(c *gin.Context, r *restRequest) {
-			s := api.s
-			u := restCurrent(c)
-			if u == nil {
-				restErr(c, http.StatusUnauthorized, "rest_comment_login_required", "Sorry, you must be logged in to comment.")
-				return
-			}
-			postID, _ := r.Int(c, "post")
-			p, err := s.store.GetPost(c, postID)
-			if err != nil || p.Status != "publish" || p.CommentStatus != "open" {
-				restErr(c, http.StatusForbidden, "rest_comment_closed", "Sorry, comments are closed for this item.")
-				return
-			}
-			content, _ := r.Str(c, "content")
-			if strings.TrimSpace(content) == "" {
-				restErr(c, http.StatusBadRequest, "rest_comment_content_invalid", "Invalid comment content.")
-				return
-			}
-			parent, _ := r.Int(c, "parent")
-			cm := &store.Comment{PostID: p.ID, ParentID: parent, UserID: u.ID, AuthorName: u.DisplayName, AuthorEmail: u.Email,
-				AuthorURL: u.URL, Content: wp.KsesPost(content), AuthorIP: clientIP(c), UserAgent: c.Request.UserAgent()}
-			cm.Status = s.commentStatus(c, cm, u)
-			if err := s.store.InsertComment(c, cm); err != nil {
-				restErr(c, http.StatusInternalServerError, "rest_comment_failed_create", "Creating comment failed.")
-				return
-			}
-			s.afterPostSave(c, p)
-			restJSON(c, http.StatusCreated, s.restComment(c, cm))
-		},
-	}, nil)
-}
-
 // RegisterREST wires every route (called from routes()).
 func (s *Server) restRoutes() *restAPI {
 	api := &restAPI{s: s}
@@ -219,5 +130,8 @@ func (s *Server) restRoutes() *restAPI {
 	api.registerComments()
 	api.registerMisc()
 	api.registerWidgets()
+	api.registerAppPasswords()
+	api.registerMenus()
+	api.registerOEmbed()
 	return api
 }

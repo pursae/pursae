@@ -67,6 +67,7 @@
 	</div>
 	<nav class="privacy-settings-tabs-wrapper hide-if-no-js" aria-label="Secondary menu">
 		<a href="/wp-admin/options-privacy" class="privacy-settings-tab active" aria-current="true">Settings</a>
+		<a href="/wp-admin/options-privacy?tab=policyguide" class="privacy-settings-tab">Policy Guide</a>
 	</nav>
 </div>
 <hr class="wp-header-end">
@@ -325,11 +326,11 @@
 </script>
 {{end}}{{template "admin-footer" .}}{{end}}
 
-{{define "admin/export"}}{{template "admin-header" .}}
+{{define "admin/export"}}{{template "admin-header" .}}{{with .Data}}
 <div class="wrap">
 <h1>Export</h1>
 <p>When you click the button below WordPress Go will create an XML file for you to save to your computer.</p>
-<p>This format, which is called WordPress eXtended RSS or WXR, will contain your posts, pages, comments, categories, and tags. It can be imported by WordPress Go or any WordPress site.</p>
+<p>This format, which is called WordPress eXtended RSS or WXR, will contain your posts, pages, comments, custom fields, categories, and tags.</p>
 <p>Once you&#8217;ve saved the download file, you can use the Import function in another WordPress installation to import the content from this site.</p>
 <h2>Choose what to export</h2>
 <form method="get" id="export-filters" action="/wp-admin/export">
@@ -337,15 +338,118 @@
 <legend class="screen-reader-text">Content to export</legend>
 <input type="hidden" name="download" value="true" />
 <p><label><input type="radio" name="content" value="all" checked="checked" aria-describedby="all-content-desc" /> All content</label></p>
-<p class="description" id="all-content-desc">This will contain all of your posts, pages, comments, categories, tags and media references.</p>
-<p><label><input type="radio" name="content" value="post" /> Posts</label></p>
-<p><label><input type="radio" name="content" value="page" /> Pages</label></p>
+<p class="description" id="all-content-desc">This will contain all of your posts, pages, comments, custom fields, terms, navigation menus, and custom posts.</p>
+
+<p><label><input type="radio" name="content" value="posts" /> Posts</label></p>
+<ul id="post-filters" class="export-filters">
+	<li>
+		<label><span class="label-responsive">Categories:</span>
+		<select name="cat" id="cat" class="postform">
+			<option value="0">All</option>
+			{{range .Categories}}<option class="level-{{.Depth}}" value="{{.ID}}">{{range seq 1 .Depth}}&nbsp;&nbsp;&nbsp;{{end}}{{.Name}}</option>
+			{{end}}
+		</select>
+		</label>
+	</li>
+	<li>
+		<label><span class="label-responsive">Authors:</span>
+		<select name="post_author" id="post_author">
+			<option value="0">All</option>
+			{{range .Authors}}<option value="{{.ID}}">{{.DisplayName}} ({{.Login}})</option>
+			{{end}}
+		</select>
+		</label>
+	</li>
+	<li>
+		<fieldset>
+		<legend class="screen-reader-text">Date range:</legend>
+		<label for="post-start-date" class="label-responsive">Start date:</label>
+		<select name="post_start_date" id="post-start-date">
+			<option value="0">&mdash; Select &mdash;</option>
+			{{range .PostMonths}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+		<label for="post-end-date" class="label-responsive">End date:</label>
+		<select name="post_end_date" id="post-end-date">
+			<option value="0">&mdash; Select &mdash;</option>
+			{{range .PostMonths}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+		</fieldset>
+	</li>
+	<li>
+		<label for="post-status" class="label-responsive">Status:</label>
+		<select name="post_status" id="post-status">
+			<option value="0">All</option>
+			{{range .Statuses}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+	</li>
+</ul>
+
+<p><label><input type="radio" name="content" value="pages" /> Pages</label></p>
+<ul id="page-filters" class="export-filters">
+	<li>
+		<label><span class="label-responsive">Authors:</span>
+		<select name="page_author" id="page_author">
+			<option value="0">All</option>
+			{{range .Authors}}<option value="{{.ID}}">{{.DisplayName}} ({{.Login}})</option>
+			{{end}}
+		</select>
+		</label>
+	</li>
+	<li>
+		<fieldset>
+		<legend class="screen-reader-text">Date range:</legend>
+		<label for="page-start-date" class="label-responsive">Start date:</label>
+		<select name="page_start_date" id="page-start-date">
+			<option value="0">&mdash; Select &mdash;</option>
+			{{range .PageMonths}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+		<label for="page-end-date" class="label-responsive">End date:</label>
+		<select name="page_end_date" id="page-end-date">
+			<option value="0">&mdash; Select &mdash;</option>
+			{{range .PageMonths}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+		</fieldset>
+	</li>
+	<li>
+		<label for="page-status" class="label-responsive">Status:</label>
+		<select name="page_status" id="page-status">
+			<option value="0">All</option>
+			{{range .Statuses}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+	</li>
+</ul>
+
 <p><label><input type="radio" name="content" value="attachment" /> Media</label></p>
+<ul id="attachment-filters" class="export-filters">
+	<li>
+		<fieldset>
+		<legend class="screen-reader-text">Date range:</legend>
+		<label for="attachment-start-date" class="label-responsive">Start date:</label>
+		<select name="attachment_start_date" id="attachment-start-date">
+			<option value="0">&mdash; Select &mdash;</option>
+			{{range .AttMonths}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+		<label for="attachment-end-date" class="label-responsive">End date:</label>
+		<select name="attachment_end_date" id="attachment-end-date">
+			<option value="0">&mdash; Select &mdash;</option>
+			{{range .AttMonths}}<option value="{{.Value}}">{{.Label}}</option>
+			{{end}}
+		</select>
+		</fieldset>
+	</li>
+</ul>
 </fieldset>
 <p class="submit"><input type="submit" name="submit" id="submit" class="button button-primary" value="Download Export File" /></p>
 </form>
 </div>
-{{template "admin-footer" .}}{{end}}
+{{end}}{{template "admin-footer" .}}{{end}}
 
 {{define "admin/import"}}{{template "admin-header" .}}{{with .Data}}
 <div class="wrap">
@@ -353,7 +457,7 @@
 {{if .Error}}<div class="notice notice-error"><p>{{.Error}}</p></div>{{end}}
 {{with .Report}}
 <div class="notice notice-success"><p><strong>All done.</strong> Have fun!</p></div>
-<p>Imported {{.Posts}} posts, {{.Pages}} pages, {{.Comments}} comments and {{.Terms}} new categories and tags. {{if .Skipped}}{{.Skipped}} items were skipped.{{end}}{{if .Attachments}} {{.Attachments}} media items were not downloaded.{{end}}</p>
+<p>Imported {{.Posts}} posts, {{.Pages}} pages, {{.Blocks}} patterns, {{.MenuItems}} menu items, {{.Attachments}} media files, {{.Comments}} comments and {{.Terms}} new categories and tags.{{if .Skipped}} {{.Skipped}} items were skipped.{{end}}</p>
 {{if .Log}}<ul>{{range .Log}}<li>{{.}}</li>{{end}}</ul>{{end}}
 <p><a href="/wp-admin/edit">View posts</a> &middot; <a href="/wp-admin/import">Import another file</a></p>
 {{else}}
@@ -361,7 +465,7 @@
 <table class="widefat importers striped">
 <tr class="importer-item"><td class="import-system"><span class="importer-title">WordPress</span>
 <span class="importer-action"><a href="#import-upload-form">Run Importer</a></span></td>
-<td class="desc"><span class="importer-desc">Import posts, pages, comments, categories and tags from a WordPress or WordPress Go export file.</span></td></tr>
+<td class="desc"><span class="importer-desc">Import posts, pages, comments, custom fields, categories, tags and navigation menus from a WordPress or WordPress Go export file.</span></td></tr>
 </table>
 <h2 id="import-upload-form">Import WordPress</h2>
 <p>Choose a WXR (.xml) file to upload, then click Upload file and import.</p>
@@ -459,6 +563,7 @@
 {{end}}{{template "admin-footer" .}}{{end}}
 
 {{define "privacy-requests-head"}}<tr>
+	<td {{if .}}id="cb" {{end}}class="manage-column column-cb check-column"><input id="cb-select-all-{{if .}}1{{else}}2{{end}}" type="checkbox" /><label for="cb-select-all-{{if .}}1{{else}}2{{end}}"><span class="screen-reader-text">Select All</span></label></td>
 	<th scope="col"{{if .}} id="email"{{end}} class="manage-column column-email column-primary">Requester</th>
 	<th scope="col"{{if .}} id="status"{{end}} class="manage-column column-status">Status</th>
 	<th scope="col"{{if .}} id="created_timestamp"{{end}} class="manage-column column-created_timestamp">Requested</th>
@@ -479,32 +584,98 @@
 				<th scope="row"><label for="username_or_email_for_privacy_request">Username or email address</label></th>
 				<td><input type="text" required class="regular-text ltr" id="username_or_email_for_privacy_request" name="username_or_email_for_privacy_request" /></td>
 			</tr>
+			<tr>
+				<th scope="row">Confirmation email</th>
+				<td><label for="send_confirmation_email"><input type="checkbox" name="send_confirmation_email" id="send_confirmation_email" value="1" checked="checked" /> Send personal data {{if eq .Type "export_personal_data"}}export{{else}}erasure{{end}} confirmation email.</label></td>
+			</tr>
 		</table>
 		<p class="submit"><input type="submit" name="submit" id="submit" class="button" value="Send Request" /></p>
 		</div>
+		<input type="hidden" name="action" value="add_{{if eq .Type "export_personal_data"}}export{{else}}remove{{end}}_personal_data_request" />
 		<input type="hidden" name="_wpnonce" value="{{.Nonce}}" />
 	</form>
 	<hr />
 	<h2 class="screen-reader-text">Filter {{lower .Title}} list</h2>
-	<ul class="subsubsub"><li class="all"><a href="/wp-admin/{{.Screen}}" class="current" aria-current="page">All <span class="count">({{len .Requests}})</span></a></li></ul>
+	<ul class="subsubsub">{{$s := .Screen}}{{range $i, $v := .Views}}<li class="{{if $v.Slug}}{{$v.Slug}}{{else}}all{{end}}">{{if $i}} | {{end}}<a href="/wp-admin/{{$s}}{{if $v.Slug}}?filter-status={{$v.Slug}}{{end}}"{{if $v.Current}} class="current" aria-current="page"{{end}}>{{$v.Label}} <span class="count">({{$v.Count}})</span></a></li>{{end}}</ul>
+	<form class="search-form wp-clearfix" method="get" action="/wp-admin/{{.Screen}}">
+	<input type="hidden" name="_wpnonce" value="{{.BulkNonce}}" />
 	<div class="tablenav top">
-		<div class="tablenav-pages{{if not .Requests}} no-pages{{else}} one-page{{end}}"><span class="displaying-num">{{len .Requests}} item{{if ne (len .Requests) 1}}s{{end}}</span></div>
+		<div class="alignleft actions bulkactions">
+			<label for="bulk-action-selector-top" class="screen-reader-text">Select bulk action</label>
+			<select name="action" id="bulk-action-selector-top"><option value="">Bulk actions</option><option value="resend">Resend confirmation requests</option><option value="complete">Mark requests as completed</option><option value="delete">Remove requests</option></select>
+			<input type="submit" id="doaction" class="button action" value="Apply" />
+		</div>
+		<div class="tablenav-pages{{if not .Rows}} no-pages{{else}} one-page{{end}}"><span class="displaying-num">{{len .Rows}} item{{if ne (len .Rows) 1}}s{{end}}</span></div>
 		<br class="clear" />
 	</div>
 	<h2 class="screen-reader-text">{{.Title}} list</h2>
 	<table class="wp-list-table widefat fixed striped table-view-list privacy_requests">
 	<thead>{{template "privacy-requests-head" true}}</thead>
 	<tbody id="the-list">
-	{{$s := .Screen}}{{$n := .Nonce}}{{$t := .Type}}
-	{{range .Requests}}<tr>
-		<td class="email column-email column-primary" data-colname="Requester">{{.Email}}</td>
-		<td class="status column-status" data-colname="Status"><span class="status-label status-{{.Status}}">{{if eq .Status "request-completed"}}Completed{{else}}Confirmed{{end}}</span></td>
+	{{range .Rows}}<tr id="request-{{.ID}}" class="status-{{.Status}}">
+		<th scope="row" class="check-column"><input type="checkbox" name="request_id[]" id="requester_{{.ID}}" value="{{.ID}}" /><label for="requester_{{.ID}}"><span class="screen-reader-text">Select {{.Email}}</span></label></th>
+		<td class="email column-email has-row-actions column-primary" data-colname="Requester"><strong>{{.Email}}</strong>
+			<div class="row-actions">{{range $i, $a := .Actions}}{{if $i}} | {{end}}<span class="{{$a.Class}}"><a href="{{$a.URL}}">{{$a.Label}}</a></span>{{end}}</div>
+			<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button></td>
+		<td class="status column-status" data-colname="Status"><span class="status-label status-{{.Status}}">{{.StatusLabel}}</span>{{if and (eq .Status "request-confirmed") (not .ConfirmedAt.IsZero)}}<br /><span class="status-label status-request-confirmed">{{.ConfirmedAt.Format "2006/01/02"}}</span>{{end}}</td>
 		<td class="created_timestamp column-created_timestamp" data-colname="Requested">{{.CreatedAt.Format "2006/01/02"}}</td>
-		<td class="next_steps column-next_steps" data-colname="Next steps"><a class="button" href="/wp-admin/{{$s}}?process={{.ID}}&amp;_wpnonce={{$n}}">{{if eq $t "export_personal_data"}}Download personal data{{else}}Erase personal data{{end}}</a></td>
+		<td class="next_steps column-next_steps" data-colname="Next steps">{{.Next}}</td>
 	</tr>
-	{{else}}<tr class="no-items"><td class="colspanchange" colspan="4">No items found.</td></tr>{{end}}
+	{{else}}<tr class="no-items"><td class="colspanchange" colspan="5">No items found.</td></tr>{{end}}
 	</tbody>
 	<tfoot>{{template "privacy-requests-head" false}}</tfoot>
 	</table>
+	</form>
 </div>
+{{end}}{{template "admin-footer" .}}{{end}}
+
+{{define "admin/privacy-policy-guide"}}{{template "admin-header" .}}{{with .Data}}
+<div class="privacy-settings-header">
+	<div class="privacy-settings-title-section">
+		<h1>Privacy</h1>
+	</div>
+	<nav class="privacy-settings-tabs-wrapper hide-if-no-js" aria-label="Secondary menu">
+		<a href="/wp-admin/options-privacy" class="privacy-settings-tab">Settings</a>
+		<a href="/wp-admin/options-privacy?tab=policyguide" class="privacy-settings-tab active" aria-current="true">Policy Guide</a>
+	</nav>
+</div>
+<hr class="wp-header-end">
+{{template "notices" $}}
+<div class="notice notice-error hide-if-js"><p>The Privacy Settings require JavaScript.</p></div>
+<div class="privacy-settings-body hide-if-no-js">
+	<h2>Privacy Policy Guide</h2>
+	<h3 class="section-title">Introduction</h3>
+	<p>This text template will help you to create your website&#8217;s privacy policy.</p>
+	<p>The template contains a suggestion of sections you most likely will need. Under each section heading, you will find a short summary of what information you should provide, which will help you to get started. Some sections include suggested policy content, others will have to be completed with information from your theme and plugins.</p>
+	<p>Please edit your privacy policy content, making sure to delete the summaries, and adding any information from your theme and plugins. Once you publish your policy page, remember to add it to your navigation menu.</p>
+	<p>It is your responsibility to write a comprehensive privacy policy, to make sure it reflects all national and international legal requirements on privacy, and to keep your policy current and accurate.</p>
+	<h3 class="section-title">Policies</h3>
+	<div class="privacy-settings-accordion wp-privacy-policy-guide">
+	{{range .Sections}}
+		<h4 class="privacy-settings-accordion-heading"><button aria-expanded="false" class="privacy-settings-accordion-trigger" aria-controls="privacy-settings-accordion-block-{{.Name}}" type="button"><span class="title">{{.Name}}</span><span class="icon"></span></button></h4>
+		<div id="privacy-settings-accordion-block-{{.Name}}" class="privacy-settings-accordion-panel privacy-text-box-body" hidden="hidden">
+			<div class="privacy-text-section privacy-settings-accordion-content">{{.HTML}}</div>
+			<div class="privacy-settings-accordion-actions"><span class="success" aria-hidden="true">Copied!</span><button type="button" class="privacy-text-copy button">Copy suggested policy text to clipboard<span class="screen-reader-text"> from {{.Name}}</span></button></div>
+		</div>
+	{{end}}
+	</div>
+</div>
+<script>
+( function() {
+	document.querySelectorAll( '.privacy-settings-accordion-trigger' ).forEach( function( btn ) {
+		btn.addEventListener( 'click', function() {
+			var panel = document.getElementById( btn.getAttribute( 'aria-controls' ) ), open = btn.getAttribute( 'aria-expanded' ) === 'true';
+			btn.setAttribute( 'aria-expanded', open ? 'false' : 'true' );
+			panel.hidden = open;
+		} );
+	} );
+	document.querySelectorAll( '.privacy-text-copy' ).forEach( function( btn ) {
+		btn.addEventListener( 'click', function() {
+			var panel = btn.closest( '.privacy-settings-accordion-panel' ), text = panel.querySelector( '.privacy-text-section' ).innerHTML.trim();
+			if ( navigator.clipboard ) { navigator.clipboard.writeText( text ); }
+			var ok = panel.querySelector( '.success' ); ok.classList.add( 'visible' ); setTimeout( function() { ok.classList.remove( 'visible' ); }, 3000 );
+		} );
+	} );
+} )();
+</script>
 {{end}}{{template "admin-footer" .}}{{end}}

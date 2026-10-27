@@ -14,6 +14,11 @@
 </p>
 <input type="hidden" name="_wpnonce" value="{{.BulkNonce}}" />
 <div class="tablenav top">
+	<div class="alignleft actions bulkactions">
+		<label for="bulk-action-selector-top" class="screen-reader-text">Select bulk action</label>
+		<select name="action" id="bulk-action-selector-top"><option value="-1">Bulk actions</option>{{if $.User.Can "delete_users" nil}}<option value="delete">Delete</option>{{end}}{{if $.User.Can "edit_users" nil}}<option value="resetpassword">Send password reset</option>{{end}}</select>
+		<input type="submit" id="doaction" class="button action" value="Apply" />
+	</div>
 	{{if $.User.Can "promote_users" nil}}<div class="alignleft actions">
 		<label class="screen-reader-text" for="new_role">Change role to&hellip;</label>
 		<select name="new_role" id="new_role"><option value="">Change role to&hellip;</option>{{range .Roles}}<option value="{{.Slug}}">{{.Name}}</option>{{end}}</select>
@@ -30,7 +35,7 @@
 <tr id="user-{{.ID}}">
 	<th scope="row" class="check-column">{{if not .IsSelf}}<input type="checkbox" name="users[]" id="user_{{.ID}}" value="{{.ID}}" /><label for="user_{{.ID}}"><span class="screen-reader-text">Select {{.Login}}</span></label>{{end}}</th>
 	<td class="username column-username has-row-actions column-primary" data-colname="Username">{{.Avatar}} <strong><a href="{{.EditURL}}">{{.Login}}</a></strong><br />
-		<div class="row-actions"><span class="edit"><a href="{{.EditURL}}">Edit</a></span>{{if .DeleteURL}} | <span class="delete"><a class="submitdelete" href="{{.DeleteURL}}">Delete</a></span>{{end}}</div>
+		<div class="row-actions"><span class="edit"><a href="{{.EditURL}}">Edit</a></span>{{if .DeleteURL}} | <span class="delete"><a class="submitdelete" href="{{.DeleteURL}}">Delete</a></span>{{end}}{{if .ResetURL}} | <span class="resetpassword"><a class="resetpassword" href="{{.ResetURL}}">Send password reset</a></span>{{end}}</div>
 		<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button></td>
 	<td class="name column-name" data-colname="Name">{{if .Name}}{{.Name}}{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">Unknown</span>{{end}}</td>
 	<td class="email column-email" data-colname="Email"><a href="mailto:{{.Email}}">{{.Email}}</a></td>
@@ -42,6 +47,11 @@
 <tfoot>{{template "users-head" dict "Top" false "D" .}}</tfoot>
 </table>
 <div class="tablenav bottom">
+	<div class="alignleft actions bulkactions">
+		<label for="bulk-action-selector-bottom" class="screen-reader-text">Select bulk action</label>
+		<select name="action2" id="bulk-action-selector-bottom"><option value="-1">Bulk actions</option>{{if $.User.Can "delete_users" nil}}<option value="delete">Delete</option>{{end}}{{if $.User.Can "edit_users" nil}}<option value="resetpassword">Send password reset</option>{{end}}</select>
+		<input type="submit" id="doaction2" class="button action" value="Apply" />
+	</div>
 	{{if $.User.Can "promote_users" nil}}<div class="alignleft actions">
 		<label class="screen-reader-text" for="new_role2">Change role to&hellip;</label>
 		<select name="new_role2" id="new_role2"><option value="">Change role to&hellip;</option>{{range .Roles}}<option value="{{.Slug}}">{{.Name}}</option>{{end}}</select>
@@ -97,11 +107,10 @@
 <form method="get" name="updateusers" id="updateusers" action="/wp-admin/users">
 <input type="hidden" name="_wpnonce" value="{{.Nonce}}" />
 <input type="hidden" name="action" value="dodelete" />
-<input type="hidden" name="user" value="{{.Target.ID}}" />
 <div class="wrap">
 <h1>Delete Users</h1>
-<p>You have specified this user for deletion:</p>
-<ul><li>ID #{{.Target.ID}}: {{.Target.Login}}</li></ul>
+<p>You have specified {{if gt (len .Targets) 1}}these users{{else}}this user{{end}} for deletion:</p>
+<ul>{{range .Targets}}<li>ID #{{.ID}}: {{.Login}}<input type="hidden" name="users[]" value="{{.ID}}" /></li>{{end}}</ul>
 {{if .HasPosts}}
 <fieldset><p><legend>What should be done with content owned by this user?</legend></p>
 <ul style="list-style:none;">

@@ -143,6 +143,50 @@ func defaultStatus(v string) string {
 	return v
 }
 
+// AllMenuItems returns a menu's items of every status in order (the REST menu-items collection).
+func (s *Store) AllMenuItems(ctx context.Context, menuID int64) ([]*EditItem, error) {
+	q := `SELECT ` + editItemCols + ` FROM menu_items ORDER BY menu_id, sort_order, id`
+	args := []any{}
+	if menuID > 0 {
+		q = `SELECT ` + editItemCols + ` FROM menu_items WHERE menu_id = $1 ORDER BY sort_order, id`
+		args = append(args, menuID)
+	}
+	rows, err := s.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*EditItem
+	for rows.Next() {
+		it, err := scanEditItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// UpdateMenuItem saves every editable field of one item (wp_update_nav_menu_item()).
+func (s *Store) UpdateMenuItem(ctx context.Context, it *EditItem) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE menu_items SET menu_id = $2, parent_id = $3, sort_order = $4, kind = $5, object = $6, target_id = $7,
+		url = $8, label = $9, target = $10, css_classes = $11, attr_title = $12, description = $13, xfn = $14, status = $15 WHERE id = $1`,
+		it.ID, it.MenuID, nullable(it.ParentID), it.Order, it.Kind, it.Object, nullable(it.TargetID), it.URL, it.Label, it.Target,
+		it.Classes, it.AttrTitle, it.Description, it.XFN, defaultStatus(it.Status))
+	return err
+}
+
+// DeleteMenuItem removes one item; its children are re-parented to the top level like wp_delete_post() does for menu items.
+func (s *Store) DeleteMenuItem(ctx context.Context, id int64) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE menu_items SET parent_id = NULL WHERE parent_id = $1`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM menu_items WHERE id = $1`, id)
+		return err
+	})
+}
+
 // SaveMenuItems is wp_nav_menu_update_menu_items(): the posted items are published in order and the
 // menu's other items are deleted.
 func (s *Store) SaveMenuItems(ctx context.Context, menuID int64, items []*EditItem) error {

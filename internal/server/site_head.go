@@ -52,6 +52,7 @@ func (s *Server) wpHead(c *gin.Context, q *siteQuery, lb *links.Builder, adminBa
 		sb.WriteString(v.Theme.Head(s, c, v))
 	}
 	sb.WriteString("<link rel=\"https://api.w.org/\" href=\"" + html.EscapeString(lb.HomeURL("/wp-json/")) + "\" />\n")
+	sb.WriteString(oembedDiscoveryLinks(lb, q)) // wp_oembed_add_discovery_links() (rest_oembed.go)
 	sb.WriteString("<meta name=\"generator\" content=\"WordPress Go " + Version + "\" />\n")
 	if (q.Kind == "single" || q.Kind == "page" || q.Kind == "front-page") && q.Post != nil {
 		fmt.Fprintf(&sb, "<link rel=\"canonical\" href=\"%s\" />\n", html.EscapeString(lb.Permalink(q.Post)))

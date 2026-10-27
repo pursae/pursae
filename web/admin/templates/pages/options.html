@@ -28,8 +28,9 @@
 <td><input name="home" type="url" id="home" aria-describedby="home-description" value="{{settingStr "home"}}" class="regular-text code" />
 <p class="description" id="home-description">Enter the same address here unless you <a href="https://developer.wordpress.org/advanced-administration/server/wordpress-in-directory/">want your site home page to be different from your WordPress installation directory</a>.</p></td></tr>
 <tr><th scope="row"><label for="new_admin_email">Administration Email Address</label></th>
-<td><input name="admin_email" type="email" id="new_admin_email" aria-describedby="new-admin-email-description" value="{{settingStr "admin_email"}}" class="regular-text ltr" />
-<p class="description" id="new-admin-email-description">This address is used for admin purposes. If you change this, an email will be sent to your new address to confirm it. <strong>The new address will not become active until confirmed.</strong></p></td></tr>
+<td><input name="new_admin_email" type="email" id="new_admin_email" aria-describedby="new-admin-email-description" value="{{settingStr "admin_email"}}" class="regular-text ltr" />
+<p class="description" id="new-admin-email-description">This address is used for admin purposes. If you change this, an email will be sent to your new address to confirm it. <strong>The new address will not become active until confirmed.</strong></p>
+{{if .PendingAdminEmail}}<div class="updated inline"><p>There is a pending change of the admin email to <code>{{.PendingAdminEmail}}</code>. <a href="{{.DismissURL}}">Cancel</a></p></div>{{end}}</td></tr>
 <tr><th scope="row">Membership</th>
 <td><fieldset><legend class="screen-reader-text"><span>Membership</span></legend><label for="users_can_register">
 <input name="users_can_register" type="checkbox" id="users_can_register" value="1"{{if settingBool "users_can_register"}} checked="checked"{{end}} />

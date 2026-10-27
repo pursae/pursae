@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -38,10 +39,17 @@ func (s *Store) Roles(ctx context.Context) ([]Role, error) {
 type UserQuery struct {
 	Role    string
 	Search  string
-	OrderBy string // login, email, name, posts
+	OrderBy string // login, email, name, posts, id, registered, slug, url
 	Order   string
 	Page    int
 	PerPage int
+	// REST filters (WP_REST_Users_Controller): any of these roles, these ids / not these ids, a nicename,
+	// and users with at least one published post (what visitors may list).
+	Roles             []string
+	IDs               []int64
+	Exclude           []int64
+	Nicenames         []string
+	HasPublishedPosts bool
 }
 
 // QueryUsers returns one page of users (with roles and capabilities loaded) and the total.
@@ -57,6 +65,21 @@ func (s *Store) QueryUsers(ctx context.Context, q UserQuery) ([]*User, int, erro
 		p := arg("%" + strings.ToLower(strings.Trim(q.Search, "*")) + "%")
 		where = append(where, "(lower(u.login) LIKE "+p+" OR lower(u.email) LIKE "+p+" OR lower(u.display_name) LIKE "+p+" OR lower(u.url) LIKE "+p+")")
 	}
+	if len(q.Roles) > 0 {
+		where = append(where, `EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.slug = ANY(`+arg(q.Roles)+`))`)
+	}
+	if len(q.IDs) > 0 {
+		where = append(where, "u.id = ANY("+arg(q.IDs)+")")
+	}
+	if len(q.Exclude) > 0 {
+		where = append(where, "NOT (u.id = ANY("+arg(q.Exclude)+"))")
+	}
+	if len(q.Nicenames) > 0 {
+		where = append(where, "u.nicename = ANY("+arg(q.Nicenames)+")")
+	}
+	if q.HasPublishedPosts {
+		where = append(where, "EXISTS (SELECT 1 FROM posts p WHERE p.author_id = u.id AND p.status = 'publish' AND p.type IN ('post','page'))")
+	}
 	cond := strings.Join(where, " AND ")
 	var total int
 	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM users u WHERE `+cond, args...).Scan(&total); err != nil {
@@ -70,6 +93,18 @@ func (s *Store) QueryUsers(ctx context.Context, q UserQuery) ([]*User, int, erro
 		order = "lower(u.display_name)"
 	case "posts":
 		order = "(SELECT count(*) FROM posts p WHERE p.author_id = u.id AND p.type = 'post' AND p.status = 'publish')"
+	case "id":
+		order = "u.id"
+	case "registered":
+		order = "u.registered_at"
+	case "slug":
+		order = "u.nicename"
+	case "url":
+		order = "lower(u.url)"
+	case "include":
+		if len(q.IDs) > 0 {
+			order = "array_position(" + arg(q.IDs) + "::bigint[], u.id)"
+		}
 	}
 	dir := "ASC"
 	if strings.EqualFold(q.Order, "desc") {
@@ -227,6 +262,21 @@ func (s *Store) DeleteUser(ctx context.Context, id, reassignTo int64) error {
 		_, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 		return err
 	})
+}
+
+// UpdateUserFields is wp_update_user() for the columns the REST users controller edits.
+func (s *Store) UpdateUserFields(ctx context.Context, u *User) error {
+	profile, _ := json.Marshal(u.Profile)
+	_, err := s.Pool.Exec(ctx, `UPDATE users SET email=$2, display_name=$3, url=$4, profile=$5, nicename=$6, locale=$7 WHERE id=$1`,
+		u.ID, u.Email, u.DisplayName, u.URL, profile, u.Nicename, u.Locale)
+	return err
+}
+
+// NicenameTaken reports whether another user already has this nicename (slug).
+func (s *Store) NicenameTaken(ctx context.Context, nicename string, excludeID int64) (bool, error) {
+	var taken bool
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE nicename = $1 AND id <> $2)`, nicename, excludeID).Scan(&taken)
+	return taken, err
 }
 
 // LoginOrEmailTaken reports whether a username or e-mail address is already registered.

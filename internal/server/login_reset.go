@@ -38,15 +38,90 @@ func (s *Server) lostPassword(c *gin.Context, v loginView) {
 	s.renderAdminTemplate(c, http.StatusOK, "admin/login-lost", v)
 }
 
-func (s *Server) sendResetLink(c *gin.Context, u *store.User) {
+// resetLink is get_password_reset_key() + the wp-login.php?action=rp URL: a fresh key (hashed in user
+// meta, valid for a day) and the link that carries it.
+func (s *Server) resetLink(c *gin.Context, u *store.User) string {
 	key := auth.RandomToken(20)
 	sum := sha256.Sum256([]byte(key))
 	_ = s.setUserMeta(c, u, "password_reset", map[string]any{"hash": hex.EncodeToString(sum[:]), "expires": time.Now().Add(24 * time.Hour).Unix()})
-	link := s.links(c).HomeURL("/wp-login?action=rp&key=" + key + "&login=" + url.QueryEscape(u.Login))
+	return s.links(c).HomeURL("/wp-login?action=rp&key=" + key + "&login=" + url.QueryEscape(u.Login))
+}
+
+// sendResetLink is retrieve_password(): the "[Site] Password Reset" message.
+func (s *Server) sendResetLink(c *gin.Context, u *store.User) {
+	link := s.resetLink(c, u)
 	site := s.settings.String("blogname")
-	body := fmt.Sprintf("Someone has requested a password reset for the following account:\n\nSite Name: %s\n\nUsername: %s\n\nIf this was a mistake, ignore this email and nothing will happen.\n\nTo reset your password, visit the following address:\n\n%s\n\nThis password reset request originated from the IP address %s.\n",
-		site, u.Login, link, clientIP(c))
+	body := fmt.Sprintf("Someone has requested a password reset for the following account:\n\nSite Name: %s\n\nUsername: %s\n\nIf this was a mistake, ignore this email and nothing will happen.\n\nTo reset your password, visit the following address:\n\n%s\n\n",
+		site, u.Login, link)
+	if currentUser(c) == nil {
+		body += fmt.Sprintf("This password reset request originated from the IP address %s.\n", clientIP(c))
+	}
 	s.sendMail(c, mail.Message{To: []string{u.Email}, Subject: "[" + site + "] Password Reset", Body: body})
+}
+
+// register is wp-login.php?action=register (register_new_user()).
+func (s *Server) register(c *gin.Context, v loginView) {
+	if !v.CanRegister {
+		c.Redirect(http.StatusFound, "/wp-login?registration=disabled")
+		return
+	}
+	v.Title, v.Action = "Registration Form", "register"
+	v.Message = `<span class="message register">Register For This Site</span>`
+	if c.Request.Method == http.MethodPost {
+		login := strings.TrimSpace(c.PostForm("user_login"))
+		email := strings.TrimSpace(c.PostForm("user_email"))
+		v.Login, v.Email, v.RedirectTo = login, email, c.PostForm("redirect_to")
+		var errs []string
+		lt, et, _ := s.store.LoginOrEmailTaken(c, login, email)
+		switch {
+		case login == "":
+			errs = append(errs, "<strong>Error:</strong> Please enter a username.")
+		case !validUsername.MatchString(login):
+			errs = append(errs, "<strong>Error:</strong> This username is invalid because it uses illegal characters. Please enter a valid username.")
+		case lt:
+			errs = append(errs, "<strong>Error:</strong> This username is already registered. Please choose another one.")
+		}
+		switch {
+		case email == "":
+			errs = append(errs, "<strong>Error:</strong> Please type your email address.")
+		case !validEmail(email):
+			errs = append(errs, "<strong>Error:</strong> The email address isn&#8217;t correct.")
+		case et:
+			errs = append(errs, "<strong>Error:</strong> This email address is already registered. <a href=\"/wp-login\">Log in</a> with this address or choose another one.")
+		}
+		if len(errs) == 0 {
+			// The password is random; the user sets their own from the link in the notification.
+			hash, err := auth.HashPassword(auth.RandomToken(24))
+			var id int64
+			if err == nil {
+				id, err = s.store.CreateUser(c, store.NewUser{Login: login, Email: email, PasswordHash: hash, Role: s.settings.String("default_role")})
+			}
+			if err != nil {
+				errs = append(errs, "<strong>Error:</strong> Could not register you&hellip; please contact the site administrator!")
+			} else {
+				if nu, e := s.store.UserByID(c, id); e == nil {
+					s.notifyNewUser(c, nu, true)
+				}
+				target := "/wp-login?checkemail=registered"
+				if rt := safeRedirect(v.RedirectTo, ""); rt != "" {
+					target += "&redirect_to=" + url.QueryEscape(rt)
+				}
+				c.Redirect(http.StatusFound, target)
+				return
+			}
+		}
+		v.Error = template.HTML(strings.Join(errs, "<br />\n"))
+	}
+	s.renderAdminTemplate(c, http.StatusOK, "admin/login-register", v)
+}
+
+// validEmail is is_email(): one @, a dot in the domain, no spaces.
+func validEmail(email string) bool {
+	at := strings.LastIndex(email, "@")
+	if at < 1 || at == len(email)-1 || strings.ContainsAny(email, " \t\r\n") || strings.Count(email, "@") != 1 {
+		return false
+	}
+	return strings.Contains(email[at+1:], ".")
 }
 
 // checkResetKey is check_password_reset_key().
@@ -134,12 +209,15 @@ func (s *Server) notifyComment(c *gin.Context, cm *store.Comment) {
 	}
 }
 
-// notifyNewUser is wp_new_user_notification(): the admin is told, and the user gets a link to set a password.
+// notifyNewUser is wp_new_user_notification(): the admin is told, and the user gets "[Site] Login Details"
+// with a link to set a password.
 func (s *Server) notifyNewUser(c *gin.Context, u *store.User, sendUser bool) {
 	site := s.settings.String("blogname")
 	s.sendMail(c, mail.Message{To: []string{s.settings.String("admin_email")}, Subject: "[" + site + "] New User Registration",
 		Body: fmt.Sprintf("New user registration on your site %s:\n\nUsername: %s\n\nEmail: %s\n", site, u.Login, u.Email)})
 	if sendUser {
-		s.sendResetLink(c, u)
+		link := s.resetLink(c, u)
+		body := fmt.Sprintf("Username: %s\n\nTo set your password, visit the following address:\n\n%s\n\n%s\n", u.Login, link, s.links(c).HomeURL("/wp-login"))
+		s.sendMail(c, mail.Message{To: []string{u.Email}, Subject: "[" + site + "] Login Details", Body: body})
 	}
 }
