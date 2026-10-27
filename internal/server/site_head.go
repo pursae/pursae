@@ -27,7 +27,7 @@ func (s *Server) wpHead(c *gin.Context, q *siteQuery, lb *links.Builder, adminBa
 	}
 	fmt.Fprintf(&sb, "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"%s &raquo; Feed\" href=\"%s\" />\n", site, html.EscapeString(lb.FeedLink("")))
 	fmt.Fprintf(&sb, "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"%s &raquo; Comments Feed\" href=\"%s\" />\n", site, html.EscapeString(lb.FeedLink("comments_rss2")))
-	if (q.Kind == "single" || q.Kind == "page") && q.Post != nil && (q.Post.CommentStatus == "open" || q.Post.CommentCount > 0) {
+	if (q.Kind == "single" || q.Kind == "page") && q.Post != nil && (s.commentsOpen(q.Post) || q.Post.PingStatus == "open" || q.Post.CommentCount > 0) {
 		fmt.Fprintf(&sb, "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"%s &raquo; %s Comments Feed\" href=\"%s\" />\n",
 			site, html.EscapeString(q.Post.Title), html.EscapeString(lb.PostCommentsFeed(q.Post)))
 	}
@@ -69,7 +69,7 @@ func (s *Server) wpHead(c *gin.Context, q *siteQuery, lb *links.Builder, adminBa
 // wpFooter is wp_footer(): comment-reply on singular views with threaded comments, and the admin bar script.
 func (s *Server) wpFooter(c *gin.Context, q *siteQuery, lb *links.Builder, adminBar bool) template.HTML {
 	var sb strings.Builder
-	if (q.Kind == "single" || q.Kind == "page" || q.Kind == "front-page") && q.Post != nil && q.Post.CommentStatus == "open" && s.settings.Bool("thread_comments") {
+	if (q.Kind == "single" || q.Kind == "page" || q.Kind == "front-page") && q.Post != nil && s.commentsOpen(q.Post) && s.settings.Bool("thread_comments") {
 		sb.WriteString("<script src=\"/wp-includes/js/comment-reply.min.js?ver=" + Version + "\" id=\"comment-reply-js\" async data-wp-strategy=\"async\"></script>\n")
 	}
 	if adminBar {

@@ -39,7 +39,7 @@
 
 {{define "comments"}}{{with .Comments}}<div id="comments" class="comments-area">
 	{{if .Count}}<h2 class="comments-title">{{.Title}}</h2>
-	<ol class="comment-list">{{.List}}</ol>{{end}}
+	{{.Nav}}<ol class="comment-list">{{.List}}</ol>{{.Nav}}{{end}}
 	{{if .ClosedNotice}}<p class="no-comments">Comments are closed.</p>{{end}}
 	{{.Form}}
 </div>{{end}}{{end}}

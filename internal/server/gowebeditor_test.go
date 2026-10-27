@@ -200,7 +200,7 @@ func TestGoWebEditor(t *testing.T) {
 	}
 
 	// The front end shows the builder wrapper with the frontend assets.
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	for _, want := range []string{`class="elementor elementor-` + pageID, "gowebeditor/assets/css/frontend.min.css", "elementorFrontendConfig", "elementor-page-" + pageID} {
 		if !strings.Contains(body, want) {
 			t.Errorf("front end misses %q", want)
@@ -231,7 +231,7 @@ func TestGoWebEditor(t *testing.T) {
 	if result(out, "s")["success"] != true {
 		t.Fatalf("save canvas: %v", out)
 	}
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	if !strings.Contains(body, "elementor-template-canvas") || strings.Contains(body, `class="site-title"`) {
 		t.Errorf("canvas template not applied")
 	}

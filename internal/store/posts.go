@@ -376,6 +376,7 @@ func (s *Store) UpdatePost(ctx context.Context, p *Post, editorID int64) error {
 	if err != nil {
 		return err
 	}
+	recordOldSlug(p, old)
 	meta, _ := json.Marshal(p.Meta)
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `UPDATE posts SET author_id=$2, parent_id=$3, slug=$4, title=$5, excerpt=$6, content=$7,
@@ -395,6 +396,146 @@ func (s *Store) UpdatePost(ctx context.Context, p *Post, editorID int64) error {
 		}
 		return err
 	})
+}
+
+// OldSlugMeta is the post meta key WordPress uses for previous slugs (_wp_old_slug).
+const OldSlugMeta = "_wp_old_slug"
+
+// OldSlugs returns the previous slugs recorded in a post's meta.
+func (p *Post) OldSlugs() []string {
+	var out []string
+	switch v := p.Meta[OldSlugMeta].(type) {
+	case string:
+		if v != "" {
+			out = append(out, v)
+		}
+	case []any:
+		for _, s := range v {
+			if str, ok := s.(string); ok && str != "" {
+				out = append(out, str)
+			}
+		}
+	case []string:
+		out = append(out, v...)
+	}
+	return out
+}
+
+// recordOldSlug is wp_check_for_changed_slugs(): when a published post's slug changes the previous
+// one is kept in _wp_old_slug so wp_old_slug_redirect() can send old links to the new permalink.
+func recordOldSlug(p, old *Post) {
+	if old == nil || old.Slug == "" || old.Slug == p.Slug {
+		return
+	}
+	if p.Status != "publish" && p.Status != "private" && p.Status != "future" {
+		return
+	}
+	if p.Meta == nil {
+		p.Meta = map[string]any{}
+	}
+	slugs := p.OldSlugs()
+	keep := slugs[:0]
+	for _, s := range slugs {
+		if s != p.Slug {
+			keep = append(keep, s)
+		}
+	}
+	found := false
+	for _, s := range keep {
+		if s == old.Slug {
+			found = true
+		}
+	}
+	if !found {
+		keep = append(keep, old.Slug)
+	}
+	p.Meta[OldSlugMeta] = keep
+}
+
+// PostByOldSlug finds the published post or page that once used slug (wp_old_slug_redirect()). When a
+// year, month or day is given the post's date has to match too, like the query vars do in WordPress.
+func (s *Store) PostByOldSlug(ctx context.Context, slug string, year, month, day int, loc *time.Location) (*Post, error) {
+	if slug == "" {
+		return nil, ErrNotFound
+	}
+	args := []any{slug}
+	sql := `SELECT ` + postCols + ` FROM posts WHERE type IN ('post','page') AND status = 'publish'
+		AND jsonb_typeof(meta->'_wp_old_slug') = 'array' AND jsonb_exists(meta->'_wp_old_slug', $1)`
+	if year != 0 {
+		tz := "UTC"
+		if loc != nil {
+			tz = loc.String()
+		}
+		args = append(args, tz, year)
+		local := "(published_at AT TIME ZONE $2)"
+		sql += " AND extract(year FROM " + local + ") = $3"
+		if month != 0 {
+			args = append(args, month)
+			sql += " AND extract(month FROM " + local + ") = $4"
+			if day != 0 {
+				args = append(args, day)
+				sql += " AND extract(day FROM " + local + ") = $5"
+			}
+		}
+	}
+	return scanPost(s.Pool.QueryRow(ctx, sql+` ORDER BY id LIMIT 1`, args...))
+}
+
+// HasPublishedPosts reports whether any post of the type is published (block_core_calendar_has_published_posts()).
+func (s *Store) HasPublishedPosts(ctx context.Context, typ string) (bool, error) {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM posts WHERE type = $1 AND status = 'publish')`, typ).Scan(&ok)
+	return ok, err
+}
+
+// PostDays lists the days of a month that have published posts, in the site time zone (get_calendar()).
+func (s *Store) PostDays(ctx context.Context, year, month int, loc *time.Location) ([]int, error) {
+	tz := "UTC"
+	if loc != nil {
+		tz = loc.String()
+	}
+	rows, err := s.Pool.Query(ctx, `SELECT DISTINCT extract(day FROM published_at AT TIME ZONE $1)::int FROM posts
+		WHERE type = 'post' AND status = 'publish' AND extract(year FROM published_at AT TIME ZONE $1) = $2
+		AND extract(month FROM published_at AT TIME ZONE $1) = $3 ORDER BY 1`, tz, year, month)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var days []int
+	for rows.Next() {
+		var d int
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		days = append(days, d)
+	}
+	return days, rows.Err()
+}
+
+// AdjacentMonth finds the nearest month before (previous) or after the given one that has published
+// posts, as get_calendar() does for its previous/next links. ok is false when there is none.
+func (s *Store) AdjacentMonth(ctx context.Context, year, month int, loc *time.Location, previous bool) (y, m int, ok bool, err error) {
+	if loc == nil {
+		loc = time.UTC
+	}
+	first := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
+	var t *time.Time
+	if previous {
+		err = s.Pool.QueryRow(ctx, `SELECT published_at FROM posts WHERE type = 'post' AND status = 'publish'
+			AND published_at < $1 ORDER BY published_at DESC LIMIT 1`, first).Scan(&t)
+	} else {
+		next := first.AddDate(0, 1, 0)
+		err = s.Pool.QueryRow(ctx, `SELECT published_at FROM posts WHERE type = 'post' AND status = 'publish'
+			AND published_at >= $1 ORDER BY published_at ASC LIMIT 1`, next).Scan(&t)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, false, nil
+	}
+	if err != nil || t == nil {
+		return 0, 0, false, err
+	}
+	lt := t.In(loc)
+	return lt.Year(), int(lt.Month()), true, nil
 }
 
 // TrashPost moves a post to the trash, remembering its status (wp_trash_post()).

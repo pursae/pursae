@@ -129,7 +129,7 @@ func TestGoWebEditorV4(t *testing.T) {
 	}
 
 	// The front end: atomic markup, the stylesheets and their CSS.
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	for _, want := range []string{
 		`<div class="elementor-element elementor-element-d1v0b10 e-con e-atomic-element e-div-block-base e-default-div e-d1v0b10-aaaaaaa " data-id="d1v0b10" data-element_type="e-div-block"`,
 		`<h1 data-interaction-id="he4d1n9" class="e-he4d1n9-bbbbbbb brand-card e-heading-base e-default-h1" data-e-type="widget" data-id="he4d1n9">Atomic <strong>Go</strong>`,

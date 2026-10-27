@@ -26,6 +26,11 @@ type commentsView struct {
 	Open         bool
 	ClosedNotice bool
 	Form         template.HTML
+	// Nav is the_comments_navigation() when comments are paged (page_comments); themes print it
+	// before and after the list.
+	Nav template.HTML
+	// Page and MaxPage are cpage and get_comment_pages_count().
+	Page, MaxPage int
 }
 
 // commentText is comment_text(): kses-filtered, texturized and auto-paragraphed.
@@ -33,24 +38,92 @@ func commentText(content string) string {
 	return wp.Autop(wp.Texturize(wp.KsesPost(content)))
 }
 
+// commentsOpen is comments_open() with _close_comments_for_old_post(): the close_comments_for_old_posts
+// setting closes comments on posts older than close_comments_days_old days.
+func (s *Server) commentsOpen(p *store.Post) bool {
+	if p == nil || p.CommentStatus != "open" {
+		return false
+	}
+	if !s.settings.Bool("close_comments_for_old_posts") || p.Type != "post" {
+		return true
+	}
+	days := s.settings.Int("close_comments_days_old")
+	if days <= 0 || p.PublishedAt == nil {
+		return true
+	}
+	return time.Since(*p.PublishedAt) <= time.Duration(days)*24*time.Hour
+}
+
+// commentPaging is the comments_template() paging arithmetic: per page (0 when page_comments is off),
+// the number of pages for topLevel threads and the page to show for a cpage of 0 (default_comments_page).
+func (s *Server) commentPaging(topLevel, cpage int) (perPage, maxPage, page int) {
+	if !s.settings.Bool("page_comments") {
+		return 0, 1, 1
+	}
+	perPage = s.settings.Int("comments_per_page")
+	if perPage < 1 {
+		perPage = 50
+	}
+	maxPage = (topLevel + perPage - 1) / perPage
+	if maxPage < 1 {
+		maxPage = 1
+	}
+	page = cpage
+	if page == 0 {
+		page = 1
+		if s.settings.String("default_comments_page") == "newest" {
+			page = maxPage
+		}
+	}
+	if page > maxPage {
+		page = maxPage
+	}
+	return perPage, maxPage, page
+}
+
 // commentsView renders comments.php: the comment list and comment_form().
 func (s *Server) commentsView(c *gin.Context, p *store.Post, lb *links.Builder, u *store.User) *commentsView {
 	if s.passwordRequired(c, p) {
 		return nil
 	}
-	cv := &commentsView{Open: p.CommentStatus == "open"}
+	cv := &commentsView{Open: s.commentsOpen(p)}
+	cpage := 0
+	if q := siteQueryFrom(c); q != nil {
+		cpage = q.CPage
+	} else {
+		cpage, _ = strconv.Atoi(c.Query("cpage"))
+	}
 	pendingEmail, _ := c.Cookie("comment_author_email")
 	if u != nil {
 		pendingEmail = u.Email
 	}
 	if pendingEmail, err := url.QueryUnescape(pendingEmail); err == nil {
-		comments, _ := s.store.ApprovedComments(c, p.ID, s.settings.String("comment_order"), pendingEmail)
+		// Comments are fetched oldest first; comment_order reverses the top level of the shown page (wp_list_comments reverse_top_level).
+		comments, _ := s.store.ApprovedComments(c, p.ID, "asc", pendingEmail)
 		cv.Count = len(comments)
 		depth := 1
 		if s.settings.Bool("thread_comments") {
 			depth = s.settings.Int("thread_comments_depth")
 		}
 		tree := store.CommentTree(comments, depth)
+		perPage, maxPage, page := s.commentPaging(len(tree), cpage)
+		cv.Page, cv.MaxPage = page, maxPage
+		if perPage > 0 {
+			start := (page - 1) * perPage
+			end := start + perPage
+			if start > len(tree) {
+				start = len(tree)
+			}
+			if end > len(tree) {
+				end = len(tree)
+			}
+			tree = tree[start:end]
+		}
+		if s.settings.String("comment_order") == "desc" {
+			for i, j := 0, len(tree)-1; i < j; i, j = i+1, j-1 {
+				tree[i], tree[j] = tree[j], tree[i]
+			}
+		}
 		if cv.Count > 0 {
 			title := theTitle(p)
 			if cv.Count == 1 {
@@ -60,8 +133,13 @@ func (s *Server) commentsView(c *gin.Context, p *store.Post, lb *links.Builder, 
 			}
 			var sb strings.Builder
 			counter := 0
-			s.listComments(&sb, tree, p, lb, u, depth, &counter)
+			listPage := 0
+			if perPage > 0 {
+				listPage = page
+			}
+			s.listComments(&sb, tree, p, lb, u, depth, &counter, listPage)
 			cv.List = template.HTML(sb.String())
+			cv.Nav = s.commentsNavigation(p, lb, page, maxPage)
 		}
 	}
 	cv.ClosedNotice = !cv.Open && cv.Count > 0
@@ -71,8 +149,83 @@ func (s *Server) commentsView(c *gin.Context, p *store.Post, lb *links.Builder, 
 	return cv
 }
 
+// commentsNavigation is the_comments_navigation(): Older/Newer comments links when page_comments is on.
+func (s *Server) commentsNavigation(p *store.Post, lb *links.Builder, page, maxPage int) template.HTML {
+	if maxPage < 2 || !s.settings.Bool("page_comments") {
+		return ""
+	}
+	newest := s.settings.String("default_comments_page") == "newest"
+	var nav string
+	if page > 1 {
+		nav += `<div class="nav-previous"><a href="` + html.EscapeString(lb.CommentPageLink(p, page-1, maxPage, newest)+"#comments") + `" >Older comments</a></div>`
+	}
+	if page < maxPage {
+		nav += `<div class="nav-next"><a href="` + html.EscapeString(lb.CommentPageLink(p, page+1, maxPage, newest)+"#comments") + `" >Newer comments</a></div>`
+	}
+	if nav == "" {
+		return ""
+	}
+	return template.HTML(`
+	<nav class="navigation comments-navigation" aria-label="Comments">
+		<h2 class="screen-reader-text">Comments navigation</h2>
+		<div class="nav-links">` + nav + `</div>
+	</nav>`)
+}
+
+// commentLink is get_comment_link(): with paged comments the link carries the comment page (comment-page-N).
+func (s *Server) commentLink(p *store.Post, lb *links.Builder, cpage, maxPage int, id int64) string {
+	link := lb.Permalink(p)
+	if s.settings.Bool("page_comments") && cpage > 0 {
+		link = lb.CommentPageLink(p, cpage, 0, false)
+	}
+	return link + "#comment-" + itoa64(id)
+}
+
+// pageOfComment is get_page_of_comment(): the comment page a (top-level or nested) comment shows on.
+func (s *Server) pageOfComment(ctx context.Context, cm *store.Comment) int {
+	if !s.settings.Bool("page_comments") {
+		return 0
+	}
+	perPage := s.settings.Int("comments_per_page")
+	if perPage < 1 {
+		perPage = 50
+	}
+	comments, err := s.store.ApprovedComments(ctx, cm.PostID, "asc", "")
+	if err != nil {
+		return 1
+	}
+	depth := 1
+	if s.settings.Bool("thread_comments") {
+		depth = s.settings.Int("thread_comments_depth")
+	}
+	// Replies live on their top-level ancestor's page.
+	byID := map[int64]*store.Comment{}
+	for _, c := range comments {
+		byID[c.ID] = c
+	}
+	root := cm
+	if depth > 1 {
+		for root.ParentID != 0 {
+			parent, ok := byID[root.ParentID]
+			if !ok {
+				break
+			}
+			root = parent
+		}
+	}
+	tree := store.CommentTree(comments, depth)
+	for i, t := range tree {
+		if t.ID == root.ID {
+			return i/perPage + 1
+		}
+	}
+	// A comment that is not in the approved list yet (pending) comes after every older top-level one.
+	return (len(tree) + 1 + perPage - 1) / perPage
+}
+
 // listComments is wp_list_comments() with the html5 comment markup Twenty Sixteen uses (avatar size 42).
-func (s *Server) listComments(sb *strings.Builder, list []*store.Comment, p *store.Post, lb *links.Builder, u *store.User, maxDepth int, counter *int) {
+// cpage is the comment page being shown (0 when comments are not paged).
+func (s *Server) listComments(sb *strings.Builder, list []*store.Comment, p *store.Post, lb *links.Builder, u *store.User, maxDepth int, counter *int, cpage int) {
 	loc := s.loc()
 	permalink := lb.Permalink(p)
 	for _, cm := range list {
@@ -112,7 +265,7 @@ func (s *Server) listComments(sb *strings.Builder, list []*store.Comment, p *sto
 						<div class="comment-metadata">
 							<a href="%s#comment-%d"><time datetime="%s">%s at %s</time></a>`,
 			cm.ID, strings.Join(classes, " "), cm.ID, s.avatarImg(context.Background(), cm.AuthorEmail, 42), author,
-			html.EscapeString(permalink), cm.ID, t.Format(time.RFC3339), wp.FormatDate(t, s.settings.String("date_format")), wp.FormatDate(t, s.settings.String("time_format")))
+			html.EscapeString(strings.TrimSuffix(s.commentLink(p, lb, cpage, 0, cm.ID), "#comment-"+itoa64(cm.ID))), cm.ID, t.Format(time.RFC3339), wp.FormatDate(t, s.settings.String("date_format")), wp.FormatDate(t, s.settings.String("time_format")))
 		if u.Can("moderate_comments", nil) {
 			fmt.Fprintf(sb, `<span class="edit-link"><a class="comment-edit-link" href="/wp-admin/comment?action=editcomment&amp;c=%d">Edit</a></span>`, cm.ID)
 		}
@@ -121,9 +274,9 @@ func (s *Server) listComments(sb *strings.Builder, list []*store.Comment, p *sto
 			sb.WriteString("											<em class=\"comment-awaiting-moderation\">Your comment is awaiting moderation.</em>\n")
 		}
 		sb.WriteString("									</footer><!-- .comment-meta -->\n\n				<div class=\"comment-content\">\n")
-		sb.WriteString(commentText(cm.Content))
+		sb.WriteString(s.convertSmilies(lb, commentText(cm.Content)))
 		sb.WriteString("				</div><!-- .comment-content -->\n\n")
-		if p.CommentStatus == "open" && cm.Status == "approved" && maxDepth > 1 && cm.Depth < maxDepth {
+		if s.commentsOpen(p) && cm.Status == "approved" && maxDepth > 1 && cm.Depth < maxDepth {
 			replyURL := permalink + previewSep(permalink) + "replytocom=" + itoa64(cm.ID) + "#respond"
 			fmt.Fprintf(sb, `<div class="reply"><a rel="nofollow" class="comment-reply-link" href="%s" data-commentid="%d" data-postid="%d" data-belowelement="div-comment-%d" data-respondelement="respond" data-replyto="Reply to %s" aria-label="Reply to %s">Reply</a></div>`,
 				html.EscapeString(replyURL), cm.ID, p.ID, cm.ID, html.EscapeString(name), html.EscapeString(name))
@@ -131,7 +284,7 @@ func (s *Server) listComments(sb *strings.Builder, list []*store.Comment, p *sto
 		sb.WriteString("			</article><!-- .comment-body -->\n")
 		if len(cm.Children) > 0 {
 			sb.WriteString("<ol class=\"children\">\n")
-			s.listComments(sb, cm.Children, p, lb, u, maxDepth, counter)
+			s.listComments(sb, cm.Children, p, lb, u, maxDepth, counter, cpage)
 			sb.WriteString("</ol><!-- .children -->\n")
 		}
 		sb.WriteString("</li><!-- #comment-## -->\n")
@@ -220,7 +373,7 @@ func (s *Server) commentPost(c *gin.Context) {
 		s.commentDie(c, http.StatusNotFound, "Sorry, comments are closed for this item.")
 		return
 	}
-	if p.CommentStatus != "open" {
+	if !s.commentsOpen(p) {
 		s.commentDie(c, http.StatusForbidden, "Sorry, comments are closed for this item.")
 		return
 	}
@@ -275,6 +428,17 @@ func (s *Server) commentPost(c *gin.Context) {
 		s.commentDie(c, http.StatusConflict, "Duplicate comment detected; it looks as though you&#8217;ve already said that!")
 		return
 	}
+	// wp_check_comment_flood(): fifteen seconds between comments from the same visitor, unless they moderate.
+	if !u.Can("manage_options", nil) && !u.Can("moderate_comments", nil) {
+		var uid int64
+		if u != nil {
+			uid = u.ID
+		}
+		if last, ok, _ := s.store.LastCommentAt(ctx, cm.AuthorIP, cm.AuthorEmail, uid); ok && time.Since(last) < commentFloodInterval {
+			s.commentDie(c, http.StatusTooManyRequests, "You are posting comments too quickly. Slow down.")
+			return
+		}
+	}
 	cm.Status = s.commentStatus(c, cm, u)
 	if err := s.store.InsertComment(ctx, cm); err != nil {
 		s.commentDie(c, http.StatusInternalServerError, "Could not save the comment.")
@@ -299,8 +463,11 @@ func (s *Server) commentPost(c *gin.Context) {
 		}
 	}
 	lb := s.links(ctx)
-	c.Redirect(http.StatusFound, lb.Permalink(p)+"#comment-"+itoa64(cm.ID))
+	c.Redirect(http.StatusFound, s.commentLink(p, lb, s.pageOfComment(ctx, cm), 0, cm.ID))
 }
+
+// commentFloodInterval is wp_throttle_comment_flood()'s limit.
+const commentFloodInterval = 15 * time.Second
 
 // commentStatus is wp_allow_comment(): disallowed keys go to the trash, moderation rules hold, everything else is approved.
 func (s *Server) commentStatus(c *gin.Context, cm *store.Comment, u *store.User) string {

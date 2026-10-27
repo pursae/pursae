@@ -31,7 +31,9 @@ type siteQuery struct {
 	Day       int
 	Search    string
 	Paged     int
-	Feed      string // "", rss2, atom, comments
+	Page      int    // page of a <!--nextpage--> split post (query var "page")
+	CPage     int    // comment page (query var "cpage")
+	Feed      string // "", rss2, atom, comments, comments-atom
 	Preview   bool
 	PostsPage *store.Post // page_for_posts when the blog lives on a page
 
@@ -39,12 +41,26 @@ type siteQuery struct {
 }
 
 var (
-	pagedRe = regexp.MustCompile(`^(.*?)/?page/(\d+)$`)
-	feedRe  = regexp.MustCompile(`^(.*?)/?feed(?:/(rss2|rss|atom|rdf))?$`)
-	dateRe  = regexp.MustCompile(`^(\d{4})(?:/(\d{1,2}))?(?:/(\d{1,2}))?$`)
+	pagedRe       = regexp.MustCompile(`^(.*?)/?page/(\d+)$`)
+	feedRe        = regexp.MustCompile(`^(.*?)/?feed(?:/(rss2|rss|atom|rdf))?$`)
+	dateRe        = regexp.MustCompile(`^(\d{4})(?:/(\d{1,2}))?(?:/(\d{1,2}))?$`)
+	commentPageRe = regexp.MustCompile(`^(.*?)/?comment-page-(\d+)$`)
+	singlePageRe  = regexp.MustCompile(`^(.+)/(\d+)$`)
 )
 
 var errNotFound = errors.New("not found")
+
+// ctxSiteQuery is the gin context key of the resolved main query ($wp_query for template tags).
+const ctxSiteQuery = "wpgo.siteQuery"
+
+// siteQueryFrom returns the main query of the request, if the front end resolved one.
+func siteQueryFrom(c *gin.Context) *siteQuery {
+	if v, ok := c.Get(ctxSiteQuery); ok {
+		q, _ := v.(*siteQuery)
+		return q
+	}
+	return nil
+}
 
 // site serves every public URL that is not an admin, login or asset route.
 func (s *Server) site(c *gin.Context) {
@@ -89,12 +105,28 @@ func (s *Server) site(c *gin.Context) {
 		return
 	}
 	if errors.Is(err, errNotFound) || q == nil {
+		if target := s.oldSlugRedirect(c, path); target != "" { // wp_old_slug_redirect()
+			c.Redirect(http.StatusMovedPermanently, target)
+			return
+		}
 		q = &siteQuery{Kind: "404"}
 	}
 	if strings.HasPrefix(q.Kind, "redirect:") {
 		c.Redirect(http.StatusMovedPermanently, strings.TrimPrefix(q.Kind, "redirect:"))
 		return
 	}
+	if q.Post != nil && q.Page > 1 && q.Feed == "" {
+		// A page number past the end of a <!--nextpage--> post is a 404 that redirect_canonical() sends to the post.
+		if n := len(splitPages(q.Post.Content)); q.Page > n {
+			c.Redirect(http.StatusMovedPermanently, s.links(c.Request.Context()).Permalink(q.Post))
+			return
+		}
+	}
+	if target := s.canonicalRedirect(c, q, path); target != "" { // redirect_canonical()
+		c.Redirect(http.StatusMovedPermanently, target)
+		return
+	}
+	c.Set(ctxSiteQuery, q)
 	if q.Feed != "" {
 		s.feed(c, q)
 		return
@@ -112,9 +144,24 @@ func (s *Server) resolve(c *gin.Context, path string) (*siteQuery, error) {
 		q.Paged = n
 	}
 	q.Preview = v.Get("preview") == "true"
+	if n, _ := strconv.Atoi(v.Get("page")); n > 1 {
+		q.Page = n
+	}
+	if n, _ := strconv.Atoi(v.Get("cpage")); n > 0 {
+		q.CPage = n
+	}
 	if f := v.Get("feed"); f != "" {
-		q.Feed = f
-		if f == "comments-rss2" {
+		switch f {
+		case "atom", "comments-atom":
+			q.Feed = f
+		case "comments-rss2", "comments":
+			q.Feed = "comments"
+		default:
+			q.Feed = "rss2"
+		}
+		if v.Get("withcomments") == "1" && q.Feed == "atom" {
+			q.Feed = "comments-atom"
+		} else if v.Get("withcomments") == "1" {
 			q.Feed = "comments"
 		}
 	}
@@ -194,7 +241,12 @@ func (s *Server) resolve(c *gin.Context, path string) (*siteQuery, error) {
 			q.Feed = "atom"
 		}
 		if path == "comments" {
-			q.Feed, path = "comments", ""
+			path = ""
+			if q.Feed == "atom" {
+				q.Feed = "comments-atom"
+			} else {
+				q.Feed = "comments"
+			}
 		}
 		if path == "" {
 			return s.home(c, q)
@@ -207,6 +259,25 @@ func (s *Server) resolve(c *gin.Context, path string) (*siteQuery, error) {
 			return s.home(c, q)
 		}
 	}
+	if m := commentPageRe.FindStringSubmatch(path); m != nil {
+		q.CPage, _ = strconv.Atoi(m[2])
+		path = m[1]
+	}
+	sq, err := s.resolvePretty(c, q, path)
+	if errors.Is(err, errNotFound) {
+		// "/post-name/2/" is page 2 of a <!--nextpage--> post (the (.+?)/([0-9]{1,})/?$ rewrite rule).
+		if m := singlePageRe.FindStringSubmatch(path); m != nil {
+			if sq2, err2 := s.resolvePretty(c, &siteQuery{Paged: q.Paged, Preview: q.Preview, Feed: q.Feed, CPage: q.CPage}, m[1]); err2 == nil && sq2 != nil && sq2.Post != nil {
+				sq2.Page, _ = strconv.Atoi(m[2])
+				return sq2, nil
+			}
+		}
+	}
+	return sq, err
+}
+
+func (s *Server) resolvePretty(c *gin.Context, q *siteQuery, path string) (*siteQuery, error) {
+	ctx := c.Request.Context()
 	lb := s.links(ctx)
 	catBase := strings.Trim(defaultStr(s.settings.String("category_base"), "category"), "/")
 	tagBase := strings.Trim(defaultStr(s.settings.String("tag_base"), "tag"), "/")
@@ -268,6 +339,21 @@ func (s *Server) resolve(c *gin.Context, path string) (*siteQuery, error) {
 		return s.singular(c, q, p)
 	}
 	return nil, errNotFound
+}
+
+// splitPages is the <!--nextpage--> split of setup_postdata(): the block delimiters around the tag go,
+// a leading tag is ignored and the remaining pages are returned in order.
+func splitPages(content string) []string {
+	if !strings.Contains(content, "<!--nextpage-->") {
+		return []string{content}
+	}
+	content = strings.ReplaceAll(content, "\n<!--nextpage-->\n", "<!--nextpage-->")
+	content = strings.ReplaceAll(content, "\n<!--nextpage-->", "<!--nextpage-->")
+	content = strings.ReplaceAll(content, "<!--nextpage-->\n", "<!--nextpage-->")
+	content = strings.ReplaceAll(content, "<!-- wp:nextpage -->", "")
+	content = strings.ReplaceAll(content, "<!-- /wp:nextpage -->", "")
+	content = strings.TrimPrefix(content, "<!--nextpage-->")
+	return strings.Split(content, "<!--nextpage-->")
 }
 
 func (s *Server) home(c *gin.Context, q *siteQuery) (*siteQuery, error) {

@@ -141,7 +141,7 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 	}
 
 	// The site's own parts apply on top of the bundled theme.
-	_, body, _ = get(t, c, base+"/?p=1")
+	_, body, _ = getPage(t, c, base+"/?p=1")
 	for _, want := range []string{"elementor-location-header", "gwe-theme", ">Theme Site</a></p>", "elementor-location-footer", "footer part",
 		"elementor-widget-theme-post-title", "Hello world!", "Welcome to WordPress", "elementor-post-info", "/wp-content/themes/hello-gowebeditor/style.css",
 		"widget-theme-elements.min.css", "/wp-content/uploads/elementor/css/post-" + headerID + ".css", "elementorFrontendConfig"} {
@@ -152,20 +152,20 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 	if strings.Contains(body, "twentysixteen-style-css") {
 		t.Error("the bundled theme's stylesheet is still printed in theme-part mode")
 	}
-	_, body, _ = get(t, c, base+"/?cat=1")
+	_, body, _ = getPage(t, c, base+"/?cat=1")
 	for _, want := range []string{"elementor-widget-archive-posts", "elementor-grid-2", `class="elementor-post__title"><a href=`, "Hello world!", "Category: <span>Uncategorized</span></h1>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("category archive misses %q", want)
 		}
 	}
-	code, body, _ = get(t, c, base+"/?p=987654")
+	code, body, _ = getPage(t, c, base+"/?p=987654")
 	if code != http.StatusNotFound || !strings.Contains(body, "Lost in Golementor space") || !strings.Contains(body, "elementor-location-error-404") {
 		t.Errorf("404 part: %d", code)
 	}
 	// Pages have no single-page part: header + footer with the fallback title and content.
 	var pageID string
 	_ = pool.QueryRow(ctx, `SELECT id::text FROM posts WHERE type='page' AND title='Sample Page'`).Scan(&pageID)
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	if !strings.Contains(body, "elementor-location-header") || !strings.Contains(body, `<h1 class="entry-title">Sample Page</h1>`) {
 		t.Errorf("page fallback main missing")
 	}
@@ -180,7 +180,7 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 	if code != http.StatusFound || !strings.Contains(loc, "message=conditions") {
 		t.Fatalf("save conditions: %d %s", code, loc)
 	}
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	if strings.Contains(body, "elementor-location-header") || !strings.Contains(body, `<header id="site-header" class="site-header">`) {
 		t.Errorf("excluded page still shows the header part")
 	}
@@ -216,7 +216,7 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 	if !strings.Contains(body, "<span>Active:</span> Hello Golementor") || !regexp.MustCompile(`<a class="button[^>]*href="/wp-admin/gowebeditor-theme-builder">Theme Builder</a>`).MatchString(body) {
 		t.Errorf("Hello Golementor is not shown as active with a Theme Builder button")
 	}
-	_, body, _ = get(t, c, base+"/?p=1")
+	_, body, _ = getPage(t, c, base+"/?p=1")
 	for _, want := range []string{"wp-theme-hello-gowebeditor", "elementor-location-header", "footer part", "elementor-widget-theme-post-title",
 		"Welcome to WordPress", `<main id="content" class="site-main">`, "hello-gowebeditor-css", "elementor-kit-"} {
 		if !strings.Contains(body, want) {
@@ -224,13 +224,13 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 		}
 	}
 	// The excluded page shows the theme's own minimal header; the 404 part and the archive part apply.
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	if strings.Contains(body, "elementor-location-header") || !strings.Contains(body, `<header id="site-header" class="site-header">`) ||
 		!strings.Contains(body, `<h1 class="entry-title">Sample Page</h1>`) || !strings.Contains(body, "elementor-location-footer") ||
 		strings.Contains(body, `<footer id="site-footer"`) {
 		t.Errorf("hello theme page fallback")
 	}
-	if code, body, _ := get(t, c, base+"/?p=987654"); code != http.StatusNotFound || !strings.Contains(body, "Lost in Golementor space") {
+	if code, body, _ := getPage(t, c, base+"/?p=987654"); code != http.StatusNotFound || !strings.Contains(body, "Lost in Golementor space") {
 		t.Errorf("hello theme 404: %d", code)
 	}
 	if _, body, _ := get(t, c, base+"/"); !strings.Contains(body, "elementor-widget-archive-posts") {
@@ -239,7 +239,7 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 	// Without any part the theme shows its minimal defaults.
 	_ = pool.QueryRow(ctx, `UPDATE posts SET status='draft' WHERE id=$1::bigint RETURNING 1`, headerID).Scan(new(int))
 	_ = pool.QueryRow(ctx, `UPDATE posts SET status='draft' WHERE id=$1::bigint RETURNING 1`, footerID).Scan(new(int))
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	for _, want := range []string{`<header id="site-header" class="site-header">`, `<p class="site-title"><a href="`, `<footer id="site-footer" class="site-footer">`, "&copy; "} {
 		if !strings.Contains(body, want) {
 			t.Errorf("hello theme defaults miss %q", want)
@@ -292,14 +292,14 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 		t.Errorf("screenshot: %d", code)
 	}
 	// Live preview renders from the snapshot with its own kit.
-	_, body, _ = get(t, c, base+"/?p=1&theme=gwe-go-studio")
+	_, body, _ = getPage(t, c, base+"/?p=1&theme=gwe-go-studio")
 	if !strings.Contains(body, "wp-theme-gwe-go-studio") || !strings.Contains(body, "elementor-location-header") || !strings.Contains(body, "elementor-kit-"+jsonNum(float64(snap.KitID))) {
 		t.Errorf("live preview of the saved theme")
 	}
 
 	// Change the working copy: the snapshot stays as saved.
 	save(headerID, container("h000001", widget("h000005", "heading", `{"title":"Working Header v2"}`)))
-	_, body, _ = get(t, c, base+"/?p=1")
+	_, body, _ = getPage(t, c, base+"/?p=1")
 	if !strings.Contains(body, "Working Header v2") {
 		t.Errorf("front end does not show the edited working header")
 	}
@@ -307,7 +307,7 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 	if strings.Contains(data, "Working Header v2") {
 		t.Errorf("editing the working copy changed the saved snapshot")
 	}
-	_, body, _ = get(t, c, base+"/?p=1&theme=gwe-go-studio")
+	_, body, _ = getPage(t, c, base+"/?p=1&theme=gwe-go-studio")
 	if strings.Contains(body, "Working Header v2") {
 		t.Errorf("live preview of the saved theme shows the working copy")
 	}
@@ -318,7 +318,7 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 
 	// Switch to a bundled theme: the parts still apply on top of it.
 	activate("twentysixteen")
-	_, body, _ = get(t, c, base+"/?p=1")
+	_, body, _ = getPage(t, c, base+"/?p=1")
 	if !strings.Contains(body, "wp-theme-twentysixteen") || !strings.Contains(body, "Working Header v2") || !strings.Contains(body, "footer part") {
 		t.Errorf("parts on Twenty Sixteen after switching")
 	}
@@ -338,7 +338,7 @@ func TestGoWebEditorThemeBuilder(t *testing.T) {
 	if activeKit != siteKit {
 		t.Errorf("the site kit changed on activation: %s != %s", activeKit, siteKit)
 	}
-	_, body, _ = get(t, c, base+"/?p=1")
+	_, body, _ = getPage(t, c, base+"/?p=1")
 	for _, want := range []string{"wp-theme-hello-gowebeditor", "elementor-location-header", ">Theme Site</a></p>", "footer part", "Welcome to WordPress"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("loaded saved theme misses %q", want)

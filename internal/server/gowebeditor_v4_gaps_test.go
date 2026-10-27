@@ -164,7 +164,7 @@ func TestGoWebEditorV4Gaps(t *testing.T) {
 	if !strings.Contains(string(raw), `"success":true`) {
 		t.Fatalf("save_builder: %.300s", raw)
 	}
-	_, body, _ = get(t, c, base+"/?page_id="+pageID)
+	_, body, _ = getPage(t, c, base+"/?page_id="+pageID)
 	if !strings.Contains(body, "Members only") {
 		t.Error("logged-in visitor does not see the conditional heading")
 	}

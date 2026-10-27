@@ -230,6 +230,73 @@ func (b *Builder) PostCommentsFeed(p *store.Post) string {
 	return strings.TrimSuffix(b.Permalink(p), "/") + b.trailing("/feed")
 }
 
+// Trailing is user_trailingslashit(): the path gets the trailing slash of the permalink structure.
+func (b *Builder) Trailing(path string) string { return b.trailing(path) }
+
+// PostCommentsFeedFormat is get_post_comments_feed_link( $id, $feed ) for a feed format such as "atom".
+func (b *Builder) PostCommentsFeedFormat(p *store.Post, feed string) string {
+	if feed == "" || feed == "rss2" {
+		return b.PostCommentsFeed(p)
+	}
+	if !b.Pretty() || draftLike(p) {
+		return b.HomeURL("/?feed=" + feed + "&p=" + strconv.FormatInt(p.ID, 10))
+	}
+	return strings.TrimSuffix(b.Permalink(p), "/") + b.trailing("/feed/"+feed)
+}
+
+// CommentsFeedLink is get_feed_link('comments_' . $feed): the site comments feed in a format.
+func (b *Builder) CommentsFeedLink(feed string) string {
+	if feed == "" || feed == "rss2" {
+		return b.FeedLink("comments_rss2")
+	}
+	if !b.Pretty() {
+		return b.HomeURL("/?feed=comments-" + feed)
+	}
+	return b.HomeURL(b.trailing("/comments/feed/" + feed))
+}
+
+// CommentPageLink is get_comments_pagenum_link() without the #comments fragment: the URL of a page of
+// a post's comments. With newest-first ordering the last page is the permalink itself.
+func (b *Builder) CommentPageLink(p *store.Post, page, maxPage int, newestFirst bool) string {
+	result := b.Permalink(p)
+	paged := false
+	if newestFirst {
+		paged = page != maxPage
+	} else {
+		paged = page > 1
+	}
+	if !paged {
+		return result
+	}
+	if !b.Pretty() || draftLike(p) {
+		return b.addQueryArg(result, "cpage", strconv.Itoa(page))
+	}
+	return strings.TrimSuffix(result, "/") + b.trailing("/comment-page-"+strconv.Itoa(page))
+}
+
+// PostPageLink is _wp_link_page(): the URL of page n of a <!--nextpage--> split post.
+func (b *Builder) PostPageLink(p *store.Post, n int) string {
+	link := b.Permalink(p)
+	if n <= 1 {
+		return link
+	}
+	if !b.Pretty() || draftLike(p) {
+		return b.addQueryArg(link, "page", strconv.Itoa(n))
+	}
+	return strings.TrimSuffix(link, "/") + b.trailing("/"+strconv.Itoa(n))
+}
+
+func (b *Builder) addQueryArg(link, key, value string) string {
+	u, err := url.Parse(link)
+	if err != nil {
+		return link
+	}
+	q := u.Query()
+	q.Set(key, value)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // Paged appends a page number to an archive base URL (get_pagenum_link()).
 func (b *Builder) Paged(base string, n int) string {
 	u, err := url.Parse(base)

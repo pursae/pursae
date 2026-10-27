@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"wpgo/internal/blocks"
 	"wpgo/internal/links"
 	"wpgo/internal/store"
@@ -21,6 +23,20 @@ type renderCtx struct {
 	search string
 	ids    map[string]int
 	depth  int // recursion guard for core/block
+
+	// Request state the WordPress render callbacks read from globals.
+	c           *gin.Context // nil outside a request
+	user        *store.User  // is_user_logged_in()
+	q           *siteQuery   // the main query (get_query_var, get_queried_object_id)
+	postID      int64        // the post whose content is rendering (block context postId)
+	feed        bool         // is_feed(): no lazy loading, feed URLs
+	reqURI      string       // REQUEST_URI for the loginout block's redirect
+	logoutNonce string       // wp_logout_url() nonce of the current user
+
+	// Loading optimisation state (wp_increase_content_media_count, wp_maybe_add_fetchpriority_high_attr).
+	mainLoop     bool // in_the_loop() && is_main_query()
+	mediaCount   int
+	priorityDone bool
 }
 
 type renderKey struct{}
@@ -120,6 +136,11 @@ func registerCoreBlocks(s *Server) {
 	blocks.RegisterDynamic("core/more", func(_ context.Context, _ *blocks.Block, content string) string {
 		return content
 	})
+	// <!--nextpage--> stays in the content; theContent splits on it (setup_postdata()).
+	blocks.RegisterDynamic("core/nextpage", func(_ context.Context, _ *blocks.Block, content string) string {
+		return content
+	})
+	registerSiteBlocks(s)
 }
 
 func renderSearchBlock(ctx context.Context, b *blocks.Block, _ string) string {

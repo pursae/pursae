@@ -164,6 +164,24 @@ func (s *Store) IsDuplicateComment(ctx context.Context, c *Comment) (bool, error
 	return ok, err
 }
 
+// LastCommentAt is the query behind wp_check_comment_flood(): the newest comment of the last hour by this
+// visitor (IP, or user id when logged in) or e-mail address. ok is false when there is none.
+func (s *Store) LastCommentAt(ctx context.Context, ip, email string, userID int64) (time.Time, bool, error) {
+	var t time.Time
+	var err error
+	if userID != 0 {
+		err = s.Pool.QueryRow(ctx, `SELECT created_at FROM comments WHERE created_at >= now() - interval '1 hour'
+			AND (user_id = $1 OR author_email = $2) ORDER BY created_at DESC LIMIT 1`, userID, email).Scan(&t)
+	} else {
+		err = s.Pool.QueryRow(ctx, `SELECT created_at FROM comments WHERE created_at >= now() - interval '1 hour'
+			AND (author_ip = $1 OR author_email = $2) ORDER BY created_at DESC LIMIT 1`, ip, email).Scan(&t)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	return t, err == nil, err
+}
+
 func (s *Store) CommentCounts(ctx context.Context) (map[string]int, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT status, count(*) FROM comments GROUP BY status`)
 	if err != nil {

@@ -145,7 +145,7 @@ func TestGoWebEditorPro(t *testing.T) {
 	}
 	save := ajax(pageID, `{"s":{"action":"save_builder","data":{"status":"publish","elements":`+compact.String()+`,"settings":{"post_title":"Sample Page","post_status":"publish"}}}}`)
 	result(save, "s")
-	code, page, _ := get(t, c, base+"/?page_id="+pageID)
+	code, page, _ := getPage(t, c, base+"/?page_id="+pageID)
 	if code == http.StatusMovedPermanently || code == http.StatusFound {
 		_, page, _ = get(t, c, base+"/sample-page/")
 	}
@@ -225,7 +225,7 @@ func TestGoWebEditorPro(t *testing.T) {
 		RETURNING id::text`, string(meta)).Scan(&popupID); err != nil {
 		t.Fatal(err)
 	}
-	_, page, _ = get(t, c, base+"/?p="+helloID)
+	_, page, _ = getPage(t, c, base+"/?p="+helloID)
 	for _, want := range []string{`data-elementor-type="popup" data-elementor-id="` + popupID + `"`, "elementor-location-popup", "Popup Hello",
 		"pro/css/conditionals/popup.min.css", "dialog.min.js", `&quot;page_load&quot;:&quot;yes&quot;`} {
 		if !strings.Contains(page, want) {

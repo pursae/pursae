@@ -79,9 +79,11 @@
 {{define "comments"}}{{with .Comments}}<section id="comments" class="comments-area{{if settingBool "show_avatars"}} show-avatars{{end}}" aria-label="Comments">
 	{{if .Count}}
 	<h2 class="comments-title">{{.Title}}</h2>
+	{{.Nav}}
 	<ol class="comment-list">
 		{{.List}}
 	</ol><!-- .comment-list -->
+	{{.Nav}}
 	{{if not .Open}}<p class="no-comments">Comments are closed.</p>{{end}}
 	{{end}}
 	{{.Form}}

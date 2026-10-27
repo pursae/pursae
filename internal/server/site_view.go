@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"strconv"
 	"strings"
 	"time"
 
@@ -111,7 +112,10 @@ func (s *Server) buildSiteView(c *gin.Context, q *siteQuery) (*siteView, error) 
 	ctx := c.Request.Context()
 	u := currentUser(c)
 	lb := s.links(ctx)
-	rc := &renderCtx{s: s, lb: lb, search: q.Search}
+	rc := &renderCtx{s: s, lb: lb, search: q.Search, c: c, user: u, q: q, reqURI: c.Request.URL.RequestURI()}
+	if u != nil {
+		rc.logoutNonce = s.nonce(c, "log-out")
+	}
 	ctx = withRender(ctx, rc)
 	cs := s.customizeChangeset(c)
 	if cs != nil {
@@ -168,6 +172,7 @@ func (s *Server) buildSiteView(c *gin.Context, q *siteQuery) (*siteView, error) 
 	archiveTitle, plainTitle := q.archiveTitle()
 	bodyClasses := []string{}
 
+	rc.mainLoop = true // in_the_loop() && is_main_query(): the first content images are not lazy-loaded
 	switch q.Kind {
 	case "single", "page", "front-page":
 		v.Template = "single"
@@ -179,7 +184,7 @@ func (s *Server) buildSiteView(c *gin.Context, q *siteQuery) (*siteView, error) 
 		if q.Post.Type == "post" {
 			v.PostNav = s.postNavigation(ctx, q.Post, lb)
 		}
-		if q.Post.CommentStatus == "open" || q.Post.CommentCount > 0 {
+		if s.commentsOpen(q.Post) || q.Post.CommentCount > 0 {
 			v.Comments = s.commentsView(c, q.Post, lb, u)
 		}
 		if q.Post.Type == "page" {
@@ -248,6 +253,7 @@ func (s *Server) buildSiteView(c *gin.Context, q *siteQuery) (*siteView, error) 
 			bodyClasses = append(bodyClasses, "paged", "paged-"+itoa(q.Paged))
 		}
 	}
+	rc.mainLoop = false
 
 	if u != nil {
 		bodyClasses = append(bodyClasses, "logged-in")
@@ -395,7 +401,17 @@ func (s *Server) theContent(ctx context.Context, c *gin.Context, p *store.Post, 
 	if out, ok := s.gweContent(c, p); ok { // Golementor documents and the editor preview
 		return out
 	}
-	content := p.Content
+	rc := renderFrom(ctx)
+	// setup_postdata(): the <!--nextpage--> split and the requested page of it (feeds show page 1).
+	pages := splitPages(p.Content)
+	page := 1
+	if rc != nil && rc.q != nil && rc.q.Post != nil && rc.q.Post.ID == p.ID && rc.q.Page > 1 && !rc.feed {
+		page = rc.q.Page
+		if page > len(pages) {
+			page = len(pages)
+		}
+	}
+	content := pages[page-1]
 	teaser, rest, moreText, hasMore := wp.SplitMore(content)
 	if hasMore {
 		if singular {
@@ -410,13 +426,68 @@ func (s *Server) theContent(ctx context.Context, c *gin.Context, p *store.Post, 
 			content = teaser + ` <a href="` + html.EscapeString(lb.Permalink(p)) + `#more-` + itoa64(p.ID) + `" class="more-link">` + moreText + `</a>`
 		}
 	}
+	if rc != nil {
+		prev := rc.postID
+		rc.postID = p.ID
+		defer func() { rc.postID = prev }()
+	}
 	if blocks.HasBlocks(content) {
 		content = blocks.Render(ctx, content)
 	} else {
 		content = wp.Autop(wp.Texturize(content))
 	}
+	content = s.filterContentTags(ctx, content) // wp_filter_content_tags (priority 12)
+	content = s.convertSmilies(lb, content)     // convert_smilies (priority 20)
 	out, _ := s.applyFilters(ctx, "the_content", content, map[string]any{"id": p.ID, "type": p.Type, "is_single": singular}).(string)
+	if len(pages) > 1 && (rc == nil || !rc.feed) {
+		out += s.linkPages(p, page, len(pages), lb)
+	}
 	return out
+}
+
+// convertSmilies applies convert_smilies() when the use_smilies option is on.
+func (s *Server) convertSmilies(lb *links.Builder, content string) string {
+	if !s.settings.Bool("use_smilies") {
+		return content
+	}
+	return wp.ConvertSmilies(content, lb.HomeURL("/wp-includes/images/smilies/"))
+}
+
+// linkPages is wp_link_pages() with the arguments the active theme passes (the WordPress defaults for
+// themes that do not override them).
+func (s *Server) linkPages(p *store.Post, page, numpages int, lb *links.Builder) string {
+	before, after, linkBefore, linkAfter, pagelink, separator := `<p class="post-nav-links">Pages:`, `</p>`, "", "", "%", " "
+	switch s.activeTheme().Slug {
+	case "twentysixteen", "twentyseventeen":
+		before, after = `<div class="page-links"><span class="page-links-title">Pages:</span>`, `</div>`
+		linkBefore, linkAfter = "<span>", "</span>"
+		pagelink, separator = `<span class="screen-reader-text">Page </span>%`, `<span class="screen-reader-text">, </span>`
+	case "twentytwenty":
+		before, after = `<nav class="post-nav-links bg-light-background" aria-label="Page"><span class="label">Pages:</span>`, `</nav>`
+	case "twentytwentyone":
+		before, after = `<nav class="page-links" aria-label="Page">`, `</nav>`
+		linkBefore, linkAfter = `<span class="page-links-title">`, `</span>`
+		pagelink = `Page %`
+		separator = `<span class="page-links-separator"></span>`
+	}
+	var sb strings.Builder
+	sb.WriteString(before)
+	for i := 1; i <= numpages; i++ {
+		link := linkBefore + strings.Replace(pagelink, "%", strconv.Itoa(i), 1) + linkAfter
+		if i != page {
+			link = `<a href="` + html.EscapeString(lb.PostPageLink(p, i)) + `" class="post-page-numbers">` + link + `</a>`
+		} else {
+			link = `<span class="post-page-numbers current" aria-current="page">` + link + `</span>`
+		}
+		if i == 1 {
+			sb.WriteString(" ")
+		} else {
+			sb.WriteString(separator)
+		}
+		sb.WriteString(link)
+	}
+	sb.WriteString(after)
+	return sb.String()
 }
 
 // theExcerpt is the_excerpt() with Twenty Sixteen's "Continue reading" more link.
@@ -425,12 +496,12 @@ func (s *Server) theExcerpt(p *store.Post, lb *links.Builder) string {
 		return "<p>There is no excerpt because this is a protected post.</p>\n"
 	}
 	if p.Excerpt != "" {
-		return wp.Autop(wp.Texturize(p.Excerpt))
+		return s.convertSmilies(lb, wp.Autop(wp.Texturize(p.Excerpt)))
 	}
 	more := ` &hellip; <a href="` + html.EscapeString(lb.Permalink(p)) + `" class="more-link">Continue reading<span class="screen-reader-text"> "` + theTitle(p) + `"</span></a>`
 	text := stripBlocks(p.Content)
 	text, _, _, _ = wp.SplitMore(text)
-	return wp.Autop(wp.TrimWords(text, 55, more))
+	return s.convertSmilies(lb, wp.Autop(wp.TrimWords(text, 55, more)))
 }
 
 func (s *Server) postView(ctx context.Context, c *gin.Context, p *store.Post, singular bool, lb *links.Builder, u *store.User) *postView {
