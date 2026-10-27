@@ -172,6 +172,16 @@ func (s *Server) czSanitize(ctx context.Context, t *Theme, values map[string]str
 				}
 			case "checkbox":
 				mods[name] = raw == "1" || raw == "true" || raw == "on"
+			case "image": // an attachment id (theme packages)
+				n, err := image(raw)
+				if err != nil {
+					return nil, nil, err
+				}
+				if n == 0 {
+					delete(mods, name)
+				} else {
+					mods[name] = n
+				}
 			case "number":
 				n, err := strconv.Atoi(strings.TrimSpace(raw))
 				if err != nil {
@@ -218,6 +228,9 @@ func (s *Server) czSanitize(ctx context.Context, t *Theme, values map[string]str
 type czControlView struct {
 	czControl
 	Setting, Value, DefaultValue string
+	// Image and CanUpload serve image controls (theme packages): the chosen attachment.
+	Image     czImageView
+	CanUpload bool
 }
 
 // czCheckbox is a checkbox control's value on the screen: "1" or "0".
@@ -362,8 +375,14 @@ func (s *Server) customizeScreen(c *gin.Context) {
 			if ctl.Type == "checkbox" {
 				val = czCheckbox(mods, ctl)
 			}
+			if ctl.Type == "image" {
+				val = strconv.Itoa(modInt(mods, ctl.ID, 0))
+			}
 			d.Values["mod:"+ctl.ID] = val
-			cv := czControlView{czControl: ctl, Setting: "mod:" + ctl.ID, Value: val, DefaultValue: def}
+			cv := czControlView{czControl: ctl, Setting: "mod:" + ctl.ID, Value: val, DefaultValue: def, CanUpload: d.CanUpload}
+			if ctl.Type == "image" {
+				cv.Image = s.czImage(ctx, int64(modInt(mods, ctl.ID, 0)))
+			}
 			if ctl.Section == "title_tagline" {
 				d.Identity = append(d.Identity, cv)
 			} else if sec := sections[ctl.Section]; sec != nil {

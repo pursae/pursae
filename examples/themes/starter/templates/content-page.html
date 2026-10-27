@@ -1,0 +1,10 @@
+<article id="post-{{.ID}}" class="{{.Class}} entry entry--page">
+	<header class="entry-header">
+		<h1 class="entry-title">{{.Title}}</h1>
+	</header><!-- .entry-header -->
+	{{with .Thumbnail}}<figure class="post-thumbnail alignwide">{{.}}</figure>{{end}}
+	<div class="entry-content">
+		{{.Content}}
+	</div><!-- .entry-content -->
+	{{with .EditLink}}<footer class="entry-footer"><span class="edit-link">{{.}}</span></footer>{{end}}
+</article><!-- #post-{{.ID}} -->

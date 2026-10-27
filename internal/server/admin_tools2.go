@@ -198,7 +198,7 @@ func (s *Server) themeEditor(c *gin.Context) {
 	if o, ok := s.overlay(); ok && !fileEditingDisabled() && !theme.Custom {
 		d.Editable, d.OverrideDir, d.Restored = true, filepath.Join(o.dir, theme.Slug), c.Query("restored") == "1"
 		d.Nonce = s.nonce(c, "edit-theme_"+theme.Slug+"_"+file)
-		if o.overridden(themeFileWebPath(theme.Slug, file)) {
+		if theme.Package == nil && o.overridden(themeFileWebPath(theme.Slug, file)) { // a package's files are the originals
 			d.Edited = true
 			d.RestoreURL = "/wp-admin/theme-editor?action=restore&theme=" + url.QueryEscape(theme.Slug) + "&file=" + url.QueryEscape(file) +
 				"&_wpnonce=" + s.nonce(c, "restore-theme-file_"+theme.Slug+"_"+file)

@@ -1,0 +1,10 @@
+{{template "header" .}}
+{{if .IsHomeHeader}}<header class="page-header">
+	<h1 class="page-title">{{.PostsPageTitle}}</h1>
+</header>{{end}}
+{{if .Posts}}<div class="post-list">
+	{{range .Posts}}{{template "content" .}}
+	{{end}}
+</div>
+{{.Pagination}}{{else}}{{template "content-none" .}}{{end}}
+{{template "footer" .}}

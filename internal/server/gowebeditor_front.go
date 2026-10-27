@@ -86,7 +86,7 @@ func (s *Server) gwePreview(c *gin.Context) {
 	if s.gweRenderShell(c, v, http.StatusOK) { // Golementor custom theme / theme parts
 		return
 	}
-	s.renderThemeTemplate(c, v.Theme.Slug, http.StatusOK, "theme/"+v.Template, v)
+	s.renderSiteTemplate(c, v, http.StatusOK)
 }
 
 // gweContent is the_content for Golementor documents; ok is false for other posts.

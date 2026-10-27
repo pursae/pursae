@@ -76,6 +76,7 @@ func New(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) (*Server, e
 	} else {
 		s.gweUnloadCustomThemes() // the theme registry is shared by every server in the process
 	}
+	s.loadThemePackages() // theme packages installed under <data>/themes (theme_install.go)
 	tmpl, err := newTemplates(s)
 	if err != nil {
 		return nil, err
@@ -152,7 +153,7 @@ func (s *Server) routes() *gin.Engine {
 
 	s.static(r, "/wp-admin/assets", "admin/assets")
 	for _, th := range allThemes() {
-		if th.Custom {
+		if th.Custom || th.Package != nil { // packages are installed at run time: packageThemeAsset serves them
 			continue
 		}
 		if th.Slug == helloThemeSlug {
@@ -225,6 +226,7 @@ func (s *Server) routes() *gin.Engine {
 	admin.GET("/options-privacy", s.optionsPrivacy)
 	admin.POST("/options-privacy", s.optionsPrivacy)
 	admin.GET("/theme-install", s.themeInstall)
+	admin.POST("/theme-install", s.themeInstall)
 	admin.GET("/site-health", s.siteHealth)
 	admin.GET("/export", s.exportScreen)
 	admin.GET("/theme-editor", s.themeEditor)
@@ -262,7 +264,7 @@ func (s *Server) routes() *gin.Engine {
 		r.Handle(m, "/wp-json", restHandler)
 	}
 
-	r.NoRoute(s.gwePreview, s.site) // Golementor's preview iframe, then the site
+	r.NoRoute(s.gwePreview, s.packageThemeAsset, s.site) // Golementor's preview iframe, theme package assets, then the site
 	return r
 }
 

@@ -1,0 +1,61 @@
+{
+  "slug": "starter",
+  "name": "Starter",
+  "version": "1.0.0",
+  "description": "A minimal, readable starting point for WordPress Go theme packages: a single column of calm typography on system fonts, an optional sidebar, an accent color and a footer menu, all set in the Customizer with a live preview.",
+  "author": "WordPress Go",
+  "author_url": "https://github.com/boracomet/wordpress-go",
+  "theme_url": "https://github.com/boracomet/wordpress-go/tree/main/examples/themes/starter",
+  "tags": ["Blog", "One Column", "Right Sidebar", "Custom Colors", "Custom Logo", "Custom Menu", "Editor Style", "Featured Images", "Threaded Comments", "Wide Blocks"],
+  "requires_core": "0.1.0",
+  "screenshot": "assets/screenshot.png",
+
+  "widget_areas": [
+    {"id": "sidebar-1", "name": "Sidebar", "description": "Shown beside the content while the sidebar is switched on in Customize › Starter."}
+  ],
+  "menu_locations": [
+    {"id": "primary", "name": "Primary Menu"},
+    {"id": "footer", "name": "Footer Menu"}
+  ],
+
+  "styles": [
+    {"handle": "starter-style", "src": "assets/style.css", "deps": ["wp-block-library"], "media": "all"}
+  ],
+  "scripts": [
+    {"handle": "starter-navigation", "src": "assets/js/navigation.js", "deps": [], "in_footer": true}
+  ],
+  "editor_styles": ["assets/editor-style.css"],
+  "preload_fonts": [],
+
+  "palette": [
+    {"name": "Accent", "slug": "accent", "color": "#2271b1"},
+    {"name": "Ink", "slug": "ink", "color": "#1d2327"},
+    {"name": "Slate", "slug": "slate", "color": "#50575e"},
+    {"name": "Mist", "slug": "mist", "color": "#f0f0f1"},
+    {"name": "Paper", "slug": "paper", "color": "#ffffff"}
+  ],
+  "supports": {
+    "post-thumbnails": true,
+    "custom-logo": {"width": 200, "height": 60, "flex-width": true, "flex-height": true, "header-text": ["site-title", "site-description"]},
+    "title-tag": true,
+    "html5": ["search-form", "comment-form", "comment-list", "gallery", "caption", "script", "style"],
+    "responsive-embeds": true,
+    "align-wide": true,
+    "wp-block-styles": true
+  },
+
+  "customizer": {
+    "sections": [
+      {
+        "id": "starter_options", "title": "Starter", "description": "Colors and layout of the Starter theme.", "priority": 40,
+        "settings": [
+          {"id": "accent", "label": "Accent color", "description": "Links, buttons and highlights.", "type": "color", "default": "#2271b1", "transport": "postMessage", "css_var": "--starter-accent"},
+          {"id": "show_sidebar", "label": "Show the sidebar", "description": "The Sidebar widget area, to the right of the content.", "type": "checkbox", "default": true, "transport": "postMessage", "body_class": "has-sidebar"},
+          {"id": "content_width", "label": "Content width", "type": "select", "default": "normal", "transport": "postMessage", "body_class": "starter-width-{value}",
+            "choices": [{"value": "narrow", "label": "Narrow (640px)"}, {"value": "normal", "label": "Normal (720px)"}, {"value": "wide", "label": "Wide (860px)"}]},
+          {"id": "footer_text", "label": "Footer text", "description": "Replaces the copyright line.", "type": "text", "default": "", "transport": "refresh"}
+        ]
+      }
+    ]
+  }
+}

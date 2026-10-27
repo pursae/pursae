@@ -28,6 +28,12 @@
 	</div>
 </div>
 <div class="theme-overlay" tabindex="0" role="dialog" aria-label="Theme Details"></div>
+{{/* Delete link of uploaded theme packages: WordPress's .delete-theme styles, without theme.js's ajax handler */}}
+<style>
+.theme-overlay .theme-actions .wpgo-delete-theme{color:#b32d2e;text-decoration:none;border-color:transparent;box-shadow:none;background:transparent;position:absolute;right:10px;bottom:5px}
+.theme-overlay .theme-actions .wpgo-delete-theme:hover,.theme-overlay .theme-actions .wpgo-delete-theme:focus{background:#b32d2e;color:#fff;border-color:#b32d2e;box-shadow:0 0 0 1px #b32d2e}
+@media only screen and (max-width:1080px){.theme-overlay .theme-actions .wpgo-delete-theme{position:relative;right:auto;bottom:auto}}
+</style>
 <p class="no-themes">No themes found. Try a different search.</p>
 {{/* Golementor: saved themes (JSON snapshots of the Hello Golementor design) */}}
 {{if .Saved}}
@@ -141,6 +147,9 @@
 				<a class="button button-compact button-primary load-customize hide-if-no-customize" href="{{{ data.actions.customize }}}" aria-label="Live Preview {{ data.name }}">Live Preview</a>
 				<# if ( data.actions.activate ) { #>
 					<a class="button button-compact activate" href="{{{ data.actions.activate }}}" aria-label="Activate {{ data.name }}">Activate</a>
+				<# } #>
+				<# if ( data.actions['delete'] ) { #>
+					<a class="button button-compact wpgo-delete-theme" href="{{{ data.actions['delete'] }}}" onclick="return window.confirm( _wpThemeSettings.settings.confirmDelete );" aria-label="Delete {{ data.name }}">Delete</a>
 				<# } #>
 			</div>
 		</div>

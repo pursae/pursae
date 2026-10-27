@@ -1,0 +1,15 @@
+<article id="post-{{.ID}}" class="{{.Class}} entry entry--single">
+	<header class="entry-header">
+		<h1 class="entry-title">{{.Title}}</h1>
+		{{template "entry-meta" .}}
+	</header><!-- .entry-header -->
+	{{with .Thumbnail}}<figure class="post-thumbnail alignwide">{{.}}</figure>{{end}}
+	<div class="entry-content">
+		{{.Content}}
+	</div><!-- .entry-content -->
+	{{if or .Tags .EditLink}}<footer class="entry-footer">
+		{{if .Tags}}<span class="tags-links"><span class="screen-reader-text">Tags: </span>{{range .Tags}}<a href="{{.URL}}" rel="tag">{{.Name}}</a>{{end}}</span>{{end}}
+		{{with .EditLink}}<span class="edit-link">{{.}}</span>{{end}}
+	</footer>{{end}}
+	{{.Biography}}
+</article><!-- #post-{{.ID}} -->

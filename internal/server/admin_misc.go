@@ -80,65 +80,6 @@ func (s *Server) optionsPrivacy(c *gin.Context) {
 	s.adminPage(c, "options-privacy", "Privacy", "options-privacy-php privacy-settings", "admin/options-privacy", d)
 }
 
-// themeInstall is theme-install.php: a small theme directory (bundled themes plus coming-soon listings).
-func (s *Server) themeInstall(c *gin.Context) {
-	if !currentUser(c).Can("install_themes", nil) {
-		c.String(http.StatusForbidden, "Sorry, you are not allowed to install themes on this site.")
-		return
-	}
-	active := s.activeTheme()
-	type card struct {
-		Name, Author, Screenshot, Slug string
-		Installed, Active, Demo        bool
-		Description, Initials, Color   string
-		ActivateURL, PreviewURL        string
-		Custom                         bool
-	}
-	browse := c.DefaultQuery("browse", "all")
-	search := strings.ToLower(strings.TrimSpace(c.Query("search")))
-	match := func(cd card) bool {
-		return search == "" || strings.Contains(strings.ToLower(cd.Name+" "+cd.Author+" "+cd.Description), search)
-	}
-	var cards, demos []card
-	for _, t := range s.installedThemes() {
-		cd := card{Name: t.Name, Author: t.Author, Screenshot: t.ScreenshotSrc(), Slug: t.Slug, Installed: true, Active: t.Slug == active.Slug, Description: t.Description,
-			ActivateURL: "/wp-admin/themes?action=activate&stylesheet=" + t.Slug + "&_wpnonce=" + s.nonce(c, "switch-theme_"+t.Slug), PreviewURL: "/?theme=" + t.Slug, Custom: t.Custom}
-		if !match(cd) {
-			continue
-		}
-		if cd.Active {
-			cards = append([]card{cd}, cards...)
-		} else {
-			cards = append(cards, cd)
-		}
-	}
-	for _, d := range []card{
-		{Name: "Gopher Magazine", Color: "blue", Description: "A news and magazine layout with a bold front page grid."},
-		{Name: "Burrow Portfolio", Color: "green", Description: "Full-bleed galleries and case studies for creative work."},
-		{Name: "Channel Shop", Color: "orange", Description: "A storefront theme built around product grids and a mini cart."},
-		{Name: "Goroutine Docs", Color: "purple", Description: "Documentation theme with a sidebar table of contents and search."},
-	} {
-		d.Author, d.Demo = "WordPress Go fans", true
-		d.Slug = strings.ToLower(strings.ReplaceAll(d.Name, " ", "-"))
-		for _, w := range strings.Fields(d.Name) {
-			d.Initials += w[:1]
-		}
-		if match(d) {
-			demos = append(demos, d)
-		}
-	}
-	switch browse {
-	case "installed":
-		demos = nil
-	case "demos":
-		cards = nil
-	default:
-		browse = "all"
-	}
-	data := map[string]any{"Cards": cards, "Demos": demos, "Browse": browse, "Search": c.Query("search"), "Count": len(cards) + len(demos), "Golementor": s.golementorOn()}
-	s.adminPage(c, "themes", "Add Themes", "theme-install-php", "admin/theme-install", data)
-}
-
 // Site Health --------------------------------------------------------------------
 
 type healthTest struct {

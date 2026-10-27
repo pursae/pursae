@@ -1,7 +1,7 @@
 /**
  * WordPress Go additions to theme-install.php. Cards, filter bar and grid come from
  * WordPress's themes.css; this styles the link form of "Details & Preview" and the
- * fan-made demo section.
+ * Upload Theme form.
  */
 .theme-install-php .theme-browser .theme .more-details,
 .theme-install-php .theme-browser .theme .more-details:hover,
@@ -16,90 +16,14 @@
 	margin: 0 0 20px;
 }
 
-/* —— Fan-made demos —— */
-.wpgo-theme-demos {
-	clear: both;
-	margin-top: 8px;
-	padding-top: 24px;
-	border-top: 1px dashed #c3c4c7;
+/* The Upload Theme form (markup and base styles from WordPress's themes.css): shown on ?browse=upload. */
+.show-upload-view .upload-view-toggle .upload {
+	display: none;
 }
-.wpgo-theme-demos-title {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	margin: 0 0 4px;
-	font-size: 1.3em;
+.show-upload-view .upload-view-toggle .browse {
+	display: inline;
 }
-.wpgo-demo-tag {
-	display: inline-block;
-	padding: 2px 8px;
-	border-radius: 2px;
-	background: #fcf9e8;
-	border: 1px solid #dba617;
-	color: #1d2327;
-	font-size: 11px;
-	font-weight: 600;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-}
-.wpgo-theme-demos > .description {
-	margin: 0 0 20px;
-}
-.theme-browser .theme.wpgo-theme-demo {
-	cursor: default;
-	overflow: hidden;
-	border-style: dashed;
-	border-color: #a7aaad;
-}
-.theme-browser .theme.wpgo-theme-demo .theme-name {
-	background: repeating-linear-gradient(-45deg, #fff, #fff 12px, #fbfbfc 12px, #fbfbfc 24px);
-}
-.theme-browser .theme.wpgo-theme-demo:hover .theme-screenshot,
-.theme-browser .theme.wpgo-theme-demo:focus .theme-screenshot {
-	opacity: 1;
-	background: inherit;
-}
-.wpgo-demo-shot-inner {
-	position: absolute;
-	inset: 0;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	gap: 14px;
-	padding: 0 12%;
-	text-align: center;
-	color: rgba(255, 255, 255, 0.95);
-}
-.wpgo-demo-initials {
-	font-size: 64px;
-	font-weight: 300;
-	line-height: 1;
-	letter-spacing: 0.04em;
-}
-.wpgo-demo-desc {
-	font-size: 14px;
-	line-height: 1.5;
-	opacity: 0.85;
-}
-.wpgo-demo-shot-blue { background: linear-gradient(135deg, #3858e9 0%, #1d35b4 100%) !important; }
-.wpgo-demo-shot-green { background: linear-gradient(135deg, #2e8540 0%, #0b5a27 100%) !important; }
-.wpgo-demo-shot-orange { background: linear-gradient(135deg, #e26f56 0%, #b32d2e 100%) !important; }
-.wpgo-demo-shot-purple { background: linear-gradient(135deg, #8c5fd9 0%, #4b1f9e 100%) !important; }
-.wpgo-theme-demo .wpgo-demo-ribbon {
-	position: absolute;
-	top: 18px;
-	right: -36px;
-	z-index: 2;
-	width: 130px;
-	padding: 4px 0;
-	transform: rotate(45deg);
-	background: #dba617;
-	color: #1d2327;
-	font-size: 11px;
-	font-weight: 600;
-	letter-spacing: 0.08em;
-	text-align: center;
-	text-transform: uppercase;
-	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+.upload-theme .description {
+	margin: 0;
+	color: #646970;
 }

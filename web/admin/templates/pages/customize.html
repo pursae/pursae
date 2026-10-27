@@ -481,7 +481,7 @@ var wpgoCustomize = ( function( $ ) {
 </html>
 {{end}}
 
-{{define "customize-control"}}<li id="customize-control-{{.ID}}" class="customize-control customize-control-{{if eq .Type "hue"}}color{{else}}{{.Type}}{{end}}" data-control="{{.Setting}}"{{if .Hidden}} style="display:none"{{end}}>
+{{define "customize-control"}}<li id="customize-control-{{.ID}}" class="customize-control customize-control-{{if eq .Type "hue"}}color{{else if eq .Type "image"}}media customize-control-image{{else}}{{.Type}}{{end}}" data-control="{{.Setting}}"{{if .Hidden}} style="display:none"{{end}}>
 					{{if eq .Type "select"}}
 					<label for="_customize-input-{{.ID}}" class="customize-control-title">{{.Label}}</label>{{if .Description}}<span class="description customize-control-description">{{.Description}}</span>{{end}}
 					<select id="_customize-input-{{.ID}}" data-setting="{{.Setting}}">{{$v := .Value}}{{range .Choices}}<option value="{{index . 0}}"{{if eq (index . 0) $v}} selected="selected"{{end}}>{{index . 1}}</option>{{end}}</select>
@@ -508,6 +508,8 @@ var wpgoCustomize = ( function( $ ) {
 					{{else if eq .Type "hue"}}
 					<label><span class="customize-control-title">{{.Label}}</span>{{if .Description}}<span class="description customize-control-description">{{.Description}}</span>{{end}}
 					<div class="customize-control-content"><input class="color-picker-hue" type="text" data-type="hue" value="{{.Value}}" data-setting="{{.Setting}}"></div></label>
+					{{else if eq .Type "image"}}
+					{{template "customize-image" (dict "Setting" .Setting "Label" .Label "Image" .Image "Select" "Select image" "Change" "Change image" "CanUpload" .CanUpload "Description" .Description)}}
 					{{else}}
 					<span class="customize-control-title">{{.Label}}</span>{{if .Description}}<span class="description customize-control-description">{{.Description}}</span>{{end}}
 					<div class="customize-control-content"><input class="color-picker-hex" type="text" maxlength="7" placeholder="Hex Value" value="{{.Value}}" data-default-color="{{.DefaultValue}}" data-setting="{{.Setting}}"></div>

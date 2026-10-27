@@ -1,0 +1,17 @@
+		</main><!-- #main -->
+		{{template "sidebar" .}}
+	</div><!-- #content -->
+
+	<footer id="colophon" class="site-footer">
+		{{if has_nav_menu . "footer"}}<nav class="footer-navigation" aria-label="Footer menu">{{nav_menu . "footer"}}</nav>{{end}}
+		<div class="site-info">
+			{{.PrivacyLink}}
+			<span class="site-info__text">{{with theme_mod . "footer_text"}}{{.}}{{else}}&copy; {{$.SiteName}}{{end}}</span>
+			<span class="site-info__credit">Proudly powered by <a href="https://github.com/boracomet/wordpress-go">WordPress Go</a></span>
+		</div><!-- .site-info -->
+	</footer><!-- #colophon -->
+</div><!-- #page -->
+
+{{.Footer}}{{.AdminBar}}
+</body>
+</html>

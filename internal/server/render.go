@@ -46,6 +46,15 @@ func (t *templates) load() error {
 		if th.Custom {
 			continue
 		}
+		if th.Package != nil { // a theme package: a broken one is logged, never a reason to fail
+			set, err := parsePackageTemplates(t.s.web, "themes/"+th.Slug+"/templates", t.funcs())
+			if err != nil {
+				log.Printf("theme package %s templates: %v", th.Slug, err)
+				continue
+			}
+			sets[th.Slug] = set
+			continue
+		}
 		set, err := parseTree(t.s.web, "themes/"+th.Slug+"/templates", t.funcs())
 		if err != nil {
 			return fmt.Errorf("theme %s templates: %w", th.Slug, err)
@@ -127,6 +136,14 @@ func (s *Server) renderTemplate(c *gin.Context, status int, set *template.Templa
 
 func (t *templates) funcs() template.FuncMap {
 	s := t.s
+	m := themeTemplateFuncs() // nav_menu, dynamic_sidebar, theme_mod, … (theme_package.go)
+	for k, f := range t.coreFuncs(s) {
+		m[k] = f
+	}
+	return m
+}
+
+func (t *templates) coreFuncs(s *Server) template.FuncMap {
 	return template.FuncMap{
 		"safe":    func(v string) template.HTML { return template.HTML(v) },
 		"safeURL": func(v string) template.URL { return template.URL(v) },

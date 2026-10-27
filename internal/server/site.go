@@ -425,7 +425,7 @@ func (s *Server) renderSite(c *gin.Context, q *siteQuery) {
 	if s.gweRenderShell(c, v, status) { // Golementor custom theme / theme parts
 		return
 	}
-	s.renderThemeTemplate(c, v.Theme.Slug, status, "theme/"+v.Template, v)
+	s.renderSiteTemplate(c, v, status)
 }
 
 // postPassCookie is the cookie that remembers an entered post password.

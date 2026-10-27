@@ -108,28 +108,40 @@
 {{define "admin/theme-install"}}{{template "admin-header" .}}{{with .Data}}
 <div class="wrap">
 	<h1 class="wp-heading-inline">Add Themes</h1>
+	<a href="{{if eq .Browse "upload"}}/wp-admin/theme-install{{else}}/wp-admin/theme-install?browse=upload{{end}}" class="upload-view-toggle page-title-action"><span class="upload">Upload Theme</span><span class="browse">Browse Themes</span></a>
 	<hr class="wp-header-end">
 	{{template "notices" $}}
+	<div class="upload-theme">
+		<p class="install-help">If you have a theme package (a .zip with <code>theme.json</code>, <code>templates/</code> and <code>assets/</code>), you may install it by uploading it here.</p>
+		<form method="post" enctype="multipart/form-data" class="wp-upload-form" action="/wp-admin/theme-install">
+			<input type="hidden" name="_wpnonce" value="{{.UploadNonce}}" />
+			<label class="screen-reader-text" for="themezip">Theme zip file</label>
+			<input type="file" id="themezip" name="themezip" accept=".zip" />
+			<input type="submit" name="install-theme-submit" id="install-theme-submit" class="button" value="Install Now" />
+		</form>
+		<p class="description">Packages up to {{.MaxSize}}. An uploaded theme with the same slug is replaced when the package is a newer version. See <code>docs/theme-package.md</code> for the format.</p>
+	</div>
+	{{if ne .Browse "upload"}}
 	<h2 class="screen-reader-text">Filter themes list</h2>
 	<div class="wp-filter">
 		<div class="filter-count"><span class="count theme-count">{{.Count}}</span></div>
 		<ul class="filter-links">
 			<li><a href="/wp-admin/theme-install"{{if eq .Browse "all"}} class="current" aria-current="page"{{end}}>All</a></li>
-			<li><a href="/wp-admin/theme-install?browse=installed"{{if eq .Browse "installed"}} class="current" aria-current="page"{{end}}>Bundled</a></li>
-			<li><a href="/wp-admin/theme-install?browse=demos"{{if eq .Browse "demos"}} class="current" aria-current="page"{{end}}>Fan-made Demos</a></li>
+			<li><a href="/wp-admin/theme-install?browse=bundled"{{if eq .Browse "bundled"}} class="current" aria-current="page"{{end}}>Bundled</a></li>
+			<li><a href="/wp-admin/theme-install?browse=uploaded"{{if eq .Browse "uploaded"}} class="current" aria-current="page"{{end}}>Uploaded</a></li>
 		</ul>
 		<form class="search-form" method="get" action="/wp-admin/theme-install">{{if ne .Browse "all"}}<input type="hidden" name="browse" value="{{.Browse}}" />{{end}}<p class="search-box"><label for="wp-filter-search-input">Search Themes</label><input type="search" name="search" value="{{.Search}}" id="wp-filter-search-input" class="wp-filter-search" /></p></form>
 	</div>
-	<p class="wpgo-theme-install-help">Themes for WordPress Go are compiled into the binary{{if .Golementor}} or generated with Golementor&rsquo;s <a href="/wp-admin/gowebeditor-theme-builder">Theme Builder</a>{{end}}. A theme directory is on the way.</p>
+	<p class="wpgo-theme-install-help">Bundled themes are compiled into WordPress Go{{if .Golementor}}, Golementor&rsquo;s <a href="/wp-admin/gowebeditor-theme-builder">Theme Builder</a> generates themes{{end}}, and theme packages (a zip of <code>theme.json</code>, templates and assets, no code) are installed with <strong>Upload Theme</strong>.</p>
 	{{if .Cards}}
 	<div class="theme-browser content-filterable rendered">
 		<div class="themes wp-clearfix">
 		{{range .Cards}}
 		<div class="theme{{if .Active}} active{{end}}" data-slug="{{.Slug}}">
 			<div class="theme-screenshot">
-				{{if .Screenshot}}<img src="{{.Screenshot}}" alt="" />{{end}}
+				{{if .Screenshot}}<img src="{{.Screenshot}}?ver={{.Version}}" alt="" />{{end}}
 			</div>
-			<div class="notice notice-success notice-alt inline"><p>Installed</p></div>
+			<div class="notice notice-success notice-alt inline"><p>Installed{{if .Package}} &middot; uploaded package{{end}}</p></div>
 			<a class="more-details" href="/wp-admin/themes?theme={{.Slug}}">Details &amp; Preview</a>
 			<div class="theme-author">By {{.Author}}</div>
 			<div class="theme-id-container">
@@ -145,34 +157,8 @@
 		{{end}}
 		</div>
 	</div>
+	{{else}}<p class="no-themes" style="display:block">No themes found. Try a different search.</p>{{end}}
 	{{end}}
-	{{if .Demos}}
-	<div class="wpgo-theme-demos">
-		<h2 class="wpgo-theme-demos-title">Fan-made demos <span class="wpgo-demo-tag">Coming soon</span></h2>
-		<p class="description">Concept themes imagined by the WordPress Go community. They are previews of what is coming, not packages: they cannot be installed yet.</p>
-		<div class="theme-browser content-filterable rendered">
-			<div class="themes wp-clearfix">
-			{{range .Demos}}
-			<div class="theme wpgo-theme-demo" data-slug="{{.Slug}}">
-				<span class="wpgo-demo-ribbon" aria-hidden="true">Demo</span>
-				<div class="theme-screenshot wpgo-demo-shot wpgo-demo-shot-{{.Color}}" aria-hidden="true">
-					<div class="wpgo-demo-shot-inner">
-						<span class="wpgo-demo-initials">{{.Initials}}</span>
-						<span class="wpgo-demo-desc">{{.Description}}</span>
-					</div>
-				</div>
-				<div class="theme-author">By {{.Author}}</div>
-				<div class="theme-id-container">
-					<h3 class="theme-name">{{.Name}}</h3>
-					<div class="theme-actions"><button type="button" class="button button-compact disabled" disabled="disabled">Coming Soon</button></div>
-				</div>
-			</div>
-			{{end}}
-			</div>
-		</div>
-	</div>
-	{{end}}
-	{{if not (or .Cards .Demos)}}<p class="no-themes" style="display:block">No themes found. Try a different search.</p>{{end}}
 </div>
 {{end}}{{template "admin-footer" .}}{{end}}
 

@@ -1,0 +1,12 @@
+<article id="post-{{.ID}}" class="{{.Class}} entry">
+	<header class="entry-header">
+		{{if .ShowFeatured}}<span class="sticky-badge">Featured</span>{{end}}
+		<h2 class="entry-title"><a href="{{.Permalink}}" rel="bookmark">{{.Title}}</a></h2>
+		{{template "entry-meta" .}}
+	</header><!-- .entry-header -->
+	{{with .Thumbnail}}<a class="post-thumbnail" href="{{$.Permalink}}" aria-hidden="true" tabindex="-1">{{.}}</a>{{end}}
+	<div class="entry-summary">
+		{{if .ShowExcerpt}}{{.Excerpt}}{{else}}{{.Content}}{{end}}
+	</div><!-- .entry-summary -->
+	{{if .ShowExcerpt}}<p class="more-link-wrap"><a class="more-link" href="{{.Permalink}}">Continue reading<span class="screen-reader-text"> &ldquo;{{.Title}}&rdquo;</span> <span aria-hidden="true">&rarr;</span></a></p>{{end}}
+</article><!-- #post-{{.ID}} -->

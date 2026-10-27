@@ -35,8 +35,14 @@ func (o overlayFS) Open(name string) (fs.File, error) {
 	if o.dir != "" {
 		if rel, ok := strings.CutPrefix(name, "themes/"); ok && fs.ValidPath(name) {
 			if f, err := os.Open(filepath.Join(o.dir, filepath.FromSlash(rel))); err == nil {
-				if st, err := f.Stat(); err == nil && !st.IsDir() {
-					return f, nil
+				if st, err := f.Stat(); err == nil {
+					if !st.IsDir() {
+						return f, nil
+					}
+					// A directory the binary does not have is a theme package's: list it from disk.
+					if _, err := fs.Stat(o.base, name); err != nil {
+						return f, nil
+					}
 				}
 				f.Close()
 			}
@@ -204,10 +210,11 @@ func (s *Server) themeRenderCheck(c *gin.Context, th *Theme) error {
 	return nil
 }
 
-// restoreThemeFile drops the edited copy of a file.
+// restoreThemeFile drops the edited copy of a file. A package theme's files are the originals, so
+// there is nothing to restore them to.
 func (s *Server) restoreThemeFile(c *gin.Context, slug, file string) error {
 	o, ok := s.overlay()
-	if !ok || s.installedTheme(slug) == nil {
+	if th := s.installedTheme(slug); !ok || th == nil || th.Package != nil {
 		return errors.New("Sorry, that theme cannot be edited here.")
 	}
 	clean := path.Clean("/" + file)[1:]
