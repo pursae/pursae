@@ -73,6 +73,22 @@ func (rt *Runtime) instantiateHostModule(ctx context.Context) error {
 		{"storage_get", PermStorage, hostStorageGet},
 		{"storage_set", PermStorage, hostStorageSet},
 		{"add_admin_notice", PermAdminNotices, hostAdminNotice},
+		// ABI 1 additions (all additive; see README "Host imports").
+		{"register_shortcode", PermContentFilter, hostRegisterShortcode},
+		{"register_rest_route", PermRestRoutes, hostRegisterRestRoute},
+		{"get_post", PermPostsRead, hostGetPost},
+		{"query_posts", PermPostsRead, hostQueryPosts},
+		{"insert_post", PermPostsWrite, hostInsertPost},
+		{"update_post", PermPostsWrite, hostUpdatePost},
+		{"get_current_user", PermUsersRead, hostGetCurrentUser},
+		{"schedule_event", PermCron, hostScheduleEvent},
+		{"unschedule_event", PermCron, hostUnscheduleEvent},
+		{"register_settings_page", PermAdminSettings, hostRegisterSettingsPage},
+		{"transient_get", PermStorage, hostTransientGet},
+		{"transient_set", PermStorage, hostTransientSet},
+		{"transient_delete", PermStorage, hostTransientDelete},
+		{"enqueue_style", PermContentFilter, hostEnqueueStyle},
+		{"enqueue_script", PermContentFilter, hostEnqueueScript},
 	}
 	for _, f := range fns {
 		b.NewFunctionBuilder().

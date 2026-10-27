@@ -415,6 +415,7 @@ func (s *Server) theContent(ctx context.Context, c *gin.Context, p *store.Post, 
 	} else {
 		content = wp.Autop(wp.Texturize(content))
 	}
+	content = s.doShortcodes(ctx, content) // plugin shortcodes (do_shortcode at priority 11)
 	out, _ := s.applyFilters(ctx, "the_content", content, map[string]any{"id": p.ID, "type": p.Type, "is_single": singular}).(string)
 	return out
 }

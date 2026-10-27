@@ -69,6 +69,9 @@ func (s *Server) optionsScreen(page string) gin.HandlerFunc {
 			c.String(http.StatusForbidden, "Sorry, you are not allowed to manage options for this site.")
 			return
 		}
+		if slug := c.Query("page"); page == "general" && slug != "" && s.pluginSettingsScreen(c, slug) {
+			return // Settings › <plugin> (plugins_host.go)
+		}
 		ctx := c.Request.Context()
 		d := optionsData{Page: page, Nonce: s.nonce(c, page+"-options"), Home: s.links(ctx).HomeURL("/"), Now: time.Now()}
 		loc := s.loc()
@@ -144,6 +147,10 @@ func (s *Server) optionsSave(c *gin.Context) {
 		return
 	}
 	page := c.PostForm("option_page")
+	if strings.HasPrefix(page, pluginSettingsSlug) {
+		s.pluginSettingsSave(c, page) // plugin settings page (plugins_host.go)
+		return
+	}
 	keys, ok := optionPages[page]
 	if !ok {
 		c.String(http.StatusBadRequest, "Error: The options page was not found in the allowed options list.")

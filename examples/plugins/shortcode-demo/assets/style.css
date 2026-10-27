@@ -1,0 +1,6 @@
+.gopher-facts { margin: 1.5em 0; }
+.gopher-facts h3 { margin: 0 0 .5em; }
+.gopher-facts--cards ul { list-style: none; padding: 0; display: grid; gap: .75em; }
+.gopher-facts--cards li { padding: .75em 1em; border: 1px solid #dcdcde; border-radius: 6px; background: #f6f7f7; }
+.gopher-facts__greeting { font-weight: 600; }
+.gopher-facts__footer { font-size: .9em; color: #646970; }

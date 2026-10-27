@@ -29,6 +29,13 @@
 // registered with OnInit run at that point too, after the queued hooks, and may
 // already use host functions such as GetOption.
 //
+// Beyond hooks, plugins register shortcodes (AddShortcode), REST routes under
+// their own namespace (RegisterRestRoute), a settings page the admin renders
+// (RegisterSettingsPage), scheduled events (ScheduleEvent) and package assets
+// (EnqueueStyle, EnqueueScript), and read or write posts (GetPost, QueryPosts,
+// InsertPost, UpdatePost), the current user (CurrentUser), options, private
+// storage and transients.
+//
 // Host functions (GetOption, UpdateOption, HTTPGet, Storage, AdminNotice, ...)
 // are subject to the permissions declared in plugin.json and approved by the
 // site administrator. A call the plugin is not allowed to make returns an

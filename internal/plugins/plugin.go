@@ -44,6 +44,13 @@ type Plugin struct {
 	failures int
 	reason   string
 	disabled atomic.Bool
+
+	// Other registrations (registrations.go), guarded by state.
+	shortcodes map[string]string // tag -> callback
+	rest       []RestRoute
+	settings   *SettingsPage
+	assets     []Asset
+	pkgAssets  map[string][]byte // files under assets/ in the package (read-only)
 }
 
 // Slug returns the plugin slug.

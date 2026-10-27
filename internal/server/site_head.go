@@ -61,8 +61,9 @@ func (s *Server) wpHead(c *gin.Context, q *siteQuery, lb *links.Builder, adminBa
 		}
 		fmt.Fprintf(&sb, "<link rel='shortlink' href='%s' />\n", html.EscapeString(lb.HomeURL(short+itoa64(q.Post.ID))))
 	}
-	sb.WriteString(string(s.gweHead(c))) // Golementor frontend styles
-	sb.WriteString(customizeHead(v))     // custom background, site icon, Additional CSS
+	sb.WriteString(string(s.gweHead(c)))                                                            // Golementor frontend styles
+	sb.WriteString(customizeHead(v))                                                                // custom background, site icon, Additional CSS
+	sb.WriteString(string(s.pluginStyleTags("front")) + string(s.pluginScriptTags("front", false))) // plugin assets
 	return template.HTML(sb.String())
 }
 
@@ -76,7 +77,8 @@ func (s *Server) wpFooter(c *gin.Context, q *siteQuery, lb *links.Builder, admin
 		sb.WriteString("<script src=\"/wp-includes/js/hoverintent-js.min.js?ver=2.2.1\" id=\"hoverintent-js-js\"></script>\n") // admin-bar.js dependency
 		sb.WriteString("<script src=\"/wp-includes/js/admin-bar.min.js?ver=" + Version + "\" id=\"admin-bar-js\"></script>\n")
 	}
-	sb.WriteString(string(s.gweFooter(c))) // Golementor frontend scripts
+	sb.WriteString(string(s.gweFooter(c)))                    // Golementor frontend scripts
+	sb.WriteString(string(s.pluginScriptTags("front", true))) // plugin footer scripts
 	return template.HTML(sb.String())
 }
 

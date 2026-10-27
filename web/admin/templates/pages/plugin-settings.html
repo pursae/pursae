@@ -1,0 +1,28 @@
+{{define "admin/plugin-settings"}}{{template "admin-header" .}}{{with .Data}}
+<div class="wrap">
+<h1>{{.Page.PageTitle}}</h1>
+{{template "notices" $}}
+{{with .Page.Description}}<p>{{.}}</p>{{end}}
+<form method="post" action="/wp-admin/options" novalidate="novalidate">
+<input type="hidden" name="option_page" value="plugin:{{.Slug}}" /><input type="hidden" name="action" value="update" />
+<input type="hidden" name="_wpnonce" value="{{.Nonce}}" />
+<table class="form-table" role="presentation">
+{{range .Fields}}<tr>
+<th scope="row">{{if eq .Type "checkbox"}}{{.Label}}{{else}}<label for="{{.Name}}">{{.Label}}</label>{{end}}</th>
+<td>
+{{if eq .Type "checkbox"}}<fieldset><legend class="screen-reader-text"><span>{{.Label}}</span></legend>
+<label for="{{.Name}}"><input name="{{.Name}}" type="checkbox" id="{{.Name}}" value="1"{{if .Checked}} checked="checked"{{end}} /> {{with .Description}}{{.}}{{else}}{{.Label}}{{end}}</label></fieldset>
+{{else if eq .Type "textarea"}}<textarea name="{{.Name}}" id="{{.Name}}" rows="{{if .Rows}}{{.Rows}}{{else}}5{{end}}" cols="50" class="large-text code"{{with .Placeholder}} placeholder="{{.}}"{{end}}>{{.Value}}</textarea>
+{{with .Description}}<p class="description">{{.}}</p>{{end}}
+{{else if eq .Type "number"}}<input name="{{.Name}}" type="number" id="{{.Name}}" value="{{.Value}}" class="small-text"{{with .Min}} min="{{.}}"{{end}}{{with .Max}} max="{{.}}"{{end}} step="any"{{with .Placeholder}} placeholder="{{.}}"{{end}} />
+{{with .Description}}<p class="description">{{.}}</p>{{end}}
+{{else if eq .Type "select"}}<select name="{{.Name}}" id="{{.Name}}">{{$v := .Value}}{{range .Options}}<option value="{{.Value}}"{{if eq .Value $v}} selected="selected"{{end}}>{{.Label}}</option>{{end}}</select>
+{{with .Description}}<p class="description">{{.}}</p>{{end}}
+{{else}}<input name="{{.Name}}" type="text" id="{{.Name}}" value="{{.Value}}" class="regular-text"{{with .Placeholder}} placeholder="{{.}}"{{end}} />
+{{with .Description}}<p class="description">{{.}}</p>{{end}}
+{{end}}</td></tr>
+{{end}}</table>
+<p class="submit"><input type="submit" name="submit" id="submit" class="button button-primary" value="Save Changes" /></p>
+</form>
+</div>
+{{end}}{{template "admin-footer" .}}{{end}}

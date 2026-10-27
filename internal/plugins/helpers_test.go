@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -92,8 +93,19 @@ func buildPackage(t *testing.T, pkgDir string) *Package {
 	if err != nil {
 		t.Fatal(err)
 	}
+	extras := map[string][]byte{}
+	assetsDir := filepath.Join(moduleRoot, pkgDir, AssetsDir)
+	_ = filepath.WalkDir(assetsDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(assetsDir, p)
+		data, _ := os.ReadFile(p)
+		extras[AssetsDir+"/"+filepath.ToSlash(rel)] = data
+		return nil
+	})
 	var buf bytes.Buffer
-	if err := WritePackage(&buf, manifest, wasm, nil, priv); err != nil {
+	if err := WritePackage(&buf, manifest, wasm, extras, priv); err != nil {
 		t.Fatal(err)
 	}
 	pkg, err := LoadPackage(bytes.NewReader(buf.Bytes()), int64(buf.Len()), []ed25519.PublicKey{pub}, true)

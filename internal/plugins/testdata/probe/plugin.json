@@ -2,6 +2,8 @@
   "slug": "probe",
   "name": "Probe",
   "version": "0.0.1",
-  "permissions": ["options:read", "options:write", "storage"],
-  "hooks": ["probe_update_option", "probe_storage", "probe_loop", "probe_panic", "probe_exit", "probe_echo"]
+  "permissions": ["options:read", "options:write", "storage", "content:filter", "rest:routes", "posts:read", "posts:write", "users:read", "cron", "admin:settings"],
+  "hooks": ["probe_update_option", "probe_storage", "probe_loop", "probe_panic", "probe_exit", "probe_echo",
+            "probe_posts", "probe_user", "probe_cron", "cron_probe", "probe_settings", "probe_transient"],
+  "shortcodes": ["probe"]
 }

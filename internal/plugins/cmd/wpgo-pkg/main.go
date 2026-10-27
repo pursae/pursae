@@ -4,7 +4,8 @@
 //	wpgo-pkg keygen -out PREFIX [-comment TEXT]
 //	    writes PREFIX.pub and PREFIX.key (mode 0600); existing files are kept
 //	wpgo-pkg pack -dir PLUGIN_DIR -wasm plugin.wasm -key PREFIX.key -out pkg.zip
-//	    packs PLUGIN_DIR/plugin.json (+ readme.md, icon.svg if present)
+//	    packs PLUGIN_DIR/plugin.json (+ readme.md, icon.svg and assets/** if present);
+//	    the assets' digests are written into the packed plugin.json
 //	wpgo-pkg verify -pub PREFIX.pub pkg.zip
 //	    verifies the signature and prints the manifest summary
 package main
@@ -15,6 +16,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +110,28 @@ func pack(args []string) error {
 			extras[name] = data
 		}
 	}
+	assetsDir := filepath.Join(*dir, plugins.AssetsDir)
+	if st, err := os.Stat(assetsDir); err == nil && st.IsDir() {
+		err := filepath.WalkDir(assetsDir, func(p string, d iofs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(assetsDir, p)
+			rel = filepath.ToSlash(rel)
+			if err := plugins.CheckAssetPath(rel); err != nil {
+				return fmt.Errorf("asset %s: %w", rel, err)
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			extras[plugins.AssetsDir+"/"+rel] = data
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
 	var priv ed25519.PrivateKey
 	if *keyPath != "" {
 		text, err := os.ReadFile(*keyPath)
@@ -125,7 +149,13 @@ func pack(args []string) error {
 	if err := os.WriteFile(*out, buf.Bytes(), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s (%d bytes, signed=%v)\n", *out, buf.Len(), priv != nil)
+	assets := 0
+	for name := range extras {
+		if strings.HasPrefix(name, plugins.AssetsDir+"/") {
+			assets++
+		}
+	}
+	fmt.Printf("wrote %s (%d bytes, signed=%v, assets=%d)\n", *out, buf.Len(), priv != nil, assets)
 	return nil
 }
 
@@ -149,7 +179,7 @@ func verify(args []string) error {
 		return err
 	}
 	m := pkg.Manifest
-	fmt.Printf("%s %s (%s): signature OK, digest %x\n  permissions: %v\n  hooks: %v\n",
-		m.Slug, m.Version, m.Name, pkg.Digest, m.Permissions, m.Hooks)
+	fmt.Printf("%s %s (%s): signature OK, digest %x\n  permissions: %v\n  hooks: %v\n  shortcodes: %v\n  assets: %d\n",
+		m.Slug, m.Version, m.Name, pkg.Digest, m.Permissions, m.Hooks, m.Shortcodes, len(pkg.Assets))
 	return nil
 }

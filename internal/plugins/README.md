@@ -11,7 +11,8 @@ plugins run with [wazero](https://wazero.io) (pure Go, no cgo).
 | `package.go` | Zip packages, Ed25519 signing and verification |
 | `host.go` | `Host` interface the core implements, `MemoryHost` for tests |
 | `runtime.go`, `plugin.go` | `Runtime`: loading, sandboxing, timeouts, failure handling |
-| `abi.go` | The `wpgo` host import module |
+| `abi.go`, `abi_ext.go` | The `wpgo` host import module |
+| `registrations.go` | Shortcodes, REST routes, settings pages and enqueued assets a plugin registered |
 | `cmd/wpgo-pkg` | CLI used by `tools/build-plugins.sh` (keygen, pack, verify) |
 
 The plugin-author SDK lives in `sdk/go/wpgo`. Example plugins are in `examples/plugins`.
@@ -40,20 +41,24 @@ that are both declared and granted.
 
 | Permission | Allows |
 |------------|--------|
-| `options:read` | `get_option` |
-| `options:write` | `update_option` |
-| `posts:read` | hooks that expose post data (`save_post`, `save_post_*`, `wp_insert_post`, `transition_post_status`, `wpgo_post_stats`, …) |
-| `posts:write` | hooks that change post data before saving (`wp_insert_post_data`, `content_save_pre`, …) |
+| `options:read` | `get_option` (sensitive options are hidden; the plugin's own `plugin_<slug>_*` settings are readable) |
+| `options:write` | `update_option` (only `<slug>_*` and `plugin_<slug>_*` options) |
+| `posts:read` | `get_post`, `query_posts`, and hooks that expose post data (`save_post`, `save_post_*`, `wp_insert_post`, `transition_post_status`, `wpgo_post_stats`, …) |
+| `posts:write` | `insert_post`, `update_post`, and hooks that change post data before saving (`wp_insert_post_data`, `content_save_pre`, …) |
 | `http:outbound` | `http_get` |
-| `cron` | hooks named `cron_*` / `wpgo_cron*` |
+| `cron` | hooks named `cron_*` / `wpgo_cron*`, `schedule_event`, `unschedule_event` |
 | `admin:notices` | `admin_notices` hooks and `add_admin_notice` |
-| `content:filter` | display filters: `the_*`, `comment_text`, `widget_text`, `body_class`, … |
-| `storage` | `storage_get` / `storage_set` (private to the plugin) |
+| `content:filter` | display filters: `the_*`, `comment_text`, `widget_text`, `body_class`, …; `register_shortcode`, `enqueue_style`, `enqueue_script` |
+| `storage` | `storage_get` / `storage_set` (private to the plugin), `transient_get` / `transient_set` / `transient_delete` |
+| `rest:routes` | `register_rest_route` |
+| `users:read` | `get_current_user` |
+| `admin:settings` | `register_settings_page` |
 
 `HookPermission(hook)` maps a hook to the permission it needs. The `hooks`
 array in the manifest must list every hook the plugin subscribes to, and
-validation checks that the matching permissions are declared too. The plugin
-needs no permission for `log`, or for hooks such as `init`.
+validation checks that the matching permissions are declared too. Likewise the
+`shortcodes` array must list every shortcode tag the plugin registers. The
+plugin needs no permission for `log`, or for hooks such as `init`.
 
 ## Packages and signing
 
@@ -65,7 +70,17 @@ allowed:
 | `plugin.json` | yes | 64 KiB |
 | `plugin.wasm` | yes | 64 MiB |
 | `readme.md`, `icon.svg` | no | 1 MiB / 256 KiB |
+| `assets/…` | no | 2 MiB per file, 16 MiB and 256 files per package; `.css .js .svg .png .jpg .jpeg .webp .woff2` only |
 | `signature` | if signatures are required | 1 KiB |
+
+Files under `assets/` are served at `/wp-content/plugins/<slug>/assets/<path>`
+while the plugin is active, and a plugin enqueues them with `enqueue_style` /
+`enqueue_script`. Paths are plain segments (letters, digits, `.`, `-`, `_`; no
+segment starts with a dot). The manifest's `assets` map lists the hex SHA-256
+of every asset file: `WritePackage` (and `wpgo-pkg pack`) fills it in, and
+`LoadPackage` rejects a package whose assets are unlisted, missing or do not
+match. Because `plugin.json` is covered by the signature, so are the assets,
+and the digest formula below is unchanged for packages without assets.
 
 The signature is Ed25519 over a canonical SHA-256 digest:
 
@@ -107,7 +122,11 @@ Guest exports:
 The host sends `wpgo_handle` this request:
 `{"plugin":"slug","callback":"…","hook":"the_content","type":"filter","args":[…],"value":…}`.
 The guest replies with `{"value":…}` or `{"error":"…"}`. The guest takes
-ownership of the request buffer.
+ownership of the request buffer. `type` is `filter`, `action`, `shortcode`
+(`hook` is the tag, `args` are `[attrs, content]`, the value must be a JSON
+string) or `rest` (`hook` is the route path, `args` is `[request]`, the value is
+`{"status":200,"body":…,"headers":{…}}`; see `RestRequest` / `RestResponse` in
+`host.go`).
 
 Host imports, module `wpgo`: every import has the signature
 `(ptr, len i32) -> i64`. Each one takes a JSON request and returns a packed
@@ -126,6 +145,29 @@ The import returns `0` if no response could be delivered.
 | `storage_get` | `{"key":"…"}` | `{"found":bool,"value":"…"}` | `storage` |
 | `storage_set` | `{"key":"…","value":"…"}` | – | `storage` |
 | `add_admin_notice` | `{"type":"info\|success\|warning\|error","message":"…"}` | – | `admin:notices` |
+| `register_shortcode` | `{"tag":"…","callback":"…"}` | – | `content:filter` + tag in manifest `shortcodes` |
+| `register_rest_route` | `{"namespace":"<slug>/v1","route":"/items/(?P<id>\\d+)","methods":["GET"],"callback":"…"}` | – | `rest:routes`; namespace is `<slug>` or `<slug>/vN` |
+| `get_post` | `{"id":7}` | `{"found":bool,"post":{…}}` | `posts:read` |
+| `query_posts` | `{"type","status","search","author","term","orderby","order","per_page"(≤100),"page"}` | `{"posts":[…],"total":n,"pages":n}` | `posts:read` |
+| `insert_post` | `{"title","content","excerpt","status","type","slug","meta"}` | the post | `posts:write` |
+| `update_post` | `{"id":7, …fields}` | the post | `posts:write` |
+| `get_current_user` | `{}` | `{"found":bool,"user":{"id","login","display_name","roles","caps"}}` | `users:read` |
+| `schedule_event` | `{"hook":"cron_x","interval":3600,"at":0,"args":{…}}` | – | `cron` + hook in manifest; `interval` 0 = one-off at `at` (unix) |
+| `unschedule_event` | `{"hook":"cron_x"}` | – | `cron` |
+| `register_settings_page` | `{"page_title","menu_title","description","fields":[…]}` | `{"option_prefix":"plugin_<slug>_"}` | `admin:settings` |
+| `transient_get` | `{"key":"…"}` | `{"found":bool,"value":…}` | `storage` |
+| `transient_set` | `{"key":"…","value":…,"ttl":60}` | – | `storage`; `ttl` seconds, 0 = no expiry |
+| `transient_delete` | `{"key":"…"}` | – | `storage` |
+| `enqueue_style` | `{"handle","src":"style.css","deps":[…],"where":"front\|admin\|both","media"}` | – | `content:filter`; `src` must be a package asset |
+| `enqueue_script` | `{"handle","src":"app.js","deps":[…],"where","in_footer":bool}` | – | `content:filter` |
+
+Post objects are `{"id","title","content","excerpt","status","type","slug","date","modified","author","link","terms":{"category":[…],"post_tag":[…]},"meta":{…}}`.
+Settings fields are `{"id","label","type":"text\|textarea\|number\|checkbox\|select","description","placeholder","default","options":[{"value","label"}],"min","max","rows"}`;
+the core renders the page under Settings › *menu_title* and saves each field
+in the option `plugin_<slug>_<id>` (dashes in the slug become underscores).
+Registrations made with `register_*` and `enqueue_*` are kept by the runtime
+(`Plugin.Shortcodes()`, `RestRoutes()`, `SettingsPage()`, `Assets()`) and
+re-sent by the guest after a re-instantiation, so repeating one is a no-op.
 
 The guest may call host imports while it is inside any export. The host may
 call `wpgo_alloc` from inside a host import.
@@ -143,7 +185,9 @@ call `wpgo_alloc` from inside a host import.
   `Plugin.Logs()`.
 - **Messages:** each message may be at most `MaxMessageSize` (default 8 MiB).
   `http_get` bodies may be at most `MaxHTTPBody` (default 4 MiB). Options,
-  storage keys and values, and notices also have size checks.
+  storage keys and values, and notices also have size checks. Post content is
+  limited to 1 MiB, REST request and response bodies to 1 MiB, transient
+  values to 1 MiB, settings pages to 50 fields, cron intervals to 60 s–1 year.
 - **Failures:** a trap, timeout, `proc_exit`, panic (which the SDK recovers) or
   malformed response is logged. The filter then returns the unmodified value.
   If the module instance died, the next call creates a new one, and identical
@@ -169,7 +213,22 @@ html = hooks.ApplyFilters(ctx, "the_content", html, map[string]any{
 	"id": post.ID, "type": post.Type, "is_single": isSingular,
 }).(string)
 hooks.DoAction(ctx, "admin_notices") // then render the notices queued through Host.AdminNotice
+
+// Shortcodes, REST routes, settings pages and assets:
+html = wp.DoShortcode(html, rt.ShortcodeTags(), func(tag string, attrs map[string]string, inner string) string {
+	out, _ := rt.DoShortcode(ctx, tag, attrs, inner)
+	return out
+})
+if p, route, params, ok := rt.FindRestRoute("/my-plugin/v1/items/7"); ok && route.Allows(method) {
+	resp, err := p.ServeRest(ctx, *route, plugins.RestRequest{Method: method, Params: params, …})
+}
+for _, page := range rt.SettingsPages() { … }          // render under Settings, save plugin_<slug>_<field>
+for _, a := range rt.EnqueuedAssets("front", "style") { … } // <link> tags; files from p.PackageAsset(path)
 ```
+
+The core passes the current user to host functions through the context (it
+reads it in `Host.CurrentUser`), and fires scheduled events by running the
+hook named in `ScheduledEvent.Hook` as an action with the event payload.
 
 These conventions describe the extra arguments each hook receives:
 

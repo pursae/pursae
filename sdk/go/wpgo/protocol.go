@@ -109,7 +109,7 @@ func dispatch(request []byte) (resp handleResponse) {
 		}
 	}
 	ctx := Context{Plugin: req.Plugin, Hook: req.Hook, Callback: req.Callback}
-	value, err := cb(ctx, req.Value, args)
+	value, err := cb(ctx, req.Value, args, req.Args)
 	if err != nil {
 		return handleResponse{Error: err.Error()}
 	}

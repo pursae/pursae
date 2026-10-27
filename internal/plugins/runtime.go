@@ -149,11 +149,12 @@ func (rt *Runtime) Load(ctx context.Context, pkg *Package, granted []Permission,
 	}
 
 	p := &Plugin{
-		rt:       rt,
-		manifest: m,
-		perms:    m.PermissionSet().Intersect(NewPermissionSet(granted...)),
-		host:     host,
-		regs:     map[RegisteredHook]HookID{},
+		rt:        rt,
+		manifest:  m,
+		perms:     m.PermissionSet().Intersect(NewPermissionSet(granted...)),
+		host:      host,
+		regs:      map[RegisteredHook]HookID{},
+		pkgAssets: pkg.Assets,
 	}
 	p.logs = newLogRing(rt.cfg.LogEntries, rt.logSink(m.Slug))
 

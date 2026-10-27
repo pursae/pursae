@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"wpgo/internal/wp"
 )
 
 // ManifestFile is the name of the manifest inside a plugin package.
@@ -27,7 +29,9 @@ const ManifestFile = "plugin.json"
 //	  "requires": "0.1.0",
 //	  "license": "GPL-2.0-or-later",
 //	  "permissions": ["options:read", "content:filter"],
-//	  "hooks": ["the_content"]
+//	  "hooks": ["the_content"],
+//	  "shortcodes": ["gopher"],
+//	  "assets": {"style.css": "<sha256 hex>"}
 //	}
 type Manifest struct {
 	// Slug uniquely identifies the plugin: lowercase letters, digits and
@@ -54,6 +58,14 @@ type Manifest struct {
 	// Hooks lists every hook the plugin may subscribe to. Registrations for
 	// hooks missing from this list are rejected at runtime.
 	Hooks []string `json:"hooks"`
+	// Shortcodes lists every shortcode tag the plugin may register
+	// (register_shortcode); it needs the content:filter permission.
+	Shortcodes []string `json:"shortcodes,omitempty"`
+	// Assets maps every file under assets/ in the package to its SHA-256
+	// (hex). wpgo-pkg fills it in when packing; since plugin.json is covered
+	// by the package signature, the assets are too. A package may not carry
+	// asset files that are missing here.
+	Assets map[string]string `json:"assets,omitempty"`
 }
 
 // maxManifestSize bounds plugin.json.
@@ -169,10 +181,93 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
+	seenTag := map[string]bool{}
+	for _, tag := range m.Shortcodes {
+		switch {
+		case !wp.ValidShortcodeTag(tag):
+			add(`shortcode %q is invalid (use lowercase letters, digits, _ and -, max 64 characters)`, tag)
+			continue
+		case seenTag[tag]:
+			add(`shortcode %q is listed twice`, tag)
+			continue
+		}
+		seenTag[tag] = true
+	}
+	if len(m.Shortcodes) > 0 && !declared[PermContentFilter] {
+		add(`shortcodes require the %q permission; add it to "permissions"`, PermContentFilter)
+	}
+
+	var assetTotal int64
+	for name, sum := range m.Assets {
+		if err := CheckAssetPath(name); err != nil {
+			add(`asset %q: %v`, name, err)
+		}
+		if !sha256HexRe.MatchString(sum) {
+			add(`asset %q: digest must be the hex SHA-256 of the file`, name)
+		}
+		assetTotal++
+	}
+	if assetTotal > MaxAssetFiles {
+		add(`too many assets: %d, limit is %d`, assetTotal, MaxAssetFiles)
+	}
+
 	if len(p) > 0 {
 		return &ManifestError{Problems: p}
 	}
 	return nil
+}
+
+// Asset limits: files under assets/ in a package.
+const (
+	MaxAssetFile  = 2 << 20  // per file
+	MaxAssetTotal = 16 << 20 // per package
+	MaxAssetFiles = 256
+	maxAssetPath  = 200
+)
+
+var (
+	sha256HexRe   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	assetPathRe   = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
+	assetTypes    = map[string]string{".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2"}
+	assetExtOrder = []string{".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".woff2"}
+)
+
+// CheckAssetPath validates a path relative to the package's assets/ directory:
+// plain segments (letters, digits, dot, dash, underscore), no "." or ".."
+// segments, at most 200 characters, and one of the allowed extensions.
+func CheckAssetPath(name string) error {
+	if name == "" || len(name) > maxAssetPath || !assetPathRe.MatchString(name) {
+		return fmt.Errorf("path must be relative segments of letters, digits, '.', '-' and '_' (max %d characters)", maxAssetPath)
+	}
+	for _, seg := range strings.Split(name, "/") {
+		if seg == "." || seg == ".." || strings.HasPrefix(seg, ".") {
+			return errors.New("path segments may not start with a dot")
+		}
+	}
+	if AssetContentType(name) == "" {
+		return fmt.Errorf("extension must be one of %s", strings.Join(assetExtOrder, ", "))
+	}
+	return nil
+}
+
+// AssetContentType returns the Content-Type for an asset path, or "" when the
+// extension is not allowed.
+func AssetContentType(name string) string {
+	i := strings.LastIndex(name, ".")
+	if i < 0 {
+		return ""
+	}
+	return assetTypes[strings.ToLower(name[i:])]
+}
+
+// DeclaresShortcode reports whether tag is listed in the manifest.
+func (m *Manifest) DeclaresShortcode(tag string) bool {
+	for _, t := range m.Shortcodes {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // PermissionSet returns the declared permissions as a set.

@@ -17,11 +17,13 @@ const (
 	// PermOptionsWrite allows creating and updating site options
 	// (update_option).
 	PermOptionsWrite Permission = "options:write"
-	// PermPostsRead allows subscribing to hooks that expose post data, such
-	// as save_post or wpgo_post_stats.
+	// PermPostsRead allows reading posts (get_post, query_posts) and
+	// subscribing to hooks that expose post data, such as save_post or
+	// wpgo_post_stats.
 	PermPostsRead Permission = "posts:read"
-	// PermPostsWrite allows subscribing to hooks that can change post data
-	// before it is stored, such as wp_insert_post_data.
+	// PermPostsWrite allows creating and changing posts (insert_post,
+	// update_post) and subscribing to hooks that can change post data before
+	// it is stored, such as wp_insert_post_data.
 	PermPostsWrite Permission = "posts:write"
 	// PermHTTPOutbound allows outbound HTTP GET requests through the host
 	// (http_get). The host may further restrict destinations.
@@ -37,21 +39,34 @@ const (
 	// "the_*" display filters.
 	PermContentFilter Permission = "content:filter"
 	// PermStorage allows using the plugin-private key/value store
-	// (storage_get, storage_set).
+	// (storage_get, storage_set) and transients (transient_get,
+	// transient_set, transient_delete).
 	PermStorage Permission = "storage"
+	// PermRestRoutes allows registering REST API routes under the plugin's
+	// own namespace (register_rest_route).
+	PermRestRoutes Permission = "rest:routes"
+	// PermUsersRead allows reading the current user's identity, roles and
+	// capabilities (get_current_user).
+	PermUsersRead Permission = "users:read"
+	// PermAdminSettings allows registering a settings page under Settings in
+	// the admin (register_settings_page).
+	PermAdminSettings Permission = "admin:settings"
 )
 
 // permissionDescriptions documents every permission for admin screens.
 var permissionDescriptions = map[Permission]string{
 	PermOptionsRead:   "Read site options",
 	PermOptionsWrite:  "Create and change site options",
-	PermPostsRead:     "Receive post data from post lifecycle hooks",
-	PermPostsWrite:    "Modify post data before it is saved",
+	PermPostsRead:     "Read posts and receive post data from post lifecycle hooks",
+	PermPostsWrite:    "Create and change posts",
 	PermHTTPOutbound:  "Make outbound HTTP requests",
 	PermCron:          "Run scheduled tasks",
 	PermAdminNotices:  "Show notices in the admin dashboard",
 	PermContentFilter: "Modify content shown to visitors",
 	PermStorage:       "Store private plugin data",
+	PermRestRoutes:    "Add REST API endpoints",
+	PermUsersRead:     "See who the current user is",
+	PermAdminSettings: "Add a settings page to the admin",
 }
 
 // AllPermissions returns the permission vocabulary in a stable order.

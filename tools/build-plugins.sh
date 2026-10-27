@@ -4,7 +4,8 @@
 #   examples/plugins/dist/<slug>-<version>.zip
 #
 # Each plugin is compiled with GOOS=wasip1 GOARCH=wasm -buildmode=c-shared
-# (a WASI "reactor": the host calls _initialize, then the wpgo_* exports) and
+# (a WASI "reactor": the host calls _initialize, then the wpgo_* exports),
+# packed with its plugin.json, readme.md, icon.svg and assets/ directory, and
 # signed with an Ed25519 key. If examples/plugins/dist/dev-key.key does not
 # exist, a DEVELOPMENT key pair is generated there. Never trust the dev key in
 # production; use your own key via WPGO_SIGNING_KEY=/path/to/key.
@@ -32,7 +33,7 @@ fi
 if [[ $# -gt 0 ]]; then
   plugins=("$@")
 else
-  plugins=(examples/plugins/hello-gopher examples/plugins/word-counter)
+  plugins=(examples/plugins/hello-gopher examples/plugins/word-counter examples/plugins/shortcode-demo)
 fi
 
 tmp="$(mktemp -d)"

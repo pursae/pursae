@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,9 @@ const (
 	ReadmeFile    = "readme.md"
 	IconFile      = "icon.svg"
 	SignatureFile = "signature"
+	// AssetsDir holds static files (css, js, images, fonts) the core serves
+	// at /wp-content/plugins/<slug>/assets/…; see Manifest.Assets.
+	AssetsDir = "assets"
 )
 
 // Per-file size limits (uncompressed).
@@ -56,6 +60,9 @@ type Package struct {
 	Wasm         []byte
 	Readme       []byte // optional
 	Icon         []byte // optional
+	// Assets holds the files under assets/ by their path inside that
+	// directory. Each one's SHA-256 was checked against Manifest.Assets.
+	Assets map[string][]byte
 	// Digest is the canonical SHA-256 digest that the signature covers.
 	Digest [sha256.Size]byte
 	// Signed reports whether the package carries a signature file.
@@ -169,14 +176,39 @@ func LoadPackage(r io.ReaderAt, size int64, trustedKeys []ed25519.PublicKey, req
 		return nil, fmt.Errorf("plugin package is not a valid zip archive: %w", err)
 	}
 	files := map[string][]byte{}
+	assets := map[string][]byte{}
+	var assetTotal int64
 	for _, f := range zr.File {
 		name := f.Name
 		if f.FileInfo().IsDir() {
 			continue
 		}
+		if rel, ok := strings.CutPrefix(name, AssetsDir+"/"); ok {
+			if err := CheckAssetPath(rel); err != nil {
+				return nil, fmt.Errorf("plugin package asset %q: %w", name, err)
+			}
+			if _, dup := assets[rel]; dup {
+				return nil, fmt.Errorf("plugin package contains %q twice", name)
+			}
+			if f.UncompressedSize64 > MaxAssetFile {
+				return nil, fmt.Errorf("%s is %d bytes, limit is %d", name, f.UncompressedSize64, MaxAssetFile)
+			}
+			data, err := readZipFile(f, MaxAssetFile)
+			if err != nil {
+				return nil, err
+			}
+			if assetTotal += int64(len(data)); assetTotal > MaxAssetTotal {
+				return nil, fmt.Errorf("plugin package assets exceed %d bytes in total", MaxAssetTotal)
+			}
+			if len(assets) >= MaxAssetFiles {
+				return nil, fmt.Errorf("plugin package has more than %d assets", MaxAssetFiles)
+			}
+			assets[rel] = data
+			continue
+		}
 		limit, known := fileLimits[name]
 		if !known {
-			return nil, fmt.Errorf("plugin package contains unexpected file %q (allowed: %s)", name, allowedFiles())
+			return nil, fmt.Errorf("plugin package contains unexpected file %q (allowed: %s, %s/…)", name, allowedFiles(), AssetsDir)
 		}
 		if _, dup := files[name]; dup {
 			return nil, fmt.Errorf("plugin package contains %q twice", name)
@@ -228,6 +260,22 @@ func LoadPackage(r io.ReaderAt, size int64, trustedKeys []ed25519.PublicKey, req
 		return nil, err
 	}
 	pkg.Manifest = m
+	// Assets are covered by the signature through their digests in plugin.json.
+	for rel, data := range assets {
+		want, listed := m.Assets[rel]
+		if !listed {
+			return nil, fmt.Errorf("plugin package asset %q is not listed in plugin.json \"assets\"", rel)
+		}
+		if fmt.Sprintf("%x", sha256.Sum256(data)) != want {
+			return nil, fmt.Errorf("plugin package asset %q does not match its digest in plugin.json", rel)
+		}
+	}
+	for rel := range m.Assets {
+		if _, ok := assets[rel]; !ok {
+			return nil, fmt.Errorf("plugin.json lists asset %q, which is missing from the package", rel)
+		}
+	}
+	pkg.Assets = assets
 	return pkg, nil
 }
 
@@ -245,18 +293,53 @@ func LoadPackageFile(path string, trustedKeys []ed25519.PublicKey, requireSignat
 	return LoadPackage(f, st.Size(), trustedKeys, requireSignature)
 }
 
-// WritePackage writes a plugin package zip to w. extras may hold readme.md and
-// icon.svg. When priv is non-nil the package is signed.
+// WritePackage writes a plugin package zip to w. extras may hold readme.md,
+// icon.svg and files under assets/ (keys like "assets/style.css"). When the
+// package has assets, their digests are written into the manifest's "assets"
+// map, so the signature (made over the final plugin.json) covers them. When
+// priv is non-nil the package is signed.
 func WritePackage(w io.Writer, manifestJSON, wasm []byte, extras map[string][]byte, priv ed25519.PrivateKey) error {
-	if _, err := ParseManifest(manifestJSON); err != nil {
+	m, err := ParseManifest(manifestJSON)
+	if err != nil {
 		return err
 	}
 	files := map[string][]byte{ManifestFile: manifestJSON, WasmFile: wasm}
+	digests := map[string]string{}
+	var assetTotal int
 	for name, data := range extras {
+		if rel, ok := strings.CutPrefix(name, AssetsDir+"/"); ok {
+			if err := CheckAssetPath(rel); err != nil {
+				return fmt.Errorf("asset %q: %w", name, err)
+			}
+			if len(data) > MaxAssetFile {
+				return fmt.Errorf("asset %q is %d bytes, limit is %d", name, len(data), MaxAssetFile)
+			}
+			if assetTotal += len(data); assetTotal > MaxAssetTotal {
+				return fmt.Errorf("assets exceed %d bytes in total", MaxAssetTotal)
+			}
+			digests[rel] = fmt.Sprintf("%x", sha256.Sum256(data))
+			files[name] = data
+			continue
+		}
 		if name != ReadmeFile && name != IconFile {
-			return fmt.Errorf("unsupported extra file %q (allowed: %s, %s)", name, ReadmeFile, IconFile)
+			return fmt.Errorf("unsupported extra file %q (allowed: %s, %s, %s/…)", name, ReadmeFile, IconFile, AssetsDir)
 		}
 		files[name] = data
+	}
+	if len(digests) > 0 || len(m.Assets) > 0 {
+		if len(digests) > MaxAssetFiles {
+			return fmt.Errorf("more than %d assets", MaxAssetFiles)
+		}
+		m.Assets = digests
+		if len(digests) == 0 {
+			m.Assets = nil
+		}
+		manifestJSON, err = json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			return err
+		}
+		manifestJSON = append(manifestJSON, '\n')
+		files[ManifestFile] = manifestJSON
 	}
 	if priv != nil {
 		files[SignatureFile] = Sign(priv, manifestJSON, wasm)

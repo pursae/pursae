@@ -176,6 +176,8 @@ func (s *Server) routes() *gin.Engine {
 	}
 	r.GET("/wp-content/uploads/*filepath", serveUpload)
 	r.HEAD("/wp-content/uploads/*filepath", serveUpload)
+	r.GET(pluginAssetsPath+"/:slug/assets/*filepath", s.pluginAsset) // plugin package assets (plugins_host.go)
+	r.HEAD(pluginAssetsPath+"/:slug/assets/*filepath", s.pluginAsset)
 
 	r.GET("/wp-admin/install", s.installForm)
 	r.POST("/wp-admin/install", s.installSubmit)
@@ -342,6 +344,7 @@ func (s *Server) loadUser() gin.HandlerFunc {
 				if u, err := s.store.UserByID(c, sess.UserID); err == nil {
 					c.Set(ctxUser, u)
 					c.Set(ctxSession, sess)
+					c.Request = c.Request.WithContext(withPluginUser(c.Request.Context(), u)) // get_current_user for plugins
 				}
 			}
 		}

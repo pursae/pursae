@@ -97,15 +97,75 @@ func hostStorageSet(ptr, size uint32) uint64
 //go:wasmimport wpgo add_admin_notice
 func hostAddAdminNotice(ptr, size uint32) uint64
 
+//go:wasmimport wpgo register_shortcode
+func hostRegisterShortcode(ptr, size uint32) uint64
+
+//go:wasmimport wpgo register_rest_route
+func hostRegisterRestRoute(ptr, size uint32) uint64
+
+//go:wasmimport wpgo get_post
+func hostGetPost(ptr, size uint32) uint64
+
+//go:wasmimport wpgo query_posts
+func hostQueryPosts(ptr, size uint32) uint64
+
+//go:wasmimport wpgo insert_post
+func hostInsertPost(ptr, size uint32) uint64
+
+//go:wasmimport wpgo update_post
+func hostUpdatePost(ptr, size uint32) uint64
+
+//go:wasmimport wpgo get_current_user
+func hostGetCurrentUser(ptr, size uint32) uint64
+
+//go:wasmimport wpgo schedule_event
+func hostScheduleEvent(ptr, size uint32) uint64
+
+//go:wasmimport wpgo unschedule_event
+func hostUnscheduleEvent(ptr, size uint32) uint64
+
+//go:wasmimport wpgo register_settings_page
+func hostRegisterSettingsPage(ptr, size uint32) uint64
+
+//go:wasmimport wpgo transient_get
+func hostTransientGet(ptr, size uint32) uint64
+
+//go:wasmimport wpgo transient_set
+func hostTransientSet(ptr, size uint32) uint64
+
+//go:wasmimport wpgo transient_delete
+func hostTransientDelete(ptr, size uint32) uint64
+
+//go:wasmimport wpgo enqueue_style
+func hostEnqueueStyle(ptr, size uint32) uint64
+
+//go:wasmimport wpgo enqueue_script
+func hostEnqueueScript(ptr, size uint32) uint64
+
 var imports = map[string]func(ptr, size uint32) uint64{
-	"add_hook":         hostAddHook,
-	"get_option":       hostGetOption,
-	"update_option":    hostUpdateOption,
-	"log":              hostLog,
-	"http_get":         hostHTTPGet,
-	"storage_get":      hostStorageGet,
-	"storage_set":      hostStorageSet,
-	"add_admin_notice": hostAddAdminNotice,
+	"add_hook":               hostAddHook,
+	"get_option":             hostGetOption,
+	"update_option":          hostUpdateOption,
+	"log":                    hostLog,
+	"http_get":               hostHTTPGet,
+	"storage_get":            hostStorageGet,
+	"storage_set":            hostStorageSet,
+	"add_admin_notice":       hostAddAdminNotice,
+	"register_shortcode":     hostRegisterShortcode,
+	"register_rest_route":    hostRegisterRestRoute,
+	"get_post":               hostGetPost,
+	"query_posts":            hostQueryPosts,
+	"insert_post":            hostInsertPost,
+	"update_post":            hostUpdatePost,
+	"get_current_user":       hostGetCurrentUser,
+	"schedule_event":         hostScheduleEvent,
+	"unschedule_event":       hostUnscheduleEvent,
+	"register_settings_page": hostRegisterSettingsPage,
+	"transient_get":          hostTransientGet,
+	"transient_set":          hostTransientSet,
+	"transient_delete":       hostTransientDelete,
+	"enqueue_style":          hostEnqueueStyle,
+	"enqueue_script":         hostEnqueueScript,
 }
 
 func invokeHost(name string, body []byte) ([]byte, error) {

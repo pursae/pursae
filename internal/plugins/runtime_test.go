@@ -169,7 +169,7 @@ func TestExitIsRecovered(t *testing.T) {
 		dumpLogs(t, p)
 		t.Fatalf("plugin did not recover after exit: %q", got)
 	}
-	if n := len(p.Hooks()); n != 6 {
+	if n := len(p.Hooks()); n != 12 {
 		t.Fatalf("re-instantiation duplicated hooks: %d registered", n)
 	}
 	if n := len(hooks.Owners("probe_echo")); n != 1 {

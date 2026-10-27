@@ -213,11 +213,20 @@ immediately and the page is test-rendered. If the change has a template or rende
 **rolled back automatically** and the editor shows the error. **Restore original** removes the
 override. Set `WPGO_DISALLOW_FILE_EDIT=1` to turn editing off.
 
+Themes can also be installed as code-free **theme packages** (`theme.json`, Go templates, assets)
+through Appearance › Themes › Add Theme; the format is in [docs/theme-package.md](docs/theme-package.md)
+and the theme developer guide at [/docs/themes/](https://wordpressgo.dev/docs/themes/).
+
 ## Plugins
 
 Plugins are signed WebAssembly packages that run in a sandbox (wazero) with permissions you
 grant at activation. A crash or runaway loop in a plugin is contained and does not take the
-site down. The Go SDK lives in `sdk/go/wpgo`; examples are in `examples/plugins`.
+site down. Plugins can filter content, register shortcodes, add REST routes under their own
+namespace, read and write posts, declare a settings page under Settings, schedule events, cache
+data in transients and ship CSS/JS assets. The Go SDK lives in `sdk/go/wpgo`; examples are in
+`examples/plugins` (`hello-gopher`, `word-counter` and `shortcode-demo`, which uses every SDK
+feature); the ABI is documented in [internal/plugins/README.md](internal/plugins/README.md) and
+the plugin developer guide at [/docs/plugins/](https://wordpressgo.dev/docs/plugins/).
 
 ```sh
 tools/build-plugins.sh      # builds the example plugins into examples/plugins/dist
@@ -312,7 +321,8 @@ first build; make sure Docker has network access. Later builds are cached.
 - **WPGo Cache** (built-in plugin) — in-process full-page cache with tag-based purges, crawler,
   gzip + ETag, CDN purge headers, lazy images, deferred scripts, font preloads.
 - **Plugins** — signed WebAssembly packages, granted permissions, hooks `init`, `the_content`,
-  `admin_notices`, `wpgo_post_stats`.
+  `admin_notices`, `wpgo_post_stats` and scheduled `cron_*` events; shortcodes, REST routes,
+  posts and current-user APIs, settings pages, transients and package assets.
 - **System** — job runner on the `jobs` table (multi-instance safe) with WordPress' scheduled
   events, e-mail, WXR import/export.
 

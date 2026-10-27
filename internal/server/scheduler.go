@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"wpgo/internal/mail"
@@ -30,6 +32,18 @@ var coreEvents = []struct{ Name, Recurrence string }{
 	{"delete_expired_transients", "daily"},
 	{"wp_session_gc", "hourly"},      // expired login sessions and old login attempts
 	{"wpgo_cache_janitor", "hourly"}, // expired page-cache entries
+}
+
+// recurrenceInterval maps a recurrence name to its interval: the WordPress names above, or
+// "every:<seconds>" for plugin events (schedule_event). Unknown names fall back to a day.
+func recurrenceInterval(rec string) time.Duration {
+	if d, ok := recurrences[rec]; ok {
+		return d
+	}
+	if n, err := strconv.ParseInt(strings.TrimPrefix(rec, "every:"), 10, 64); err == nil && n >= 60 {
+		return time.Duration(n) * time.Second
+	}
+	return 24 * time.Hour
 }
 
 func (s *Server) jobHandlers() map[string]jobHandler {
@@ -182,7 +196,7 @@ func (s *Server) runDueJobs(ctx context.Context, worker string, handlers map[str
 		switch {
 		case runErr == nil && j.rec != "":
 			_, _ = s.store.Pool.Exec(ctx, `UPDATE jobs SET status = 'queued', attempts = 0, last_error = '', locked_by = NULL,
-				run_at = greatest(run_at + $2::interval, now()) WHERE id = $1`, j.id, fmt.Sprintf("%d seconds", int(recurrences[j.rec].Seconds())))
+				run_at = greatest(run_at + $2::interval, now()) WHERE id = $1`, j.id, fmt.Sprintf("%d seconds", int(recurrenceInterval(j.rec).Seconds())))
 		case runErr == nil:
 			_, _ = s.store.Pool.Exec(ctx, `UPDATE jobs SET status = 'done', locked_by = NULL WHERE id = $1`, j.id)
 		case j.attempts+1 < 5:

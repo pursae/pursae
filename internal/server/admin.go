@@ -339,11 +339,12 @@ func (s *Server) adminPage(c *gin.Context, screen, title, bodyClass, tmpl string
 		v.BodyClass += " folded"
 	}
 	v.CacheBar = s.cacheAdminBar(c, u)
+	s.pluginMenuEntries(v.Menu, screen) // plugin settings pages under Settings (plugins_host.go)
 	a := s.pageAssets(c)
 	a.Script("common", "admin-bar", "utils", "svg-painter")
-	v.ExtraStyles = s.styleTags(a)
-	v.HeadScripts = template.HTML(s.importMap()) + s.scriptTags(c, a, false)
-	v.FooterScripts = s.scriptTags(c, a, true)
+	v.ExtraStyles = s.styleTags(a) + s.pluginStyleTags("admin")
+	v.HeadScripts = template.HTML(s.importMap()) + s.scriptTags(c, a, false) + s.pluginScriptTags("admin", false)
+	v.FooterScripts = s.scriptTags(c, a, true) + s.pluginScriptTags("admin", true)
 	if extra, ok := c.Get("wpgo.bodyHTML"); ok {
 		v.ExtraBodyHTML = extra.(template.HTML)
 	}

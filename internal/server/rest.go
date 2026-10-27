@@ -315,6 +315,9 @@ func (api *restAPI) serve(c *gin.Context, route string) {
 		h(c, req)
 		return
 	}
+	if s.servePluginRest(c, route, method) { // plugin routes (plugins_host.go), never shadowing core ones
+		return
+	}
 	restErr(c, http.StatusNotFound, "rest_no_route", "No route was found matching the URL and request method.")
 }
 
@@ -380,6 +383,10 @@ func (api *restAPI) index(c *gin.Context) {
 		}
 		sort.Strings(methods)
 		routes[r.Pattern] = map[string]any{"namespace": r.Namespace, "methods": methods}
+		nsSet[r.Namespace] = true
+	}
+	for _, r := range s.pluginRestRoutes() { // plugin routes (plugins_host.go)
+		routes[r.Path()] = map[string]any{"namespace": r.Namespace, "methods": r.Methods}
 		nsSet[r.Namespace] = true
 	}
 	var namespaces []string

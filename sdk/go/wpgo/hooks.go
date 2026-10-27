@@ -27,8 +27,9 @@ type FilterFunc[T any] func(ctx Context, value T, args []any) T
 // to DoAction.
 type ActionFunc func(ctx Context, args []any)
 
-// rawCallback is the type-erased form stored in the callback table.
-type rawCallback func(ctx Context, value json.RawMessage, args []any) (json.RawMessage, error)
+// rawCallback is the type-erased form stored in the callback table. args are
+// the decoded extra arguments, raw the same arguments as JSON.
+type rawCallback func(ctx Context, value json.RawMessage, args []any, raw []json.RawMessage) (json.RawMessage, error)
 
 // hookRegistration mirrors the JSON accepted by the host's add_hook import.
 type hookRegistration struct {
@@ -42,6 +43,7 @@ var (
 	mu          sync.Mutex
 	callbacks   = map[string]rawCallback{}
 	pending     []hookRegistration
+	pendingRegs []func() // other registrations (shortcodes, routes, …) queued until init
 	initFuncs   []func()
 	initialized bool
 	nextID      int
@@ -55,7 +57,7 @@ var (
 // If fn's value cannot be decoded into T, the host receives an error and keeps
 // the original value.
 func AddFilter[T any](hook string, priority int, fn FilterFunc[T]) {
-	register("filter", hook, priority, func(ctx Context, raw json.RawMessage, args []any) (json.RawMessage, error) {
+	register("filter", hook, priority, func(ctx Context, raw json.RawMessage, args []any, _ []json.RawMessage) (json.RawMessage, error) {
 		var v T
 		if len(raw) > 0 {
 			if err := json.Unmarshal(raw, &v); err != nil {
@@ -68,7 +70,7 @@ func AddFilter[T any](hook string, priority int, fn FilterFunc[T]) {
 
 // AddAction registers fn as an action for hook at the given priority.
 func AddAction(hook string, priority int, fn ActionFunc) {
-	register("action", hook, priority, func(ctx Context, _ json.RawMessage, args []any) (json.RawMessage, error) {
+	register("action", hook, priority, func(ctx Context, _ json.RawMessage, args []any, _ []json.RawMessage) (json.RawMessage, error) {
 		fn(ctx, args)
 		return nil, nil
 	})
@@ -100,6 +102,30 @@ func register(kind, hook string, priority int, cb rawCallback) {
 	}
 }
 
+// addCallback stores cb under a fresh name "<kind>:<name>#<n>" and returns it.
+func addCallback(kind, name string, cb rawCallback) string {
+	mu.Lock()
+	defer mu.Unlock()
+	nextID++
+	id := fmt.Sprintf("%s:%s#%d", kind, name, nextID)
+	callbacks[id] = cb
+	return id
+}
+
+// queueRegistration runs fn now when the host has initialised the plugin, or
+// queues it until wpgo_init otherwise.
+func queueRegistration(fn func()) {
+	mu.Lock()
+	live := initialized
+	if !live {
+		pendingRegs = append(pendingRegs, fn)
+	}
+	mu.Unlock()
+	if live {
+		fn()
+	}
+}
+
 func lookupCallback(name string) (rawCallback, bool) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -124,6 +150,8 @@ func runInit() {
 	initialized = true
 	regs := pending
 	pending = nil
+	others := pendingRegs
+	pendingRegs = nil
 	fns := initFuncs
 	mu.Unlock()
 
@@ -131,6 +159,9 @@ func runInit() {
 		if err := sendRegistration(reg); err != nil {
 			Log("error", "add_hook "+reg.Hook+": "+err.Error())
 		}
+	}
+	for _, fn := range others {
+		fn()
 	}
 	for _, fn := range fns {
 		func() {
