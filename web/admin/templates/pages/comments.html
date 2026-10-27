@@ -19,6 +19,10 @@
 	<input type="submit" id="search-submit" class="button button-compact" value="Search Comments" />
 </p>
 <input type="hidden" name="comment_status" value="{{.Status}}" />
+{{if .PostID}}<input type="hidden" name="p" value="{{.PostID}}" />{{end}}
+<input type="hidden" name="_total" value="{{.Total}}" />
+<input type="hidden" name="_per_page" value="{{.PerPage}}" />
+<input type="hidden" name="_page" value="{{.Page}}" />
 <input type="hidden" name="_wpnonce" value="{{.BulkNonce}}" />
 <div class="tablenav top">
 	{{template "comments-bulk" dict "Pos" "top" "Status" .Status}}
@@ -35,26 +39,11 @@
 	<br class="clear" />
 </div>
 <h2 class="screen-reader-text">Comments list</h2>
-<table class="wp-list-table widefat fixed striped table-view-list comments">
+<table class="wp-list-table widefat fixed striped table-view-{{.Mode}} comments">
 <thead>{{template "comments-head" dict "Top" true "D" .}}</thead>
 <tbody id="the-comment-list" data-wp-lists="list:comment">
-{{range .Rows}}
-<tr id="comment-{{.ID}}" class="{{.Class}}">
-	<th scope="row" class="check-column"><input id="cb-select-{{.ID}}" type="checkbox" name="delete_comments[]" value="{{.ID}}" /><label for="cb-select-{{.ID}}"><span class="screen-reader-text">Select comment</span></label></th>
-	<td class="author column-author" data-colname="Author"><strong>{{.Avatar}} {{.AuthorName}}</strong><br />
-		{{if .AuthorHost}}<a href="{{.AuthorURL}}">{{.AuthorHost}}</a><br />{{end}}
-		{{if .AuthorEmail}}<a href="mailto:{{.AuthorEmail}}">{{.AuthorEmail}}</a><br />{{end}}
-		{{if .AuthorIP}}<a href="/wp-admin/edit-comments?s={{.AuthorIP}}&amp;mode=detail">{{.AuthorIP}}</a>{{end}}</td>
-	<td class="comment column-comment has-row-actions column-primary" data-colname="Comment">
-		{{if .ParentNote}}<div class="comment-author">{{.ParentNote}}</div>{{end}}
-		{{.Content}}
-		<div class="row-actions">{{range $i, $a := .Actions}}<span class="{{$a.Class}}">{{if $i}} | {{end}}<a href="{{$a.URL}}" aria-label="{{$a.Aria}}">{{$a.Label}}</a></span>{{end}}</div>
-		<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button>
-	</td>
-	<td class="response column-response" data-colname="In response to"><div class="response-links"><a href="{{.PostEditURL}}" class="comments-edit-item-link">{{.PostTitle}}</a><a href="{{.PostURL}}" class="comments-view-item-link">View Post</a><span class="post-com-count-wrapper post-com-count-{{.ID}}"><a href="/wp-admin/edit-comments?p={{.ID}}&amp;comment_status=approved" class="post-com-count post-com-count-approved"><span class="comment-count-approved" aria-hidden="true">{{.PostCount}}</span><span class="screen-reader-text">{{.PostCount}} approved comments</span></a></span></div></td>
-	<td class="date column-date" data-colname="Submitted on"><div class="submitted-on">{{if .Permalink}}<a href="{{.Permalink}}">{{.Date}}</a>{{else}}{{.Date}}{{end}}</div></td>
-</tr>
-{{else}}<tr class="no-items"><td class="colspanchange" colspan="5">No comments found.</td></tr>{{end}}
+{{range .Rows}}{{template "comment-row" dict "R" . "D" $.Data}}
+{{else}}<tr class="no-items"><td class="colspanchange" colspan="{{.ColCount}}">No comments found.</td></tr>{{end}}
 </tbody>
 <tfoot>{{template "comments-head" dict "Top" false "D" .}}</tfoot>
 </table>
@@ -64,8 +53,97 @@
 	<br class="clear" />
 </div>
 </form>
+{{if .Rows}}{{if .CanModerate}}{{template "comment-reply" .}}{{end}}{{end}}
+<div id="ajax-response"></div>
 </div>
 {{end}}{{template "admin-footer" .}}{{end}}
+
+{{define "comment-row"}}{{$d := .D}}{{with .R}}<tr id="comment-{{.ID}}" class="{{.Class}}">
+	<th scope="row" class="check-column">{{if .CanEdit}}<input id="cb-select-{{.ID}}" type="checkbox" name="delete_comments[]" value="{{.ID}}" /><label for="cb-select-{{.ID}}"><span class="screen-reader-text">Select comment</span></label>{{end}}</th>
+	<td class="author column-author{{if index $d.Hidden "author"}} hidden{{end}}" data-colname="Author"><strong>{{.Avatar}} {{.AuthorName}}</strong><br />
+		{{if .AuthorHost}}<a href="{{.AuthorURL}}">{{.AuthorHost}}</a><br />{{end}}
+		{{if .AuthorEmail}}<a href="mailto:{{.AuthorEmail}}">{{.AuthorEmail}}</a><br />{{end}}
+		{{if .AuthorIP}}<a href="/wp-admin/edit-comments?s={{.AuthorIP}}&amp;mode=detail">{{.AuthorIP}}</a>{{end}}</td>
+	<td class="comment column-comment has-row-actions column-primary" data-colname="Comment">
+		{{if .ParentNote}}<div class="comment-author">{{.ParentNote}}</div>{{end}}
+		{{.Content}}
+		{{if .CanEdit}}<div id="inline-{{.ID}}" class="hidden">
+			<textarea class="comment" rows="1" cols="1">{{.RawContent}}</textarea>
+			<div class="author-email">{{.AuthorEmail}}</div>
+			<div class="author">{{.AuthorName}}</div>
+			<div class="author-url">{{.AuthorURL}}</div>
+			<div class="comment_status">{{.StatusFlag}}</div>
+		</div>{{end}}
+		{{.Actions}}
+		<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button>
+	</td>
+	<td class="response column-response{{if index $d.Hidden "response"}} hidden{{end}}" data-colname="In response to"><div class="response-links"><a href="{{.PostEditURL}}" class="comments-edit-item-link">{{.PostTitle}}</a><a href="{{.PostURL}}" class="comments-view-item-link">View Post</a><span class="post-com-count-wrapper post-com-count-{{.PostID}}"><a href="/wp-admin/edit-comments?p={{.PostID}}&amp;comment_status=approved" class="post-com-count post-com-count-approved"><span class="comment-count-approved" aria-hidden="true">{{.PostCount}}</span><span class="screen-reader-text">{{.PostCount}} approved comments</span></a></span></div></td>
+	<td class="date column-date{{if index $d.Hidden "date"}} hidden{{end}}" data-colname="Submitted on"><div class="submitted-on">{{if .Permalink}}<a href="{{.Permalink}}">{{.Date}}</a>{{else}}{{.Date}}{{end}}</div></td>
+</tr>{{end}}{{end}}
+
+{{/* wp_comment_reply(): the hidden reply / quick edit row admin-comments.js moves under a comment. */}}
+{{define "comment-reply"}}<form method="get">
+<table style="display:none;"><tbody id="com-reply">
+<tr id="replyrow" style="display:none;">
+	<td colspan="{{.ColCount}}" class="colspanchange">
+		<fieldset class="comment-reply">
+		<legend>
+			<span class="hidden" id="editlegend">Edit Comment</span>
+			<span class="hidden" id="replyhead">Reply to Comment</span>
+			<span class="hidden" id="addhead">Add New Comment</span>
+		</legend>
+
+		<div id="replycontainer">
+		<label for="replycontent" class="screen-reader-text">Comment</label>
+		<div id="wp-replycontent-wrap" class="wp-core-ui wp-editor-wrap html-active"><div id="wp-replycontent-editor-container" class="wp-editor-container"><div id="qt_replycontent_toolbar" class="quicktags-toolbar"></div><textarea class="wp-editor-area" rows="8" autocomplete="off" cols="40" name="replycontent" id="replycontent"></textarea></div>
+		</div>
+		</div>
+
+		<div id="edithead" style="display:none;">
+			<div class="inside">
+				<label for="author-name">Name</label>
+				<input type="text" name="newcomment_author" size="50" value="" id="author-name" />
+			</div>
+
+			<div class="inside">
+				<label for="author-email">Email</label>
+				<input type="text" name="newcomment_author_email" size="50" value="" id="author-email" />
+			</div>
+
+			<div class="inside">
+				<label for="author-url">URL</label>
+				<input type="text" id="author-url" name="newcomment_author_url" size="103" value="" />
+			</div>
+		</div>
+
+		<div id="replysubmit" class="submit">
+			<p class="reply-submit-buttons">
+				<button type="button" class="save button button-primary">
+					<span id="addbtn" style="display: none;">Add Comment</span>
+					<span id="savebtn" style="display: none;">Update Comment</span>
+					<span id="replybtn" style="display: none;">Submit Reply</span>
+				</button>
+				<button type="button" class="cancel button">Cancel</button>
+				<span class="waiting spinner"></span>
+			</p>
+			<div class="notice notice-error notice-alt inline hidden">
+				<p class="error"></p>
+			</div>
+		</div>
+
+		<input type="hidden" name="action" id="action" value="" />
+		<input type="hidden" name="comment_ID" id="comment_ID" value="" />
+		<input type="hidden" name="comment_post_ID" id="comment_post_ID" value="" />
+		<input type="hidden" name="status" id="status" value="" />
+		<input type="hidden" name="position" id="position" value="-1" />
+		<input type="hidden" name="checkbox" id="checkbox" value="1" />
+		<input type="hidden" name="mode" id="mode" value="{{if .PostID}}single{{end}}" />
+		<input type="hidden" id="_ajax_nonce-replyto-comment" name="_ajax_nonce-replyto-comment" value="{{.ReplyNonce}}" />
+		</fieldset>
+	</td>
+</tr>
+</tbody></table>
+</form>{{end}}
 
 {{define "comments-bulk"}}<div class="alignleft actions bulkactions">
 	<label for="bulk-action-selector-{{.Pos}}" class="screen-reader-text">Select bulk action</label>
@@ -80,10 +158,10 @@
 
 {{define "comments-head"}}<tr>
 	<td {{if .Top}}id="cb" {{end}}class="manage-column column-cb check-column"><input id="cb-select-all-{{if .Top}}1{{else}}2{{end}}" type="checkbox" /><label for="cb-select-all-{{if .Top}}1{{else}}2{{end}}"><span class="screen-reader-text">Select All</span></label></td>
-	{{template "sort-th" dict "ID" (or (and .Top "author") "") "Col" "author" "Label" "Author" "Link" (index .D.SortLinks "comment_author")}}
+	{{template "sort-th" dict "ID" (or (and .Top "author") "") "Col" "author" "Label" "Author" "Link" (index .D.SortLinks "comment_author") "Hidden" (index .D.Hidden "author")}}
 	<th scope="col" {{if .Top}}id="comment" {{end}}class="manage-column column-comment column-primary">Comment</th>
-	{{template "sort-th" dict "ID" (or (and .Top "response") "") "Col" "response" "Label" "In response to" "Link" (index .D.SortLinks "comment_post_ID")}}
-	{{template "sort-th" dict "ID" (or (and .Top "date") "") "Col" "date" "Label" "Submitted on" "Link" (index .D.SortLinks "comment_date")}}
+	{{template "sort-th" dict "ID" (or (and .Top "response") "") "Col" "response" "Label" "In response to" "Link" (index .D.SortLinks "comment_post_ID") "Hidden" (index .D.Hidden "response")}}
+	{{template "sort-th" dict "ID" (or (and .Top "date") "") "Col" "date" "Label" "Submitted on" "Link" (index .D.SortLinks "comment_date") "Hidden" (index .D.Hidden "date")}}
 </tr>{{end}}
 
 {{define "admin/comment-edit"}}{{template "admin-header" .}}{{with .Data}}

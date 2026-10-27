@@ -52,8 +52,8 @@ var _wpColorScheme = {{.Color.Icons}};
 {{template "admin-bar" .}}
 <div id="wpbody" role="main">
 <div id="wpbody-content">
-{{with .Help}}<div id="screen-meta" class="metabox-prefs">
-	<div id="contextual-help-wrap" class="hidden" tabindex="-1" aria-label="Contextual Help Tab">
+{{if or .Help .ScreenOptions}}<div id="screen-meta" class="metabox-prefs">
+{{.ScreenOptions}}{{with .Help}}	<div id="contextual-help-wrap" class="hidden" tabindex="-1" aria-label="Contextual Help Tab">
 		<div id="contextual-help-back"></div>
 		<div id="contextual-help-columns">
 			<div class="contextual-help-tabs">
@@ -69,12 +69,15 @@ var _wpColorScheme = {{.Color.Icons}};
 			</div>
 		</div>
 	</div>
-</div>
+{{end}}</div>
 <div id="screen-meta-links">
-	<div id="contextual-help-link-wrap" class="hide-if-no-js screen-meta-toggle">
+{{if .ScreenOptions}}	<div id="screen-options-link-wrap" class="hide-if-no-js screen-meta-toggle">
+		<button type="button" id="show-settings-link" class="button button-compact show-settings" aria-controls="screen-options-wrap" aria-expanded="false">Screen Options</button>
+	</div>
+{{end}}{{if .Help}}	<div id="contextual-help-link-wrap" class="hide-if-no-js screen-meta-toggle">
 		<button type="button" id="contextual-help-link" class="button button-compact show-settings" aria-controls="contextual-help-wrap" aria-expanded="false">Help</button>
 	</div>
-</div>
+{{end}}</div>
 {{end}}{{end}}
 
 {{define "notices"}}{{range .Notices}}<div class="notice notice-{{.Type}}{{if .Dismissible}} is-dismissible{{end}}"><p>{{.Message}}</p>{{if .Dismissible}}<button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>{{end}}</div>

@@ -14,6 +14,8 @@
 {{if eq $p.Status "auto-draft"}}<input type="hidden" id="auto_draft" name="auto_draft" value="1" />{{end}}
 <input type="hidden" id="post_type" name="post_type" value="{{$p.Type}}" />
 <input type="hidden" id="post_ID" name="post_ID" value="{{$p.ID}}" />
+<input type="hidden" id="meta-box-order-nonce" name="meta-box-order-nonce" value="{{.OrderNonce}}" />
+<input type="hidden" id="closedpostboxesnonce" name="closedpostboxesnonce" value="{{.ClosedNonce}}" />
 <div id="poststuff">
 <div id="post-body" class="metabox-holder columns-2">
 <div id="post-body-content" style="position: relative;">
@@ -23,7 +25,6 @@
 			<input type="text" name="post_title" size="30" value="{{if ne $p.Status "auto-draft"}}{{$p.Title}}{{end}}" id="title" spellcheck="true" autocomplete="off" />
 		</div>
 		<div class="inside">
-			<input type="hidden" id="post_name" name="post_name" value="{{$p.Slug}}" />
 			<div id="edit-slug-box" class="hide-if-no-js">{{.SampleLink}}</div>
 			<input type="hidden" id="samplepermalinknonce" name="samplepermalinknonce" value="{{.SampleNonce}}" />
 			{{if eq $p.Status "auto-draft"}}<script>
@@ -51,7 +52,7 @@
 
 <div id="postbox-container-1" class="postbox-container">
 <div id="side-sortables" class="meta-box-sortables">
-	{{template "edit-postbox-start" dict "ID" "submitdiv" "Title" "Publish"}}
+	{{template "edit-postbox-start" dict "ID" "submitdiv" "Title" "Publish" "Class" (index .BoxClass "submitdiv")}}
 	<div class="submitbox" id="submitpost">
 		<div id="minor-publishing">
 			<div id="minor-publishing-actions">
@@ -120,7 +121,10 @@
 				</div>
 				{{if .PluginStats}}<div class="misc-pub-section misc-pub-plugin-stats"><span class="dashicons dashicons-chart-bar" style="color:#8c8f94;margin:0 2px 0 -1px"></span> {{.PluginStats}}</div>{{end}}
 				{{if .BlockURL}}<div class="misc-pub-section" id="classic-editor-switch-editor"><span class="dashicons dashicons-edit-page" style="color:#8c8f94;margin:0 2px 0 -1px"></span> Editor: <b>Classic</b> <a href="{{.BlockURL}}">Switch to Gotenberg</a></div>{{end}}
-				{{if .Revisions}}<div class="misc-pub-section misc-pub-revisions">Revisions: <b>{{.Revisions}}</b></div>{{end}}
+				{{if .Revisions}}<div class="misc-pub-section misc-pub-revisions">
+					Revisions: <b>{{.Revisions}}</b>
+					<a class="hide-if-no-js" href="/wp-admin/revision?revision={{.LatestRevision}}"><span aria-hidden="true">Browse</span> <span class="screen-reader-text">Browse revisions</span></a>
+				</div>{{end}}
 			</div>
 			<div class="clear"></div>
 		</div>
@@ -137,7 +141,7 @@
 	{{template "edit-postbox-end"}}
 
 	{{if eq $p.Type "post"}}
-	{{template "edit-postbox-start" dict "ID" "formatdiv" "Title" "Format"}}
+	{{template "edit-postbox-start" dict "ID" "formatdiv" "Title" "Format" "Class" (index .BoxClass "formatdiv")}}
 		<div id="post-formats-select">
 			<fieldset><legend class="screen-reader-text">Post Formats</legend>
 			{{range .Formats}}<input type="radio" name="post_format" class="post-format" id="post-format-{{.}}" value="{{.}}"{{if eq . $p.Format}} checked="checked"{{end}} /> <label for="post-format-{{.}}" class="post-format-icon post-format-{{.}}">{{ucfirst .}}</label><br />
@@ -145,7 +149,7 @@
 		</div>
 	{{template "edit-postbox-end"}}
 
-	{{template "edit-postbox-start" dict "ID" "categorydiv" "Title" "Categories"}}
+	{{template "edit-postbox-start" dict "ID" "categorydiv" "Title" "Categories" "Class" (index .BoxClass "categorydiv")}}
 		<div id="taxonomy-category" class="categorydiv">
 			<ul id="category-tabs" class="category-tabs"><li class="tabs"><a href="#category-all">All Categories</a></li></ul>
 			<div id="category-all" class="tabs-panel">
@@ -158,7 +162,7 @@
 		</div>
 	{{template "edit-postbox-end"}}
 
-	{{template "edit-postbox-start" dict "ID" "tagsdiv-post_tag" "Title" "Tags"}}
+	{{template "edit-postbox-start" dict "ID" "tagsdiv-post_tag" "Title" "Tags" "Class" (index .BoxClass "tagsdiv-post_tag")}}
 		<div class="tagsdiv" id="post_tag">
 			<div class="jaxtag">
 				<div class="ajaxtag hide-if-no-js">
@@ -169,20 +173,26 @@
 			</div>
 		</div>
 	{{template "edit-postbox-end"}}
-	{{template "edit-postbox-start" dict "ID" "postimagediv" "Title" "Featured image"}}
+	{{template "edit-postbox-start" dict "ID" "postimagediv" "Title" "Featured image" "Class" (index .BoxClass "postimagediv")}}
 		{{.Thumbnail}}
 	{{template "edit-postbox-end"}}
 	{{else}}
-	{{template "edit-postbox-start" dict "ID" "pageparentdiv" "Title" "Page Attributes"}}
+	{{template "edit-postbox-start" dict "ID" "pageparentdiv" "Title" "Page Attributes" "Class" (index .BoxClass "pageparentdiv")}}
 		<p class="post-attributes-label-wrapper parent-id-label-wrapper"><label class="post-attributes-label" for="parent_id">Parent</label></p>
 		<select name="parent_id" id="parent_id">
 			<option value="">(no parent)</option>
 			{{range .Pages}}<option class="level-0" value="{{.ID}}"{{if eq .ID $p.ParentID}} selected="selected"{{end}}>{{if .Title}}{{.Title}}{{else}}(no title){{end}}</option>{{end}}
 		</select>
+		{{if and .Templates (ne $p.ID (settingID "page_for_posts"))}}<p class="post-attributes-label-wrapper page-template-label-wrapper"><label class="post-attributes-label" for="page_template">Template</label></p>
+		<select name="page_template" id="page_template">
+			<option value="default"{{if eq .Template "default"}} selected="selected"{{end}}>Default template</option>
+			{{range .Templates}}<option value="{{.Value}}"{{if eq .Value $.Data.Template}} selected="selected"{{end}}>{{.Label}}</option>{{end}}
+		</select>{{end}}
 		<p class="post-attributes-label-wrapper menu-order-label-wrapper"><label class="post-attributes-label" for="menu_order">Order</label></p>
 		<input name="menu_order" type="text" size="4" id="menu_order" value="{{$p.MenuOrder}}" />
+		<p class="post-attributes-help-text">Need help? Use the Help tab above the screen title.</p>
 	{{template "edit-postbox-end"}}
-	{{template "edit-postbox-start" dict "ID" "postimagediv" "Title" "Featured image"}}
+	{{template "edit-postbox-start" dict "ID" "postimagediv" "Title" "Featured image" "Class" (index .BoxClass "postimagediv")}}
 		{{.Thumbnail}}
 	{{template "edit-postbox-end"}}
 	{{end}}
@@ -192,24 +202,81 @@
 <div id="postbox-container-2" class="postbox-container">
 <div id="normal-sortables" class="meta-box-sortables">
 	{{if eq $p.Type "post"}}
-	{{template "edit-postbox-start" dict "ID" "postexcerpt" "Title" "Excerpt"}}
+	{{template "edit-postbox-start" dict "ID" "postexcerpt" "Title" "Excerpt" "Class" (index .BoxClass "postexcerpt")}}
 		<label class="screen-reader-text" for="excerpt">Excerpt</label><textarea rows="1" cols="40" name="excerpt" id="excerpt">{{$p.Excerpt}}</textarea>
 		<p>Excerpts are optional hand-crafted summaries of your content that can be used in your theme. <a href="https://wordpress.org/documentation/article/what-is-an-excerpt-classic-editor/">Learn more about manual excerpts</a>.</p>
 	{{template "edit-postbox-end"}}
+	{{template "edit-postbox-start" dict "ID" "trackbacksdiv" "Title" "Send Trackbacks" "Class" (index .BoxClass "trackbacksdiv")}}
+		<p><label for="trackback_url">Send trackbacks to:</label> <input type="text" name="trackback_url" id="trackback_url" class="code" value="{{.ToPing}}" aria-describedby="trackback-url-desc" /></p>
+		<p id="trackback-url-desc">Separate multiple URLs with spaces</p>
+		<p>Trackbacks are a way to notify legacy blog systems that you&#8217;ve linked to them. If you link other WordPress sites, they&#8217;ll be notified automatically using <a href="https://wordpress.org/documentation/article/introduction-to-blogging/#comments">pingbacks</a>, no other action necessary.</p>
+	{{template "edit-postbox-end"}}
 	{{end}}
-	{{template "edit-postbox-start" dict "ID" "commentstatusdiv" "Title" "Discussion"}}
+	{{template "edit-postbox-start" dict "ID" "postcustom" "Title" "Custom Fields" "Class" (index .BoxClass "postcustom")}}
+		<div id="postcustomstuff">
+		<div id="ajax-response"></div>
+		<table id="list-table"{{if not .MetaRows}} style="display: none;"{{end}}>
+			<thead>
+			<tr>
+				<th class="left">Name</th>
+				<th>Value</th>
+			</tr>
+			</thead>
+			<tbody id="the-list" data-wp-lists="list:meta">{{if .MetaRows}}{{.MetaRowsHTML}}{{else}}<tr><td></td></tr>{{end}}
+			</tbody>
+		</table>
+		<p><strong>Add New Custom Field:</strong></p>
+		<table id="newmeta">
+		<thead>
+		<tr>
+		<th class="left"><label for="metakeyinput">Name</label></th>
+		<th><label for="metavalue">Value</label></th>
+		</tr>
+		</thead>
+
+		<tbody>
+		<tr>
+		<td id="newmetaleft" class="left">
+		<input type="text" id="metakeyinput" name="metakeyinput" value="" />
+		</td>
+		<td>
+			<label class="screen-reader-text" for="metavalue">Value</label>
+			<textarea id="metavalue" name="metavalue" rows="2" cols="25"></textarea>
+			<input type="hidden" id="_ajax_nonce-add-meta" name="_ajax_nonce-add-meta" value="{{.MetaNonce}}" />
+		</td>
+		</tr>
+
+		<tr><td colspan="2">
+		<div class="submit">
+		<input type="submit" name="addmeta" id="newmeta-submit" class="button" value="Add Custom Field" data-wp-lists="add:the-list:newmeta" />
+		</div>
+		</td></tr>
+		</tbody>
+		</table>
+		</div>
+		<p>Custom fields can be used to add extra metadata to a post that you can <a href="https://wordpress.org/documentation/article/assign-custom-fields/">use in your theme</a>.</p>
+	{{template "edit-postbox-end"}}
+	{{template "edit-postbox-start" dict "ID" "commentstatusdiv" "Title" "Discussion" "Class" (index .BoxClass "commentstatusdiv")}}
 		<input name="advanced_view" type="hidden" value="1" />
 		<p class="meta-options">
 			<label for="comment_status" class="selectit"><input name="comment_status" type="checkbox" id="comment_status" value="open"{{if eq $p.CommentStatus "open"}} checked="checked"{{end}} /> Allow comments</label><br />
 			<label for="ping_status" class="selectit"><input name="ping_status" type="checkbox" id="ping_status" value="open"{{if eq $p.PingStatus "open"}} checked="checked"{{end}} /> Allow <a href="https://wordpress.org/documentation/article/trackbacks-and-pingbacks/">trackbacks and pingbacks</a></label>
 		</p>
 	{{template "edit-postbox-end"}}
+	{{template "edit-postbox-start" dict "ID" "slugdiv" "Title" "Slug" "Class" (index .BoxClass "slugdiv")}}
+		<label class="screen-reader-text" for="post_name">Slug</label><input name="post_name" type="text" size="13" id="post_name" value="{{$p.Slug}}" />
+	{{template "edit-postbox-end"}}
 	{{if .CanAuthor}}
-	{{template "edit-postbox-start" dict "ID" "authordiv" "Title" "Author"}}
+	{{template "edit-postbox-start" dict "ID" "authordiv" "Title" "Author" "Class" (index .BoxClass "authordiv")}}
 		<label class="screen-reader-text" for="post_author_override">Author</label>
 		<select name="post_author_override" id="post_author_override">
 			{{range .Authors}}<option value="{{.ID}}"{{if eq .ID $p.AuthorID}} selected="selected"{{end}}>{{.DisplayName}} ({{.Login}})</option>{{end}}
 		</select>
+	{{template "edit-postbox-end"}}
+	{{end}}
+	{{if .RevisionsList}}
+	{{template "edit-postbox-start" dict "ID" "revisionsdiv" "Title" "Revisions" "Class" (index .BoxClass "revisionsdiv")}}
+		{{.RevisionsList}}
 	{{template "edit-postbox-end"}}
 	{{end}}
 </div>
@@ -221,7 +288,7 @@
 </div>
 {{end}}{{template "admin-footer" .}}{{end}}
 
-{{define "edit-postbox-start"}}<div id="{{.ID}}" class="postbox">
+{{define "edit-postbox-start"}}<div id="{{.ID}}" class="postbox{{.Class}}">
 <div class="postbox-header"><h2 class="hndle ui-sortable-handle">{{.Title}}</h2>
 <div class="handle-actions hide-if-no-js"><button type="button" class="handlediv" aria-expanded="true"><span class="screen-reader-text">Toggle panel: {{.Title}}</span><span class="toggle-indicator" aria-hidden="true"></span></button></div></div>
 <div class="inside">

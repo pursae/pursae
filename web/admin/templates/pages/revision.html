@@ -1,0 +1,61 @@
+{{define "admin/revision"}}{{template "admin-header" .}}{{with .Data}}
+<div class="wrap">
+<h1 class="long-header">Compare Revisions of &#8220;<a href="{{.EditURL}}">{{.Title}}</a>&#8221;</h1>
+<p><a href="{{.EditURL}}">&larr; Go to editor</a></p>
+<div class="revisions">
+	<div class="revisions-control-frame">
+		<div class="revisions-controls">
+			<div class="revisions-previous">{{if .PrevURL}}<a class="button" href="{{.PrevURL}}">Previous</a>{{else}}<input class="button" type="button" value="Previous" disabled="disabled" />{{end}}</div>
+			<div class="revisions-next">{{if .NextURL}}<a class="button" href="{{.NextURL}}">Next</a>{{else}}<input class="button" type="button" value="Next" disabled="disabled" />{{end}}</div>
+			<form method="get" action="/wp-admin/revision" class="revisions-select">
+				<label>From <select name="from">
+					<option value="0"{{if not .FromID}} selected="selected"{{end}}>&mdash;</option>
+					{{range .Options}}<option value="{{.ID}}"{{if eq .ID $.Data.FromID}} selected="selected"{{end}}>{{.Label}}</option>
+					{{end}}</select></label>
+				<label>To <select name="revision">
+					{{range .Options}}<option value="{{.ID}}"{{if eq .ID $.Data.ToID}} selected="selected"{{end}}>{{.Label}}</option>
+					{{end}}</select></label>
+				<input type="submit" class="button" value="Compare" />
+			</form>
+			<div class="revisions-meta">
+				<div class="diff-meta diff-meta-from">
+					<div class="diff-title">
+						<strong>From:</strong>
+						{{if .From.Missing}}<span class="author-card"><div class="author-info"><span class="byline">No earlier revision</span></div></span>{{else}}<span class="author-card">
+							{{.From.Avatar}}
+							<div class="author-info">
+								<span class="byline">{{if .From.Current}}Current Revision by{{else}}Revision by{{end}} <span class="author-name">{{.From.Author}}</span></span>
+								<span class="time-ago">{{.From.TimeAgo}}</span>
+								<span class="date">({{.From.Date}})</span>
+							</div>
+						</span>{{end}}
+					</div>
+				</div>
+				<div class="diff-meta diff-meta-to">
+					<div class="diff-title">
+						<strong>To:</strong>
+						<span class="author-card">
+							{{.To.Avatar}}
+							<div class="author-info">
+								<span class="byline">{{if .To.Current}}Current Revision by{{else}}Revision by{{end}} <span class="author-name">{{.To.Author}}</span></span>
+								<span class="time-ago">{{.To.TimeAgo}}</span>
+								<span class="date">({{.To.Date}})</span>
+							</div>
+						</span>
+						{{if .CanRestore}}<a class="restore-revision button button-primary" href="{{.RestoreURL}}">Restore This Revision</a>{{else}}<input disabled="disabled" class="restore-revision button button-primary" type="button" value="Restore This Revision" />{{end}}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="revisions-diff-frame">
+		<div class="revisions-diff">
+			<div class="diff">
+			{{range .Fields}}	<h3>{{.Name}}</h3>
+				{{.Diff}}
+			{{end}}</div>
+		</div>
+	</div>
+</div>
+</div>
+{{end}}{{template "admin-footer" .}}{{end}}

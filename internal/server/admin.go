@@ -37,6 +37,7 @@ type adminView struct {
 	CacheBar       template.HTML // wpgo-cache toolbar node
 	LateFooterHTML template.HTML // markup printed after the footer scripts (TinyMCE settings, link dialog)
 	Help           *helpTab      // contextual Help panel (screen-meta), nil when the screen has none
+	ScreenOptions  template.HTML // the Screen Options tab (screen-options-wrap), empty when the screen has none
 	Color          adminColor    // the user's admin color scheme
 }
 
@@ -330,6 +331,16 @@ func (s *Server) adminPage(c *gin.Context, screen, title, bodyClass, tmpl string
 			}
 		}
 	}
+	if strings.HasPrefix(v.PageNow, "edit-tags") || strings.HasPrefix(v.PageNow, "term") { // WP_Screen ids: edit-category, edit-post_tag
+		for _, cl := range strings.Fields(bodyClass) {
+			if tax, ok := strings.CutPrefix(cl, "taxonomy-"); ok {
+				v.PageNow = map[bool]string{true: "edit-", false: "term-"}[v.PageNow == "edit-tags"] + tax
+			}
+		}
+	}
+	if so, ok := c.Get("wpgo.screenOptions"); ok {
+		v.ScreenOptions = so.(template.HTML)
+	}
 	v.Color = adminColorFor(u)
 	if tmpl != "admin/block-editor" && tmpl != "admin/dashboard" {
 		v.Help = helpFor(v.AdminPage, v.TypeNow)
@@ -408,6 +419,28 @@ func (s *Server) adminAjax(c *gin.Context) {
 		s.samplePermalinkAjax(c)
 	case "wp-remove-post-lock":
 		c.String(http.StatusOK, "1")
+	case "inline-save":
+		s.inlineSave(c)
+	case "inline-save-tax":
+		s.inlineSaveTax(c)
+	case "ajax-tag-search":
+		s.tagSearchAjax(c)
+	case "replyto-comment":
+		s.replyToCommentAjax(c)
+	case "edit-comment":
+		s.editCommentAjax(c)
+	case "dim-comment":
+		s.dimCommentAjax(c)
+	case "delete-comment":
+		s.deleteCommentAjax(c)
+	case "add-meta":
+		s.addMetaAjax(c)
+	case "delete-meta":
+		s.deleteMetaAjax(c)
+	case "hidden-columns":
+		s.hiddenColumnsAjax(c)
+	case "closed-postboxes":
+		s.closedPostboxesAjax(c)
 	default:
 		c.String(http.StatusBadRequest, "0")
 	}

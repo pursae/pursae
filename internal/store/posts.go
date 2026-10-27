@@ -151,6 +151,8 @@ type PostQuery struct {
 	PerPage     int // -1 for all
 	StickyFirst bool
 	Loc         *time.Location // site time zone for year/month/day filters
+	Format      string         // post format slug (edit.php?post_format=aside)
+	Sticky      *bool          // only sticky (true) or only non-sticky (false) posts (edit.php?show_sticky=1)
 }
 
 func (q *PostQuery) where(args *[]any) string {
@@ -184,6 +186,12 @@ func (q *PostQuery) where(args *[]any) string {
 	}
 	if len(q.ExcludeID) > 0 {
 		conds = append(conds, "NOT (id = ANY("+add(q.ExcludeID)+"))")
+	}
+	if q.Format != "" {
+		conds = append(conds, "format = "+add(q.Format))
+	}
+	if q.Sticky != nil {
+		conds = append(conds, "sticky = "+add(*q.Sticky))
 	}
 	if q.Year != 0 {
 		tz := "UTC"

@@ -213,7 +213,7 @@ func TestInstallLoginPublishAndView(t *testing.T) {
 	// and admin-ajax "sample-permalink" previews a new slug without saving it.
 	_, body, _ = get(t, c, base+"/wp-admin/post?post="+id+"&action=edit")
 	if !strings.Contains(body, `<span id="editable-post-name">go-publishes</span>`) || !strings.Contains(body, `class="edit-slug button button-small hide-if-no-js"`) ||
-		!strings.Contains(body, `id="post_name" name="post_name" value="go-publishes"`) || strings.Contains(body, `id="slugdiv"`) {
+		!strings.Contains(body, `name="post_name" type="text" size="13" id="post_name" value="go-publishes"`) || !strings.Contains(body, `id="slugdiv" class="postbox hide-if-js"`) {
 		t.Errorf("edit screen lacks the WordPress permalink editor")
 	}
 	if !strings.Contains(body, `"insertIntoPost":"Insert into post"`) {

@@ -72,16 +72,8 @@
 	<caption class="screen-reader-text">Table ordered by Name. Ascending.</caption>
 	<thead>{{template "terms-head" dict "Top" true "D" .}}</thead>
 	<tbody id="the-list" data-wp-lists="list:tag">
-	{{range .Rows}}<tr id="tag-{{.ID}}" class="level-{{.Depth}}">
-		<th scope="row" class="check-column">{{if not .IsDefault}}<input type="checkbox" name="delete_tags[]" value="{{.ID}}" id="cb-select-{{.ID}}" /><label for="cb-select-{{.ID}}"><span class="screen-reader-text">Select {{.Name}}</span></label>{{end}}</th>
-		<td class="name column-name has-row-actions column-primary" data-colname="Name"><strong>{{.Indent}}<a class="row-title" href="{{.EditURL}}" aria-label="&#8220;{{.Name}}&#8221; (Edit)">{{.Name}}</a></strong><br />
-			<div class="row-actions"><span class="edit"><a href="{{.EditURL}}" aria-label="Edit &#8220;{{.Name}}&#8221;">Edit</a> | </span>{{if not .IsDefault}}<span class="delete"><a href="{{.DeleteURL}}" class="delete-tag aria-button-if-js" aria-label="Delete &#8220;{{.Name}}&#8221;" role="button">Delete</a> | </span>{{end}}<span class="view"><a href="{{.ViewURL}}" aria-label="View &#8220;{{.Name}}&#8221; archive">View</a></span></div>
-			<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button></td>
-		<td class="description column-description" data-colname="Description">{{if .Description}}<p>{{.Description}}</p>{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">No description</span>{{end}}</td>
-		<td class="slug column-slug" data-colname="Slug">{{.Slug}}</td>
-		<td class="posts column-posts" data-colname="Count"><a href="{{.CountURL}}">{{.Count}}</a></td>
-	</tr>
-	{{else}}<tr class="no-items"><td class="colspanchange" colspan="5">{{.Labels.NotFound}}</td></tr>
+	{{range .Rows}}{{template "terms-row" dict "R" . "D" $.Data}}
+	{{else}}<tr class="no-items"><td class="colspanchange" colspan="{{.ColCount}}">{{.Labels.NotFound}}</td></tr>
 	{{end}}
 	</tbody>
 	<tfoot>{{template "terms-head" dict "Top" false "D" .}}</tfoot>
@@ -96,6 +88,7 @@
 	<br class="clear" />
 </div>
 </form>
+{{if .Rows}}{{template "terms-inline-edit" .}}{{end}}
 {{if eq .Labels.Tax "category"}}<div class="form-wrap edit-term-notes">
 <p>Deleting a category does not delete the posts in that category. Instead, posts that were only assigned to the deleted category are set to the default category <strong>Uncategorized</strong>. The default category cannot be deleted.</p>
 <p>Categories can be selectively converted to tags using the <a href="/wp-admin/import">category to tag converter</a>.</p>
@@ -106,10 +99,52 @@
 </div><!-- /wrap -->
 {{end}}{{template "admin-footer" .}}{{end}}
 
+{{define "terms-row"}}{{$d := .D}}{{with .R}}<tr id="tag-{{.ID}}" class="level-{{.Depth}}">
+		<th scope="row" class="check-column">{{if not .IsDefault}}<input type="checkbox" name="delete_tags[]" value="{{.ID}}" id="cb-select-{{.ID}}" /><label for="cb-select-{{.ID}}"><span class="screen-reader-text">Select {{.Name}}</span></label>{{end}}</th>
+		<td class="name column-name has-row-actions column-primary" data-colname="Name"><strong>{{.Indent}}<a class="row-title" href="{{.EditURL}}" aria-label="&#8220;{{.Name}}&#8221; (Edit)">{{.Name}}</a></strong><br />
+			<div class="hidden" id="inline_{{.ID}}"><div class="name">{{.Name}}</div><div class="slug">{{.Slug}}</div><div class="parent">{{.ParentID}}</div></div>
+			<div class="row-actions"><span class="edit"><a href="{{.EditURL}}" aria-label="Edit &#8220;{{.Name}}&#8221;">Edit</a> | </span><span class="inline hide-if-no-js"><button type="button" class="button-link editinline" aria-label="Quick edit &#8220;{{.Name}}&#8221; inline" aria-expanded="false">Quick&nbsp;Edit</button> | </span>{{if not .IsDefault}}<span class="delete"><a href="{{.DeleteURL}}" class="delete-tag aria-button-if-js" aria-label="Delete &#8220;{{.Name}}&#8221;" role="button">Delete</a> | </span>{{end}}<span class="view"><a href="{{.ViewURL}}" aria-label="View &#8220;{{.Name}}&#8221; archive">View</a></span></div>
+			<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button></td>
+		<td class="description column-description{{if index $d.Hidden "description"}} hidden{{end}}" data-colname="Description">{{if .Description}}<p>{{.Description}}</p>{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">No description</span>{{end}}</td>
+		<td class="slug column-slug{{if index $d.Hidden "slug"}} hidden{{end}}" data-colname="Slug">{{.Slug}}</td>
+		<td class="posts column-posts{{if index $d.Hidden "posts"}} hidden{{end}}" data-colname="Count"><a href="{{.CountURL}}">{{.Count}}</a></td>
+	</tr>{{end}}{{end}}
+
 {{define "terms-head"}}<tr>
 	<td{{if .Top}} id="cb"{{end}} class="manage-column column-cb check-column"><input id="cb-select-all-{{if .Top}}1{{else}}2{{end}}" type="checkbox" /><label for="cb-select-all-{{if .Top}}1{{else}}2{{end}}"><span class="screen-reader-text">Select All</span></label></td>
 	{{template "sort-th" dict "ID" (or (and .Top "name") "") "Col" "name" "Primary" true "Label" "Name" "Link" (index .D.SortLinks "name")}}
-	{{template "sort-th" dict "ID" (or (and .Top "description") "") "Col" "description" "Label" "Description" "Link" (index .D.SortLinks "description")}}
-	{{template "sort-th" dict "ID" (or (and .Top "slug") "") "Col" "slug" "Label" "Slug" "Link" (index .D.SortLinks "slug")}}
-	{{template "sort-th" dict "ID" (or (and .Top "posts") "") "Col" "posts" "Num" true "Label" "Count" "Link" (index .D.SortLinks "count")}}
+	{{template "sort-th" dict "ID" (or (and .Top "description") "") "Col" "description" "Label" "Description" "Link" (index .D.SortLinks "description") "Hidden" (index .D.Hidden "description")}}
+	{{template "sort-th" dict "ID" (or (and .Top "slug") "") "Col" "slug" "Label" "Slug" "Link" (index .D.SortLinks "slug") "Hidden" (index .D.Hidden "slug")}}
+	{{template "sort-th" dict "ID" (or (and .Top "posts") "") "Col" "posts" "Num" true "Label" "Count" "Link" (index .D.SortLinks "count") "Hidden" (index .D.Hidden "posts")}}
 </tr>{{end}}
+
+{{/* WP_Terms_List_Table::inline_edit(): the hidden Quick Edit row inline-edit-tax.js clones into the table. */}}
+{{define "terms-inline-edit"}}<form method="get"><table style="display: none"><tbody id="inlineedit">
+<tr id="inline-edit" class="inline-edit-row" style="display: none">
+<td colspan="{{.ColCount}}" class="colspanchange">
+<div class="inline-edit-wrapper">
+<fieldset>
+	<legend class="inline-edit-legend">Quick Edit</legend>
+	<div class="inline-edit-col">
+		<label>
+			<span class="title">Name</span>
+			<span class="input-text-wrap"><input type="text" name="name" class="ptitle" value="" /></span>
+		</label>
+		<label>
+			<span class="title">Slug</span>
+			<span class="input-text-wrap"><input type="text" name="slug" class="ptitle" value="" /></span>
+		</label>
+	</div>
+</fieldset>
+<div class="inline-edit-save submit">
+	<button type="button" class="save button button-primary">Update</button>
+	<button type="button" class="cancel button">Cancel</button>
+	<span class="spinner"></span>
+	<input type="hidden" id="_inline_edit" name="_inline_edit" value="{{.InlineNonce}}" />
+	<input type="hidden" name="taxonomy" value="{{.Labels.Tax}}" />
+	<input type="hidden" name="post_type" value="post" />
+	<div class="notice notice-error notice-alt inline hidden"><p class="error"></p></div>
+</div>
+</div>
+</td></tr>
+</tbody></table></form>{{end}}

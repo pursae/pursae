@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"html/template"
 	"net/http"
@@ -43,16 +44,22 @@ type termRow struct {
 }
 
 type termsData struct {
-	Labels     taxLabels
-	Rows       []termRow
-	All        []*store.Term // parent dropdown
-	Search     string
-	AddNonce   string
-	BulkNonce  string
-	Pagination pagination
-	Form       *store.Term // values to refill the add form after an error
-	SortLinks  map[string]sortLink
+	Labels      taxLabels
+	Rows        []termRow
+	All         []*store.Term // parent dropdown
+	Search      string
+	AddNonce    string
+	BulkNonce   string
+	InlineNonce string // Quick Edit (taxinlineeditnonce)
+	Pagination  pagination
+	Form        *store.Term // values to refill the add form after an error
+	SortLinks   map[string]sortLink
+	Hidden      map[string]bool // columns hidden through Screen Options
+	ColCount    int
 }
+
+// termListColumns are the Screen Options column toggles of edit-tags.php.
+var termListColumns = []screenColumn{{"description", "Description"}, {"slug", "Slug"}, {"posts", "Count"}}
 
 func (s *Server) termsList(c *gin.Context) {
 	u := currentUser(c)
@@ -73,15 +80,22 @@ func (s *Server) termsList(c *gin.Context) {
 
 func (s *Server) renderTerms(c *gin.Context, lab taxLabels, form *store.Term, notices ...notice) {
 	ctx := c.Request.Context()
-	lb := s.links(ctx)
 	search := strings.TrimSpace(c.Query("s"))
 	page, _ := strconv.Atoi(c.Query("paged"))
 	if page < 1 {
 		page = 1
 	}
-	perPage := 20
+	u := currentUser(c)
+	perPage := s.userOptionInt(u, "edit_"+lab.Tax+"_per_page", 20)
 	d := termsData{Labels: lab, Search: search, AddNonce: s.nonce(c, "add-tag"), BulkNonce: s.nonce(c, "bulk-tags"), Form: form,
+		InlineNonce: s.nonce(c, "taxinlineeditnonce"), Hidden: s.hiddenColumns(u, "edit-"+lab.Tax),
 		SortLinks: sortLinks(c, map[string]bool{"name": false, "description": false, "slug": false, "count": true}, "name", "asc")}
+	d.ColCount = 2
+	for _, col := range termListColumns {
+		if !d.Hidden[col.ID] {
+			d.ColCount++
+		}
+	}
 
 	var terms []*store.Term
 	var total int
@@ -109,24 +123,110 @@ func (s *Server) renderTerms(c *gin.Context, lab taxLabels, form *store.Term, no
 			return
 		}
 	}
-	def := int64(s.settings.Int("default_category"))
 	for _, t := range terms {
-		r := termRow{Term: t, IsDefault: lab.Tax == "category" && t.ID == def,
-			EditURL:   "/wp-admin/term?taxonomy=" + lab.Tax + "&tag_ID=" + itoa64(t.ID) + "&post_type=post",
-			DeleteURL: "/wp-admin/edit-tags?action=delete&taxonomy=" + lab.Tax + "&tag_ID=" + itoa64(t.ID) + "&_wpnonce=" + s.nonce(c, "delete-tag_"+itoa64(t.ID)),
-			ViewURL:   lb.TermLink(t),
-			CountURL:  "/wp-admin/edit?" + lab.FilterParam + "=" + t.Slug,
-		}
-		if t.Depth > 0 {
-			r.Indent = template.HTML(strings.Repeat("&#8212; ", t.Depth))
-		}
-		d.Rows = append(d.Rows, r)
+		d.Rows = append(d.Rows, s.termRow(c, lab, t))
 	}
 	if lab.Hierarchical {
 		d.All, _ = s.store.HierarchicalTerms(ctx, lab.Tax, false)
 	}
 	d.Pagination = newPagination(total, perPage, page, *c.Request.URL)
+	s.setScreenOptions(c, screenOptions{Screen: "edit-" + lab.Tax, Columns: termListColumns, Hidden: d.Hidden,
+		PerPageOption: "edit_" + lab.Tax + "_per_page", PerPage: perPage})
+	s.pageAssets(c).Script("inline-edit-tax")
 	s.adminPage(c, lab.Screen, lab.Name, "edit-tags-php taxonomy-"+lab.Tax, "admin/terms", d, notices...)
+}
+
+// termRow builds one list row (WP_Terms_List_Table::single_row()).
+func (s *Server) termRow(c *gin.Context, lab taxLabels, t *store.Term) termRow {
+	r := termRow{Term: t, IsDefault: lab.Tax == "category" && t.ID == int64(s.settings.Int("default_category")),
+		EditURL:   "/wp-admin/term?taxonomy=" + lab.Tax + "&tag_ID=" + itoa64(t.ID) + "&post_type=post",
+		DeleteURL: "/wp-admin/edit-tags?action=delete&taxonomy=" + lab.Tax + "&tag_ID=" + itoa64(t.ID) + "&_wpnonce=" + s.nonce(c, "delete-tag_"+itoa64(t.ID)),
+		ViewURL:   s.links(c).TermLink(t),
+		CountURL:  "/wp-admin/edit?" + lab.FilterParam + "=" + t.Slug,
+	}
+	if t.Depth > 0 {
+		r.Indent = template.HTML(strings.Repeat("&#8212; ", t.Depth))
+	}
+	return r
+}
+
+// inlineSaveTax is wp_ajax_inline_save_tax(): Quick Edit on edit-tags.php saves the name and slug
+// and gets the re-rendered row back.
+func (s *Server) inlineSaveTax(c *gin.Context) {
+	ctx := c.Request.Context()
+	if !s.checkNonceValue(c, c.PostForm("_inline_edit"), "taxinlineeditnonce") {
+		c.String(http.StatusForbidden, "-1")
+		return
+	}
+	lab, ok := taxLabelsFor(c.PostForm("taxonomy"))
+	if !ok {
+		c.String(http.StatusOK, "0")
+		return
+	}
+	id, _ := strconv.ParseInt(c.PostForm("tax_ID"), 10, 64)
+	if id == 0 || !currentUser(c).Can("manage_categories", nil) {
+		c.String(http.StatusOK, "-1")
+		return
+	}
+	t, err := s.store.GetTerm(ctx, id)
+	if err != nil || t.Taxonomy != lab.Tax {
+		c.String(http.StatusOK, "Item not updated.")
+		return
+	}
+	t.Name = strings.TrimSpace(c.PostForm("name"))
+	t.Slug = c.PostForm("slug")
+	if t.Name == "" {
+		c.String(http.StatusOK, "A name is required for this term.")
+		return
+	}
+	if err := s.store.UpdateTerm(ctx, t); err != nil {
+		c.String(http.StatusOK, template.HTMLEscapeString(err.Error()))
+		return
+	}
+	s.purgeTags("term:"+itoa64(t.ID), "widgets")
+	t, _ = s.store.GetTerm(ctx, t.ID)
+	for parent := t.ParentID; parent > 0 && t.Depth < 50; t.Depth++ {
+		pt, err := s.store.GetTerm(ctx, parent)
+		if err != nil {
+			break
+		}
+		parent = pt.ParentID
+	}
+	d := termsData{Labels: lab, Hidden: s.hiddenColumns(currentUser(c), "edit-"+lab.Tax)}
+	var buf bytes.Buffer
+	if err := s.tmpl.get(false).ExecuteTemplate(&buf, "terms-row", map[string]any{"R": s.termRow(c, lab, t), "D": d}); err != nil {
+		c.String(http.StatusOK, err.Error())
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=UTF-8", buf.Bytes())
+}
+
+// tagSearchAjax is wp_ajax_ajax_tag_search(): tags-suggest.js asks for term names matching the typed text.
+func (s *Server) tagSearchAjax(c *gin.Context) {
+	tax := c.DefaultQuery("tax", c.PostForm("tax"))
+	lab, ok := taxLabelsFor(tax)
+	if !ok || !currentUser(c).Can("edit_posts", nil) {
+		c.String(http.StatusOK, "0")
+		return
+	}
+	q := strings.TrimSpace(c.DefaultQuery("q", c.PostForm("q")))
+	if i := strings.LastIndex(q, ","); i >= 0 {
+		q = strings.TrimSpace(q[i+1:])
+	}
+	if len([]rune(q)) < 2 {
+		c.String(http.StatusOK, "")
+		return
+	}
+	terms, _, err := s.store.QueryTerms(c, store.TermQuery{Taxonomy: lab.Tax, Search: q, OrderBy: "name", Order: "asc", PerPage: 20})
+	if err != nil {
+		c.String(http.StatusOK, "")
+		return
+	}
+	names := make([]string, 0, len(terms))
+	for _, t := range terms {
+		names = append(names, t.Name)
+	}
+	c.String(http.StatusOK, strings.Join(names, "\n"))
 }
 
 func termNotices(c *gin.Context, lab taxLabels) []notice {
@@ -156,6 +256,9 @@ func (s *Server) termsAction(c *gin.Context) {
 		return
 	}
 	back := "/wp-admin/edit-tags?taxonomy=" + lab.Tax
+	if s.setScreenOption(c) {
+		return
+	}
 
 	if action := c.PostForm("action"); action == "delete" || c.PostForm("action2") == "delete" {
 		if !s.checkNonce(c, "bulk-tags") {

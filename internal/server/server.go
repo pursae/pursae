@@ -218,6 +218,8 @@ func (s *Server) routes() *gin.Engine {
 	admin.GET("/nav-menus", s.navMenus)
 	admin.POST("/nav-menus", s.navMenus)
 	admin.GET("/edit-comments", s.commentsScreen)
+	admin.POST("/edit-comments", s.commentsScreen) // Screen Options form
+	admin.GET("/revision", s.revisionScreen)
 	admin.GET("/users", s.usersScreen)
 	admin.GET("/update-core", s.updateCore)
 	admin.GET("/about", s.about)

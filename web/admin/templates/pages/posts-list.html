@@ -17,6 +17,7 @@
 </p>
 <input type="hidden" name="post_status" class="post_status_page" value="{{.Status}}" />
 <input type="hidden" name="post_type" class="post_type_page" value="{{.Labels.Type}}" />
+{{if .Sticky}}<input type="hidden" name="show_sticky" value="1" />{{end}}
 <input type="hidden" name="_wpnonce" value="{{.BulkNonce}}" />
 
 
@@ -33,6 +34,11 @@
 			<option value="0">All Categories</option>
 			{{range .Categories}}<option class="level-{{.Depth}}" value="{{.ID}}"{{if eq .ID $.Data.Cat}} selected="selected"{{end}}>{{repeat "&nbsp;&nbsp;&nbsp;" .Depth | safe}}{{.Name}}</option>{{end}}
 		</select>
+		{{if and .Formats (not .IsTrash)}}<label for="filter-by-format" class="screen-reader-text">Filter by post format</label>
+		<select name="post_format" id="filter-by-format">
+			<option{{if not .Format}} selected="selected"{{end}} value="">All formats</option>
+			{{range .Formats}}<option{{if eq .Slug $.Data.Format}} selected="selected"{{end}} value="{{.Slug}}">{{.Label}}</option>{{end}}
+		</select>{{end}}
 		<input type="submit" name="filter_action" id="post-query-submit" class="button button-compact" value="Filter" />
 	</div>{{end}}
 	{{if .IsTrash}}<div class="alignleft actions"></div>{{end}}
@@ -40,25 +46,13 @@
 	<br class="clear" />
 </div>
 <h2 class="screen-reader-text">{{.Labels.Name}} list</h2>
-<table class="wp-list-table widefat fixed striped table-view-list {{.Labels.Type}}s">
+<table class="wp-list-table widefat fixed striped table-view-{{.Mode}} {{.Labels.Type}}s">
 	<caption class="screen-reader-text">Table ordered by {{if eq .Orderby "title"}}Title{{else}}Date{{end}}. {{if eq .Order "asc"}}Ascending{{else}}Descending{{end}}.</caption>
-	
+
 	<thead>{{template "posts-head" dict "Top" true "D" .}}</thead>
 	<tbody id="the-list">
-	{{range .Rows}}<tr id="post-{{.ID}}" class="{{.Classes}}">
-		<th scope="row" class="check-column">{{if .CanEdit}}<input id="cb-select-{{.ID}}" type="checkbox" name="post[]" value="{{.ID}}" /><label for="cb-select-{{.ID}}"><span class="screen-reader-text">Select {{.Title}}</span></label>{{end}}<div class="locked-indicator"><span class="locked-indicator-icon" aria-hidden="true"></span><span class="screen-reader-text">&#8220;{{.Title}}&#8221; is locked</span></div></th>
-		<td class="title column-title has-row-actions column-primary page-title" data-colname="Title"><div class="locked-info"><span class="locked-avatar"></span> <span class="locked-text"></span></div>
-			<strong>{{safe .Depth}}{{if and .CanEdit (not .IsTrash)}}<a class="row-title" href="{{.EditURL}}" aria-label="&#8220;{{.Title}}&#8221; (Edit)">{{.Title}}</a>{{else}}<span>{{.Title}}</span>{{end}}{{range $i, $st := .States}}{{if eq $i 0}} &mdash; {{else}}, {{end}}<span class="post-state">{{$st}}</span>{{end}}</strong>
-			<div class="row-actions">{{if .IsTrash}}<span class="untrash"><a href="{{.RestoreURL}}" aria-label="Restore &#8220;{{.Title}}&#8221; from the Trash">Restore</a> | </span><span class="delete"><a href="{{.DeleteURL}}" class="submitdelete" aria-label="Delete &#8220;{{.Title}}&#8221; permanently">Delete Permanently</a></span>{{else}}{{if .CanEdit}}{{if $.Data.EditorSwitch}}<span class="edit"><a href="{{.EditURL}}&amp;classic-editor__forget" aria-label="Edit &#8220;{{.Title}}&#8221; in Gotenberg">Edit (Gotenberg)</a> | </span><span class="classic"><a href="{{.EditURL}}&amp;classic-editor" aria-label="Edit &#8220;{{.Title}}&#8221; in the classic editor">Edit (classic editor)</a> | </span>{{else}}<span class="edit"><a href="{{.EditURL}}" aria-label="Edit &#8220;{{.Title}}&#8221;">Edit</a> | </span>{{end}}{{end}}{{if .BuilderURL}}<span class="edit_with_gowebeditor"><a href="{{.BuilderURL}}" aria-label="Edit &#8220;{{.Title}}&#8221; with Golementor">Edit with Golementor</a> | </span>{{end}}{{if .CanDelete}}<span class="trash"><a href="{{.TrashURL}}" class="submitdelete" aria-label="Move &#8220;{{.Title}}&#8221; to the Trash">Trash</a>{{if .ViewURL}} | {{end}}</span>{{end}}{{if .ViewURL}}<span class="view"><a href="{{.ViewURL}}" rel="bookmark" aria-label="{{.ViewLabel}} &#8220;{{.Title}}&#8221;">{{.ViewLabel}}</a></span>{{end}}{{end}}</div>
-			<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button>
-		</td>
-		<td class="author column-author" data-colname="Author">{{if .Author}}<a href="{{.AuthorFilterURL}}">{{.Author}}</a>{{end}}</td>
-		{{if $.Data.ShowCatCols}}<td class="categories column-categories" data-colname="Categories">{{if .Categories}}{{.Categories}}{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">Uncategorized</span>{{end}}</td>
-		<td class="tags column-tags" data-colname="Tags">{{if .Tags}}{{.Tags}}{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">No tags</span>{{end}}</td>{{end}}
-		<td class="comments column-comments" data-colname="Comments"><div class="post-com-count-wrapper">{{if .Comments}}<a href="/wp-admin/edit-comments?p={{.ID}}&amp;comment_status=approved" class="post-com-count post-com-count-approved"><span class="comment-count-approved" aria-hidden="true">{{.Comments}}</span><span class="screen-reader-text">{{plural .Comments "%s comment" "%s comments"}}</span></a>{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">No comments</span>{{end}}<span class="post-com-count post-com-count-pending post-com-count-no-pending"><span class="comment-count comment-count-no-pending" aria-hidden="true">0</span><span class="screen-reader-text">No pending comments</span></span></div></td>
-		<td class="date column-date" data-colname="Date">{{.DateLabel}}<br />{{.DateValue}}</td>
-	</tr>
-	{{else}}<tr class="no-items"><td class="colspanchange" colspan="{{if .ShowCatCols}}7{{else}}5{{end}}">{{if .IsTrash}}{{.Labels.NotFoundTrash}}{{else}}{{.Labels.NotFound}}{{end}}</td></tr>
+	{{range .Rows}}{{template "posts-row" dict "R" . "D" $.Data}}
+	{{else}}<tr class="no-items"><td class="colspanchange" colspan="{{.ColCount}}">{{if .IsTrash}}{{.Labels.NotFoundTrash}}{{else}}{{.Labels.NotFound}}{{end}}</td></tr>
 	{{end}}
 	</tbody>
 	<tfoot>{{template "posts-head" dict "Top" false "D" .}}</tfoot>
@@ -70,26 +64,234 @@
 	<br class="clear" />
 </div>
 </form>
+{{if .Rows}}{{template "posts-inline-edit" .}}{{end}}
 <div id="ajax-response"></div>
 <div class="clear"></div>
 </div>
 {{end}}{{template "admin-footer" .}}{{end}}
+
+{{define "posts-row"}}{{$d := .D}}{{with .R}}<tr id="post-{{.ID}}" class="{{.Classes}}">
+		<th scope="row" class="check-column">{{if .CanEdit}}<input id="cb-select-{{.ID}}" type="checkbox" name="post[]" value="{{.ID}}" /><label for="cb-select-{{.ID}}"><span class="screen-reader-text">Select {{.Title}}</span></label>{{end}}<div class="locked-indicator"><span class="locked-indicator-icon" aria-hidden="true"></span><span class="screen-reader-text">&#8220;{{.Title}}&#8221; is locked</span></div></th>
+		<td class="title column-title has-row-actions column-primary page-title" data-colname="Title"><div class="locked-info"><span class="locked-avatar"></span> <span class="locked-text"></span></div>
+			<strong>{{safe .Depth}}{{if and .CanEdit (not .IsTrash)}}<a class="row-title" href="{{.EditURL}}" aria-label="&#8220;{{.Title}}&#8221; (Edit)">{{.Title}}</a>{{else}}<span>{{.Title}}</span>{{end}}{{range $i, $st := .States}}{{if eq $i 0}} &mdash; {{else}}, {{end}}<span class="post-state">{{$st}}</span>{{end}}</strong>
+			{{if .Excerpt}}{{safe .Excerpt}}{{end}}
+			<div class="hidden" id="inline_{{.ID}}">
+	<div class="post_title">{{.Title}}</div>
+	<div class="post_name">{{.Inline.Slug}}</div>
+	<div class="post_author">{{.Inline.AuthorID}}</div>
+	<div class="comment_status">{{.Inline.CommentStatus}}</div>
+	<div class="ping_status">{{.Inline.PingStatus}}</div>
+	<div class="_status">{{.Inline.Status}}</div>
+	<div class="jj">{{.Inline.JJ}}</div>
+	<div class="mm">{{.Inline.MM}}</div>
+	<div class="aa">{{.Inline.AA}}</div>
+	<div class="hh">{{.Inline.HH}}</div>
+	<div class="mn">{{.Inline.MN}}</div>
+	<div class="ss">{{.Inline.SS}}</div>
+	<div class="post_password">{{.Inline.Password}}</div>
+	{{if eq $d.Labels.Type "page"}}<div class="post_parent">{{.Inline.Parent}}</div>
+	<div class="page_template">{{.Inline.Template}}</div>
+	<div class="menu_order">{{.Inline.MenuOrder}}</div>{{else}}<div class="post_category" id="category_{{.ID}}">{{.Inline.Categories}}</div>
+	<div class="tags_input" id="post_tag_{{.ID}}">{{.Inline.Tags}}</div>
+	<div class="sticky">{{.Inline.Sticky}}</div>
+	<div class="post_format">{{.Inline.Format}}</div>{{end}}
+</div>
+			<div class="row-actions">{{if .IsTrash}}<span class="untrash"><a href="{{.RestoreURL}}" aria-label="Restore &#8220;{{.Title}}&#8221; from the Trash">Restore</a> | </span><span class="delete"><a href="{{.DeleteURL}}" class="submitdelete" aria-label="Delete &#8220;{{.Title}}&#8221; permanently">Delete Permanently</a></span>{{else}}{{if .CanEdit}}{{if $d.EditorSwitch}}<span class="edit"><a href="{{.EditURL}}&amp;classic-editor__forget" aria-label="Edit &#8220;{{.Title}}&#8221; in Gotenberg">Edit (Gotenberg)</a> | </span><span class="classic"><a href="{{.EditURL}}&amp;classic-editor" aria-label="Edit &#8220;{{.Title}}&#8221; in the classic editor">Edit (classic editor)</a> | </span>{{else}}<span class="edit"><a href="{{.EditURL}}" aria-label="Edit &#8220;{{.Title}}&#8221;">Edit</a> | </span>{{end}}<span class="inline hide-if-no-js"><button type="button" class="button-link editinline" aria-label="Quick edit &#8220;{{.Title}}&#8221; inline" aria-expanded="false">Quick&nbsp;Edit</button> | </span>{{end}}{{if .BuilderURL}}<span class="edit_with_gowebeditor"><a href="{{.BuilderURL}}" aria-label="Edit &#8220;{{.Title}}&#8221; with Golementor">Edit with Golementor</a> | </span>{{end}}{{if .CanDelete}}<span class="trash"><a href="{{.TrashURL}}" class="submitdelete" aria-label="Move &#8220;{{.Title}}&#8221; to the Trash">Trash</a>{{if .ViewURL}} | {{end}}</span>{{end}}{{if .ViewURL}}<span class="view"><a href="{{.ViewURL}}" rel="bookmark" aria-label="{{.ViewLabel}} &#8220;{{.Title}}&#8221;">{{.ViewLabel}}</a></span>{{end}}{{end}}</div>
+			<button type="button" class="toggle-row"><span class="screen-reader-text">Show more details</span></button>
+		</td>
+		<td class="author column-author{{if index $d.Hidden "author"}} hidden{{end}}" data-colname="Author">{{if .Author}}<a href="{{.AuthorFilterURL}}">{{.Author}}</a>{{end}}</td>
+		{{if $d.ShowCatCols}}<td class="categories column-categories{{if index $d.Hidden "categories"}} hidden{{end}}" data-colname="Categories">{{if .Categories}}{{.Categories}}{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">Uncategorized</span>{{end}}</td>
+		<td class="tags column-tags{{if index $d.Hidden "tags"}} hidden{{end}}" data-colname="Tags">{{if .Tags}}{{.Tags}}{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">No tags</span>{{end}}</td>{{end}}
+		<td class="comments column-comments{{if index $d.Hidden "comments"}} hidden{{end}}" data-colname="Comments"><div class="post-com-count-wrapper">{{if .Comments}}<a href="/wp-admin/edit-comments?p={{.ID}}&amp;comment_status=approved" class="post-com-count post-com-count-approved"><span class="comment-count-approved" aria-hidden="true">{{.Comments}}</span><span class="screen-reader-text">{{plural .Comments "%s comment" "%s comments"}}</span></a>{{else}}<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">No comments</span>{{end}}<span class="post-com-count post-com-count-pending post-com-count-no-pending"><span class="comment-count comment-count-no-pending" aria-hidden="true">0</span><span class="screen-reader-text">No pending comments</span></span></div></td>
+		<td class="date column-date{{if index $d.Hidden "date"}} hidden{{end}}" data-colname="Date">{{.DateLabel}}<br />{{.DateValue}}</td>
+	</tr>{{end}}{{end}}
 
 {{define "posts-bulk"}}<div class="alignleft actions bulkactions">
 	<label for="bulk-action-selector-{{.Pos}}" class="screen-reader-text">Select bulk action</label>
 	<select name="{{if eq .Pos "top"}}action{{else}}action2{{end}}" id="bulk-action-selector-{{.Pos}}">
 		<option value="-1">Bulk actions</option>
 		{{if .Trash}}<option value="untrash">Restore</option>
-		<option value="delete">Delete permanently</option>{{else}}<option value="trash">Move to Trash</option>{{end}}
+		<option value="delete">Delete permanently</option>{{else}}<option value="edit" class="hide-if-no-js">Edit</option>
+		<option value="trash">Move to Trash</option>{{end}}
 	</select>
 	<input type="submit" name="bulk_action" id="doaction{{if eq .Pos "bottom"}}2{{end}}" class="button action button-compact" value="Apply" />
 </div>{{end}}
 {{define "posts-head"}}<tr>
 		<td{{if .Top}} id="cb"{{end}} class="manage-column column-cb check-column"><input id="cb-select-all-{{if .Top}}1{{else}}2{{end}}" type="checkbox" /><label for="cb-select-all-{{if .Top}}1{{else}}2{{end}}"><span class="screen-reader-text">Select All</span></label></td>
 		{{template "sort-th" dict "ID" (or (and .Top "title") "") "Col" "title" "Primary" true "Label" "Title" "Link" (index .D.SortLinks "title")}}
-		{{template "sort-th" dict "ID" (or (and .Top "author") "") "Col" "author" "Label" "Author" "Link" (index .D.SortLinks "author")}}
-		{{if .D.ShowCatCols}}<th scope="col"{{if .Top}} id="categories"{{end}} class="manage-column column-categories">Categories</th>
-		<th scope="col"{{if .Top}} id="tags"{{end}} class="manage-column column-tags">Tags</th>{{end}}
-		{{template "sort-th" dict "ID" (or (and .Top "comments") "") "Col" "comments" "Num" true "Bubble" true "Label" "Comments" "Link" (index .D.SortLinks "comment_count")}}
-		{{template "sort-th" dict "ID" (or (and .Top "date") "") "Col" "date" "Label" "Date" "Link" (index .D.SortLinks "date")}}
+		{{template "sort-th" dict "ID" (or (and .Top "author") "") "Col" "author" "Label" "Author" "Link" (index .D.SortLinks "author") "Hidden" (index .D.Hidden "author")}}
+		{{if .D.ShowCatCols}}<th scope="col"{{if .Top}} id="categories"{{end}} class="manage-column column-categories{{if index .D.Hidden "categories"}} hidden{{end}}">Categories</th>
+		<th scope="col"{{if .Top}} id="tags"{{end}} class="manage-column column-tags{{if index .D.Hidden "tags"}} hidden{{end}}">Tags</th>{{end}}
+		{{template "sort-th" dict "ID" (or (and .Top "comments") "") "Col" "comments" "Num" true "Bubble" true "Label" "Comments" "Link" (index .D.SortLinks "comment_count") "Hidden" (index .D.Hidden "comments")}}
+		{{template "sort-th" dict "ID" (or (and .Top "date") "") "Col" "date" "Label" "Date" "Link" (index .D.SortLinks "date") "Hidden" (index .D.Hidden "date")}}
 	</tr>{{end}}
+
+{{/* inline_edit(): the hidden Quick Edit and Bulk Edit rows inline-edit-post.js clones into the table. */}}
+{{define "posts-inline-edit"}}<form method="get"><table style="display: none"><tbody id="inlineedit">
+{{template "posts-inline-row" dict "Bulk" false "D" .}}
+{{template "posts-inline-row" dict "Bulk" true "D" .}}
+</tbody></table></form>{{end}}
+
+{{define "posts-inline-row"}}{{$d := .D}}{{$t := .D.Labels.Type}}{{$bulk := .Bulk}}
+<tr id="{{if $bulk}}bulk-edit{{else}}inline-edit{{end}}" class="inline-edit-row inline-edit-row-{{$t}} {{if $bulk}}bulk-edit-row bulk-edit-row-{{$t}} bulk-edit-{{$t}}{{else}}quick-edit-row quick-edit-row-{{$t}} inline-edit-{{$t}}{{end}}" style="display: none">
+<td colspan="{{$d.ColCount}}" class="colspanchange">
+<div class="inline-edit-wrapper" role="region" aria-labelledby="{{if $bulk}}bulk{{else}}quick{{end}}-edit-legend">
+<fieldset class="inline-edit-col-left">
+	<legend class="inline-edit-legend" id="{{if $bulk}}bulk{{else}}quick{{end}}-edit-legend">{{if $bulk}}Bulk Edit{{else}}Quick Edit{{end}}</legend>
+	<div class="inline-edit-col">
+{{if $bulk}}		<div id="bulk-title-div">
+			<div id="bulk-titles"></div>
+		</div>
+{{else}}		<label>
+			<span class="title">Title</span>
+			<span class="input-text-wrap"><input type="text" name="post_title" class="ptitle" value="" /></span>
+		</label>
+		<label>
+			<span class="title">Slug</span>
+			<span class="input-text-wrap"><input type="text" name="post_name" value="" autocomplete="off" spellcheck="false" /></span>
+		</label>
+		<fieldset class="inline-edit-date">
+			<legend><span class="title">Date</span></legend>
+			<div class="timestamp-wrap"><label><span class="screen-reader-text">Month</span><select class="form-required" name="mm">
+{{range $i, $m := list "Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"}}				<option value="{{printf "%02d" (add $i 1)}}" data-text="{{$m}}">{{printf "%02d" (add $i 1)}}-{{$m}}</option>
+{{end}}			</select></label> <label><span class="screen-reader-text">Day</span><input type="text" name="jj" value="" size="2" maxlength="2" autocomplete="off" class="form-required" /></label>, <label><span class="screen-reader-text">Year</span><input type="text" name="aa" value="" size="4" maxlength="4" autocomplete="off" class="form-required" /></label> at <label><span class="screen-reader-text">Hour</span><input type="text" name="hh" value="" size="2" maxlength="2" autocomplete="off" class="form-required" /></label>:<label><span class="screen-reader-text">Minute</span><input type="text" name="mn" value="" size="2" maxlength="2" autocomplete="off" class="form-required" /></label></div>
+			<input type="hidden" name="ss" value="" />
+		</fieldset>
+		<br class="clear" />
+{{if $d.Authors}}		<label class="inline-edit-author">
+			<span class="title">Author</span>
+			<select name="post_author" class="authors">
+{{range $d.Authors}}				<option value="{{.ID}}">{{.DisplayName}} ({{.Login}})</option>
+{{end}}			</select>
+		</label>
+{{end}}		<div class="inline-edit-group wp-clearfix">
+			<label class="alignleft inline-edit-password-input">
+				<span class="title">Password</span>
+				<span class="input-text-wrap"><input type="text" name="post_password" class="inline-edit-password-input" value="" /></span>
+			</label>
+			<span class="alignleft inline-edit-or">&ndash;OR&ndash;</span>
+			<label class="alignleft inline-edit-private">
+				<input type="checkbox" name="keep_private" value="private" />
+				<span class="checkbox-title">Private</span>
+			</label>
+		</div>
+{{end}}	</div>
+</fieldset>
+{{if eq $t "post"}}<fieldset class="inline-edit-col-center inline-edit-categories">
+	<div class="inline-edit-col">
+		<span class="title inline-edit-categories-label">Categories</span>
+		<input type="hidden" name="post_category[]" value="0" />
+		<ul class="cat-checklist category-checklist">
+{{range $d.Categories}}			<li id="category-{{.ID}}"><label class="selectit">{{repeat "&nbsp;&nbsp;&nbsp;" .Depth | safe}}<input value="{{.ID}}" type="checkbox" name="post_category[]" id="in-category-{{.ID}}" /> {{.Name}}</label></li>
+{{end}}		</ul>
+	</div>
+</fieldset>{{end}}
+<fieldset class="inline-edit-col-right">
+	<div class="inline-edit-col">
+{{if and $bulk $d.Authors}}		<label class="inline-edit-author">
+			<span class="title">Author</span>
+			<select name="post_author" class="authors">
+				<option value="-1">&mdash; No Change &mdash;</option>
+{{range $d.Authors}}				<option value="{{.ID}}">{{.DisplayName}} ({{.Login}})</option>
+{{end}}			</select>
+		</label>
+{{end}}{{if eq $t "page"}}		<label>
+			<span class="title">Parent</span>
+			<select name="post_parent">
+{{if $bulk}}				<option value="-1">&mdash; No Change &mdash;</option>
+{{end}}				<option value="0">Main Page (no parent)</option>
+{{range $d.Pages}}				<option class="level-0" value="{{.ID}}">{{if .Title}}{{.Title}}{{else}}(no title){{end}}</option>
+{{end}}			</select>
+		</label>
+{{if not $bulk}}		<label>
+			<span class="title">Order</span>
+			<span class="input-text-wrap"><input type="text" name="menu_order" class="inline-edit-menu-order-input" value="" /></span>
+		</label>
+{{end}}{{if $d.Templates}}		<label>
+			<span class="title">Template</span>
+			<select name="page_template">
+{{if $bulk}}				<option value="-1">&mdash; No Change &mdash;</option>
+{{end}}				<option value="default">Default template</option>
+{{range $d.Templates}}				<option value="{{.Value}}">{{.Label}}</option>
+{{end}}			</select>
+		</label>
+{{end}}{{else}}		<label class="inline-edit-tags">
+			<span class="title">Tags</span>
+			<textarea data-wp-taxonomy="post_tag" cols="22" rows="1" name="tax_input[post_tag]" class="tax_input_post_tag" aria-describedby="inline-edit-post_tag-desc"></textarea>
+		</label>
+		<p class="howto" id="inline-edit-post_tag-desc">Separate tags with commas</p>
+{{end}}{{if $bulk}}		<div class="inline-edit-group wp-clearfix">
+			<label class="alignleft">
+				<span class="title">Comments</span>
+				<select name="comment_status">
+					<option value="">&mdash; No Change &mdash;</option>
+					<option value="open">Allow</option>
+					<option value="closed">Do not allow</option>
+				</select>
+			</label>
+			<label class="alignright">
+				<span class="title">Pings</span>
+				<select name="ping_status">
+					<option value="">&mdash; No Change &mdash;</option>
+					<option value="open">Allow</option>
+					<option value="closed">Do not allow</option>
+				</select>
+			</label>
+		</div>
+{{else}}		<div class="inline-edit-group wp-clearfix">
+			<label class="alignleft">
+				<input type="checkbox" name="comment_status" value="open" />
+				<span class="checkbox-title">Allow Comments</span>
+			</label>
+			<label class="alignleft">
+				<input type="checkbox" name="ping_status" value="open" />
+				<span class="checkbox-title">Allow Pings</span>
+			</label>
+		</div>
+{{end}}		<div class="inline-edit-group wp-clearfix">
+			<label class="inline-edit-status alignleft">
+				<span class="title">Status</span>
+				<select name="_status">
+{{if $bulk}}					<option value="-1">&mdash; No Change &mdash;</option>
+{{end}}{{if $d.CanPublish}}					<option value="publish">Published</option>
+					<option value="future">Scheduled</option>
+{{if $bulk}}					<option value="private">Private</option>
+{{end}}{{end}}					<option value="pending">Pending Review</option>
+					<option value="draft">Draft</option>
+				</select>
+			</label>
+{{if and (eq $t "post") $d.CanPublish $d.CanOthers}}{{if $bulk}}			<label class="alignright">
+				<span class="title">Sticky</span>
+				<select name="sticky">
+					<option value="-1">&mdash; No Change &mdash;</option>
+					<option value="sticky">Sticky</option>
+					<option value="unsticky">Not Sticky</option>
+				</select>
+			</label>
+{{else}}			<label class="alignleft">
+				<input type="checkbox" name="sticky" value="sticky" />
+				<span class="checkbox-title">Make this post sticky</span>
+			</label>
+{{end}}{{end}}		</div>
+{{if eq $t "post"}}		<label class="alignleft">
+			<span class="title">Format</span>
+			<select name="post_format">
+{{if $bulk}}				<option value="-1">&mdash; No Change &mdash;</option>
+{{end}}				<option value="0">Standard</option>
+{{range list "aside" "chat" "gallery" "link" "image" "quote" "status" "video" "audio"}}				<option value="{{.}}">{{ucfirst .}}</option>
+{{end}}			</select>
+		</label>
+{{end}}	</div>
+</fieldset>
+<div class="submit inline-edit-save">
+{{if $bulk}}	<input type="submit" name="bulk_edit" id="bulk_edit" class="button button-primary" value="Update" />
+{{else}}	<input type="hidden" id="_inline_edit" name="_inline_edit" value="{{$d.InlineNonce}}" />
+	<button type="button" class="button button-primary save">Update</button>
+{{end}}	<button type="button" class="button cancel">Cancel</button>
+{{if not $bulk}}	<span class="spinner"></span>
+{{end}}	<input type="hidden" name="post_view" value="{{$d.Mode}}" />
+	<input type="hidden" name="screen" value="edit-{{$t}}" />
+	<div class="notice notice-error notice-alt inline hidden"><p class="error"></p></div>
+</div>
+</div>
+</td></tr>{{end}}

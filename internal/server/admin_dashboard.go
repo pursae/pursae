@@ -1,8 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"math"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +35,88 @@ type dashboardData struct {
 	Future, Published, Drafts         []activityItem
 	RecentComments                    []dashboardComment
 	QuickDraftNonce                   string
+	ThemeName                         string
+	Health                            healthSummary
+}
+
+// healthSummary is what the Site Health Status widget shows: the counts of the Site Health tests
+// and the score site-health.js's recalculateProgression() draws from them.
+type healthSummary struct {
+	Good, Recommended, Critical int
+	Issues                      int     // recommended + critical
+	Class                       string  // green or orange (loading when there are no tests)
+	Label                       string  // Good / Should be improved
+	Offset                      float64 // stroke-dashoffset of the progress circle
+}
+
+// siteHealthSummary runs the checks of the Site Health screen (siteHealth in admin_misc.go) that
+// do not need the screen's details and scores them the way site-health.js does.
+func (s *Server) siteHealthSummary(ctx context.Context) healthSummary {
+	var h healthSummary
+	good := func() { h.Good++ }
+	recommended := func() { h.Recommended++ }
+	good() // current WordPress Go version
+	good() // Go runtime
+	var pgVersion string
+	_ = s.store.Pool.QueryRow(ctx, `SHOW server_version`).Scan(&pgVersion)
+	if pgMajor, _ := strconv.Atoi(strings.SplitN(pgVersion, ".", 2)[0]); pgMajor >= 15 {
+		good()
+	} else {
+		recommended()
+	}
+	if strings.HasPrefix(s.links(ctx).Home, "https://") {
+		good()
+	} else {
+		recommended()
+	}
+	if f, err := os.CreateTemp(s.cfg.UploadsDir, ".health-*"); err == nil {
+		f.Close()
+		os.Remove(f.Name())
+		good()
+	} else {
+		h.Critical++
+	}
+	if s.settings.Bool("wpgo_cache_enabled") {
+		good()
+	} else {
+		recommended()
+	}
+	if s.plugins != nil && s.plugins.initErr == nil {
+		good()
+	} else {
+		h.Critical++
+	}
+	if s.settings.String("timezone_string") != "" {
+		good()
+	} else {
+		recommended()
+	}
+	if !s.settings.Bool("blog_public") {
+		recommended()
+	}
+	var inactivePlugins int
+	_ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM plugins WHERE status = 'inactive'`).Scan(&inactivePlugins)
+	if inactivePlugins > 0 {
+		recommended()
+	}
+	if s.settings.Int("wp_page_for_privacy_policy") == 0 {
+		recommended()
+	}
+	h.Issues = h.Recommended + h.Critical
+	// site-health.js recalculateProgression().
+	total := float64(h.Good) + float64(h.Recommended) + 1.5*float64(h.Critical)
+	failed := 0.5*float64(h.Recommended) + 1.5*float64(h.Critical)
+	val := 100
+	if total > 0 {
+		val = 100 - int(math.Ceil(failed/total*100))
+	}
+	val = max(0, min(100, val))
+	h.Offset = math.Round(float64(100-val)/100*math.Pi*180*100) / 100 // r=90: circumference 565.48
+	h.Class, h.Label = "orange", "Should be improved"
+	if val >= 80 && h.Critical == 0 {
+		h.Class, h.Label = "green", "Good"
+	}
+	return h
 }
 
 func (s *Server) dashboard(c *gin.Context) {
@@ -45,7 +131,12 @@ func (s *Server) dashboard(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	d := dashboardData{QuickDraftNonce: s.nonce(c, "add-post"), Discouraged: !s.settings.Bool("blog_public")}
+	d := dashboardData{QuickDraftNonce: s.nonce(c, "add-post"), Discouraged: !s.settings.Bool("blog_public"), ThemeName: s.activeTheme().Name}
+	if u.Can("manage_options", nil) {
+		d.Health = s.siteHealthSummary(ctx)
+	} else {
+		d.Health = healthSummary{Class: "loading", Label: "No information yet\u2026"}
+	}
 	d.ShowWelcome = true
 	if v, ok := u.Meta["show_welcome_panel"].(bool); ok {
 		d.ShowWelcome = v

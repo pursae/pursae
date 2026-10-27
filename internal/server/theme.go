@@ -43,6 +43,8 @@ type Theme struct {
 	PreloadFonts []string
 	// Supports lists add_theme_support() features reported to the block editor (REST themes endpoint).
 	Supports map[string]any
+	// Templates are the theme's page templates (file => "Template Name" header), get_page_templates().
+	Templates map[string]string
 
 	// HeadTop is printed first in wp_head (hooks at priority 0, e.g. Twenty Sixteen's no-js swap).
 	HeadTop string
