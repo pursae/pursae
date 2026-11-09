@@ -162,7 +162,8 @@ func findTag(lc, name string, from int) int {
 		}
 		end := tagEnd(lc, at)
 		if end < 0 {
-			return -1
+			from = at + 1 // a stray "<" in text (1 < 2): skip it, not the rest of the document
+			continue
 		}
 		from = end + 1
 	}

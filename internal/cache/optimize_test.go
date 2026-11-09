@@ -145,3 +145,14 @@ func TestLazyImagesSkipsQuotedMarkup(t *testing.T) {
 		}
 	}
 }
+
+func TestStrayLessThanKeepsOptimizing(t *testing.T) {
+	doc := `<html><head><title>1 < 2</title></head><body><p>a < b</p><img src="a"><img src="b">` +
+		`<script src="/wp-includes/js/jquery/jquery.min.js"></script></body></html>`
+	got := opt(doc, OptimizeConfig{LazyImages: true, LazySkipFirst: 1, DeferScripts: true, DeferAllowlist: []string{"jquery"}})
+	for _, want := range []string{`<img src="a" fetchpriority="high">`, `<img src="b" loading="lazy" decoding="async">`, ` defer`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q after a stray '<': %s", want, got)
+		}
+	}
+}
