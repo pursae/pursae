@@ -2,7 +2,7 @@ module wpgo
 
 go 1.27.1
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/gen2brain/avif v0.6.0
