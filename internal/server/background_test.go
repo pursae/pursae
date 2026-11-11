@@ -73,6 +73,7 @@ func TestCDNPurgeCoalesced(t *testing.T) {
 			n := len(calls)
 			mu.Unlock()
 			if n > 0 {
+				s.rt.cdn.wg.Wait() // let the drain loop finish, or the next batch joins this run
 				return
 			}
 			if time.Now().After(deadline) {
