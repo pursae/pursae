@@ -75,6 +75,21 @@ func TestStripTagsRemovesMatchingRawElements(t *testing.T) {
 	}
 }
 
+func TestStripTagsHandlesDelimitersInsideMarkup(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{`<p title="1 > 0">Visible</p>`, "Visible"},
+		{`<p title='a > b'>Visible</p>`, "Visible"},
+		{`<!-- comparison: 2 > 1 -->Visible`, "Visible"},
+		{`<img src=x onerror=alert(1) a=">Visible`, "Visible"},
+		{`<p title="abc>Visible`, "Visible"},
+		{`<p title='abc>Visible`, "Visible"},
+	} {
+		if got := StripTags(tc.in); got != tc.want {
+			t.Errorf("StripTags(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestAutop(t *testing.T) {
 	got := Autop("First line\nsecond line\n\nNew para\n\n<ul><li>x</li></ul>")
 	if !strings.Contains(got, "<p>First line<br />\nsecond line</p>") || !strings.Contains(got, "<p>New para</p>") {

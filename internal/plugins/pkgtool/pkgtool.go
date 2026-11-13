@@ -137,9 +137,17 @@ func pack(args []string) error {
 	}
 	extras := map[string][]byte{}
 	for _, name := range []string{plugins.ReadmeFile, plugins.IconFile} {
-		if data, err := os.ReadFile(filepath.Join(*dir, name)); err == nil {
-			extras[name] = data
+		path := filepath.Join(*dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+					continue
+				}
+			}
+			return fmt.Errorf("%s: %w", path, err)
 		}
+		extras[name] = data
 	}
 	assetsDir := filepath.Join(*dir, plugins.AssetsDir)
 	if st, err := os.Stat(assetsDir); err == nil && st.IsDir() {

@@ -1,12 +1,65 @@
 package gocdn
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+type initiateResponseTransport string
+
+func (body initiateResponseTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
+}
+
+func TestCreateMultipartUploadValidatesResponseRoot(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want string
+	}{
+		{`<InitiateMultipartUploadResult xmlns="urn:s3"><UploadId>valid</UploadId></InitiateMultipartUploadResult>`, "valid"},
+		{`<WrongResult><UploadId>invalid</UploadId></WrongResult>`, ""},
+		{`<InitiateMultipartUploadResult></InitiateMultipartUploadResult>`, ""},
+	} {
+		c := &Client{Endpoint: "https://s3.example.test", Bucket: "bucket", AccessKey: "key", SecretKey: "secret", PathStyle: true,
+			HTTP: &http.Client{Transport: initiateResponseTransport(tc.body)}}
+		got, err := c.CreateMultipartUpload(context.Background(), "object", PutOptions{})
+		if got != tc.want || (err != nil) != (tc.want == "") {
+			t.Errorf("body=%q: id=%q err=%v, want %q", tc.body, got, err, tc.want)
+		}
+	}
+}
+
+type uploadPartResponseTransport struct{ calls int }
+
+func (transport *uploadPartResponseTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	transport.calls++
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Etag": {`"etag"`}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+}
+
+func TestUploadPartValidatesPartNumberBeforeRequest(t *testing.T) {
+	for _, tc := range []struct {
+		n       int
+		wantErr bool
+	}{
+		{0, true}, {1, false}, {10000, false}, {10001, true},
+	} {
+		transport := &uploadPartResponseTransport{}
+		c := &Client{Endpoint: "https://s3.example.test", Bucket: "bucket", AccessKey: "key", SecretKey: "secret", PathStyle: true,
+			HTTP: &http.Client{Transport: transport}}
+		_, err := c.UploadPart(context.Background(), "object", "upload-id", tc.n, []byte("part"))
+		wantCalls := 1
+		if tc.wantErr {
+			wantCalls = 0
+		}
+		if (err != nil) != tc.wantErr || transport.calls != wantCalls {
+			t.Errorf("part %d: calls=%d err=%v, wantErr=%v", tc.n, transport.calls, err, tc.wantErr)
+		}
+	}
+}
 
 type failedResponseReader struct{}
 

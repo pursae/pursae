@@ -42,7 +42,9 @@ func RemoveAccents(s string) string {
 }
 
 var (
-	tagRe        = regexp.MustCompile(`<[^>]*>`)
+	// Quoted attribute values may contain '>'. The last alternative keeps the old behaviour for
+	// malformed tags (an unclosed quote), so they are still stripped instead of passing through.
+	tagRe        = regexp.MustCompile(`(?s)<!--.*?-->|<(?:"[^"]*"|'[^']*'|[^'">])*>|<[^>]*>`)
 	rawContentRe = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>`)
 	entityRe     = regexp.MustCompile(`&[^;\s]+;`)
 	dashesRe     = regexp.MustCompile(`-+`)

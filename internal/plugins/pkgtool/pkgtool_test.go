@@ -110,6 +110,28 @@ func TestScaffoldPreservesExistingFiles(t *testing.T) {
 	}
 }
 
+func TestPackRejectsInvalidOptionalFilePaths(t *testing.T) {
+	for _, name := range []string{plugins.ReadmeFile, plugins.IconFile} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			manifest := `{"slug":"valid-plugin","name":"Valid Plugin","version":"0.1.0","requires":"0.1.0","license":"GPL-2.0-or-later"}`
+			wasm := filepath.Join(dir, "plugin.wasm")
+			if err := os.WriteFile(filepath.Join(dir, plugins.ManifestFile), []byte(manifest), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(wasm, []byte("\x00asm\x01\x00\x00\x00"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(filepath.Join(dir, name), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := Run([]string{"pack", "-dir", dir, "-wasm", wasm, "-out", filepath.Join(dir, "plugin.zip")}); err == nil {
+				t.Fatal("pack accepted a directory in place of an optional source file")
+			}
+		})
+	}
+}
+
 func TestKeygenRecoversMissingPublicKey(t *testing.T) {
 	prefix := filepath.Join(t.TempDir(), "signer")
 	pub, priv, err := plugins.GenerateKey()

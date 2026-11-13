@@ -3,13 +3,31 @@ package gocdn_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"math"
+	"net/http"
 	"strings"
 	"testing"
 
 	"wpgo/internal/gocdn"
 )
+
+type rejectingUploadTransport struct{ calls int }
+
+func (t *rejectingUploadTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls++
+	return nil, errors.New("unexpected request")
+}
+
+func TestUploadRejectsObjectAboveS3LimitBeforeRequest(t *testing.T) {
+	transport := &rejectingUploadTransport{}
+	c := &gocdn.Client{Endpoint: "https://s3.example.test", Bucket: "bucket", AccessKey: "key", SecretKey: "secret", PathStyle: true, HTTP: &http.Client{Transport: transport}}
+	multipart, err := c.Upload(context.Background(), "too-large", bytes.NewReader(nil), gocdn.MaxObjectSize+1, gocdn.UploadOptions{Threshold: 1})
+	if err == nil || multipart || transport.calls != 0 {
+		t.Fatalf("multipart=%v calls=%d err=%v", multipart, transport.calls, err)
+	}
+}
 
 func TestUploadCapsPartAllocationAtObjectSize(t *testing.T) {
 	f := newFake(t)

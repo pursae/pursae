@@ -23,7 +23,11 @@ const (
 	MinPartSize = 5 << 20
 	// DefaultPartSize is the part size when none is given.
 	DefaultPartSize = 8 << 20
-	maxParts        = 10000
+	// MaxPartSize is S3's largest multipart part.
+	MaxPartSize = 5 << 30
+	maxParts    = 10000
+	// MaxObjectSize is the largest object S3 can assemble from multipart parts.
+	MaxObjectSize = maxParts * MaxPartSize
 )
 
 // Part is an uploaded part.
@@ -46,6 +50,9 @@ func (c *Client) Upload(ctx context.Context, key string, r io.ReaderAt, size int
 	if size < 0 {
 		return false, errors.New("upload size must not be negative")
 	}
+	if size > MaxObjectSize {
+		return false, fmt.Errorf("upload size exceeds S3's %d-byte object limit", MaxObjectSize)
+	}
 	threshold := o.Threshold
 	if threshold <= 0 {
 		threshold = 16 << 20
@@ -64,11 +71,15 @@ func (c *Client) Upload(ctx context.Context, key string, r io.ReaderAt, size int
 	if part < MinPartSize {
 		part = MinPartSize
 	}
+	if part > MaxPartSize {
+		part = MaxPartSize
+	}
 	if part > size {
 		part = size
 	}
-	for (size+part-1)/part > maxParts {
-		part *= 2
+	requiredPart := (size-1)/maxParts + 1
+	if part < requiredPart {
+		part = requiredPart
 	}
 	retries := o.Retries
 	if retries <= 0 {
@@ -115,16 +126,26 @@ func (c *Client) CreateMultipartUpload(ctx context.Context, key string, o PutOpt
 	}
 	defer resp.Body.Close()
 	var x struct {
+		XMLName  xml.Name
 		UploadID string `xml:"UploadId"`
 	}
-	if err := xml.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&x); err != nil || x.UploadID == "" {
-		return "", fmt.Errorf("CreateMultipartUpload: no upload ID (%v)", err)
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&x); err != nil {
+		return "", fmt.Errorf("CreateMultipartUpload: decoding response: %w", err)
+	}
+	if x.XMLName.Local != "InitiateMultipartUploadResult" {
+		return "", fmt.Errorf("CreateMultipartUpload: unexpected response root %q", x.XMLName.Local)
+	}
+	if x.UploadID == "" {
+		return "", errors.New("CreateMultipartUpload: no upload ID")
 	}
 	return x.UploadID, nil
 }
 
 // UploadPart sends part n (1-based) and returns its ETag.
 func (c *Client) UploadPart(ctx context.Context, key, uploadID string, n int, data []byte) (string, error) {
+	if n < 1 || n > maxParts {
+		return "", fmt.Errorf("UploadPart: part number must be from 1 through %d", maxParts)
+	}
 	q := url.Values{"partNumber": {strconv.Itoa(n)}, "uploadId": {uploadID}}
 	resp, err := c.do(ctx, http.MethodPut, key, q, data, c.withSSEC(nil))
 	if err != nil {
