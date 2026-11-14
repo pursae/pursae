@@ -5,7 +5,7 @@
 <h1 align="center">Pursae</h1>
 
 <p align="center"><b>WordPress, rewritten in Go.</b><br>
-One binary · PostgreSQL · the admin you already know · 16 built-in plugins.</p>
+One binary · PostgreSQL · the admin you already know · 18 built-in plugins.</p>
 
 <p align="center">
   <img alt="Go 1.27" src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white">
@@ -19,6 +19,7 @@ One binary · PostgreSQL · the admin you already know · 16 built-in plugins.</
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-tour">Tour</a> ·
   <a href="#-built-in-plugins">Plugins</a> ·
+  <a href="#-ai-agents-mcp">AI agents</a> ·
   <a href="#-what-pursae-sends-to-hubpursaecom">Privacy</a> ·
   <a href="docs/GUIDE.md">Full guide</a> ·
   <a href="docs/developer/README.md">Developer docs</a>
@@ -100,12 +101,13 @@ Ports, env vars, proxies, backups: **[docs/GUIDE.md](docs/GUIDE.md)**.
 
 ## 🧩 Built-in plugins
 
-Native, off on a fresh install, one click under **Plugins**. Click a row to open it.
+Native, switched on and off with one click under **Plugins**; all of them are off on a fresh install
+except Pursae Cache and Classic Editor. Click a heading below the table to open its screenshots.
 
 | | Plugin | In one line | Docs |
 |---|---|---|---|
 | 🛒 | **Pursae Commerce** | Store, cart, checkout, orders, premium modules | [→](docs/goocommerce-features.md) |
-| 🎨 | **Pursae Web Builder** | Visual pages + Theme Builder | [→](docs/developer/web-builder.md) |
+| 🎨 | **Pursae Web Builder** | Visual pages, Theme Builder, popups, theme library | [→](docs/developer/web-builder.md) |
 | 🔎 | **Pursae SEO** | Analysis, schema, sitemaps, redirects | [→](docs/seo-go-features.md) |
 | ⚡ | **Pursae Cache** | Full-page cache + page optimization | [→](docs/developer/operations/caching.md) |
 | 🛡️ | **Pursae Security** | 2FA, MFA codes, lockouts, activity log | [→](docs/adminsecgo-features.md) |
@@ -141,7 +143,7 @@ Native, off on a fresh install, one click under **Plugins**. Click a row to open
 <td width="50%"><img src="docs/readme/web-builder-editor.webp" alt="Web Builder editor"><p align="center">Sections, design, devices</p></td>
 <td width="50%"><img src="docs/readme/web-builder-theme.webp" alt="Theme Builder"><p align="center">Theme Builder: header, footer, templates</p></td>
 </tr></table>
-<p align="right"><a href="docs/developer/web-builder.md">All features →</a></p>
+<p align="right"><a href="docs/developer/web-builder.md">All features →</a> · <a href="docs/developer/web-builder-theme-builder.md">Theme Builder →</a> · <a href="docs/developer/web-builder-theme-library.md">Theme library →</a></p>
 </details>
 
 <details>
@@ -209,6 +211,10 @@ Native, off on a fresh install, one click under **Plugins**. Click a row to open
 
 <details>
 <summary><h3>📊 Pursae Analytics</h3></summary>
+<table><tr>
+<td width="50%"><img src="docs/readme/analytics.webp" alt="Analytics overview"><p align="center">Visitors, views and Core Web Vitals</p></td>
+<td width="50%"><img src="docs/readme/analytics-settings.webp" alt="Analytics settings"><p align="center">Who is counted, goals, retention</p></td>
+</tr></table>
 
 Privacy-friendly site statistics on one page (**Analytics** in the admin menu), without cookies, without
 storing IP addresses and without a consent banner — in the class of Plausible and Jetpack Stats:
@@ -224,6 +230,10 @@ storing IP addresses and without a consent banner — in the class of Plausible 
 
 <details>
 <summary><h3>💬 Pursae Forum</h3></summary>
+<table><tr>
+<td width="50%"><img src="docs/readme/forum.webp" alt="Forum overview"><p align="center">Overview, moderation, members, badges</p></td>
+<td width="50%"><img src="docs/readme/forum-front.webp" alt="Campfire forum theme"><p align="center">Campfire theme with its demo content</p></td>
+</tr></table>
 
 A bbPress-class discussion board that renders inside any theme (**Forums** in the admin menu):
 
@@ -261,6 +271,27 @@ A bbPress-class discussion board that renders inside any theme (**Forums** in th
 <td width="50%"><img src="docs/readme/backup.webp" alt="Backup Manager"><p align="center"><a href="docs/backup-manager-features.md">Backup Manager →</a></p></td>
 </tr></table>
 </details>
+
+## 🤖 AI agents (MCP)
+
+<table><tr>
+<td width="50%"><img src="docs/readme/ai-access.webp" alt="Tools › AI Access"><p align="center"><b>Tools › AI Access</b> — endpoint, client configs, connected apps, activity log</p></td>
+<td width="50%">
+
+A built-in [Model Context Protocol](https://modelcontextprotocol.io) server at `/wp-json/pursae/v1/mcp`
+lets Claude, Cursor and other MCP clients run the site:
+
+- Posts, pages, media, terms, menus, comments, users, themes and theme files, plugins, updates,
+  backups, Pursae Cache, SEO, Commerce, Headless and the built-in plugins' settings.
+- Sign-in with **OAuth 2.1** (a consent screen in the browser) or an **Application Password** with
+  scopes; every tool runs as a REST request with the same capabilities.
+- `wpgo mcp` bridges clients that only start local (stdio) servers.
+- Every write is logged for 90 days; revoke a client under Users › Profile.
+
+<a href="docs/developer/operations/ai-mcp.md">AI agents (MCP) →</a>
+
+</td>
+</tr></table>
 
 ## 🔁 WordPress compatibility
 
@@ -350,7 +381,8 @@ page says so; remove `WPGO_HUB` and restart to get updates again.
 | 🧩 **Plugins** — Go → signed Wasm, hooks, REST, settings | [docs/developer/plugins](docs/developer/plugins/index.md) |
 | 🎨 **Themes** — Go templates + theme.json | [docs/developer/themes](docs/developer/themes/index.md) |
 | 💬 **Forum themes** — Pursae Forum wrapper, view overrides, `--pf-*` tokens | [docs/developer/themes/forum.md](docs/developer/themes/forum.md) |
-| 🔗 **REST API** — `wp/v2` + plugin routes | [docs/developer/rest-api](docs/developer/rest-api/index.md) |
+| 🔗 **REST API** — `wp/v2` + plugin routes, Application Password scopes, OAuth 2.1 | [docs/developer/rest-api](docs/developer/rest-api/index.md) |
+| 🤖 **AI agents** — MCP server, `wpgo mcp` bridge, tool list | [docs/developer/operations/ai-mcp.md](docs/developer/operations/ai-mcp.md) |
 | 🏪 **Hub** — marketplace, updates, licenses | [docs/developer/hub](docs/developer/hub/index.md) |
 | ⚙️ **Operations** — config, TLS, backups, cron | [docs/developer/operations](docs/developer/operations/configuration.md) |
 
