@@ -37,7 +37,11 @@ const (
 	DefaultPublicTTL    = 604800 * time.Second
 	DefaultFrontPageTTL = 604800 * time.Second
 	DefaultNotFoundTTL  = 3600 * time.Second
-	searchTTL           = 3600 * time.Second // upper bound for search result pages (?s=)
+	searchTTL           = 600 * time.Second // upper bound for search result pages (?s=)
+	// maxSearchEntries bounds the cached search result pages (memory and disk): every ?s= value is its own
+	// entry, so random queries must not push posts and pages out of the LRU. Past it new searches are
+	// served uncached until older ones expire or a purge drops them.
+	maxSearchEntries    = 1000
 	DefaultLoginCookie  = "wpgo_logged_in"
 	DefaultMaxEntries   = 10000
 	DefaultMaxBytes     = 256 << 20

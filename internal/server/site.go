@@ -876,7 +876,9 @@ func (s *Server) renderSite(c *gin.Context, q *siteQuery) {
 			return
 		}
 	}
-	if q.Preview || q.Kind == "search" {
+	// Search results are public pages like archives: Pursae Cache stores them for a short time (searchTTL)
+	// and purges them with the "search" tag when content changes (wpgocache.go).
+	if q.Preview {
 		c.Header("Cache-Control", "no-cache, must-revalidate, max-age=0")
 	}
 	s.cacheTags(c, q)

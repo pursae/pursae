@@ -110,6 +110,7 @@ type Store struct {
 	bases     map[string]map[string]struct{}
 	bytes     int64
 	stubBytes int64 // file bytes of the disk-only records
+	searches  int   // entries (memory and disk) of search result pages, bounded by maxSearchEntries
 	hits      atomic.Int64
 	misses    atomic.Int64
 
@@ -388,7 +389,12 @@ func (s *Store) set(e *Entry, check bool, since uint64) error {
 		s.mu.Unlock()
 		return ErrPurged
 	}
-	if old, ok := s.items[e.Key]; ok {
+	old, replacing := s.items[e.Key]
+	if !replacing && s.searches >= maxSearchEntries && isSearchKey(e.Key) {
+		s.mu.Unlock()
+		return ErrNotCacheable
+	}
+	if replacing {
 		s.removeLocked(old, false)
 	}
 	it := &item{key: e.Key, base: keyBase(e.Key), tags: e.Tags, expires: e.Expires, entry: e, bytes: size, file: size}
@@ -476,6 +482,9 @@ func (s *Store) removeLocked(it *item, deleteFile bool) {
 	s.unloadLocked(it)
 	s.dropStubLocked(it)
 	delete(s.items, it.key)
+	if isSearchKey(it.key) {
+		s.searches--
+	}
 	for _, t := range it.tags {
 		if set := s.tags[t]; set != nil {
 			delete(set, it.key)
@@ -535,6 +544,9 @@ func markGen(m *map[string]uint64, k string, g uint64) {
 }
 
 func (s *Store) index(it *item) {
+	if isSearchKey(it.key) {
+		s.searches++
+	}
 	for _, t := range it.tags {
 		set := s.tags[t]
 		if set == nil {
@@ -679,6 +691,20 @@ func (s *Store) Stats() Stats {
 		st.HitRatio = float64(st.Hits) / float64(total)
 	}
 	return st
+}
+
+// isSearchKey reports whether a canonical key ("scheme://host/path?query#vary") is a search result
+// page: its query (sorted and encoded by keyQuery) carries the s parameter.
+func isSearchKey(key string) bool {
+	i := strings.IndexByte(key, '?')
+	if i < 0 {
+		return false
+	}
+	q := key[i+1:]
+	if j := strings.IndexByte(q, '#'); j >= 0 {
+		q = q[:j]
+	}
+	return strings.HasPrefix(q, "s=") || strings.Contains(q, "&s=")
 }
 
 // keyBase extracts host+path from a canonical key ("https://host/path?q#vary").

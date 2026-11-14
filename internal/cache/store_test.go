@@ -303,3 +303,47 @@ func TestDiskBytesBounded(t *testing.T) {
 		t.Fatalf("after restart: %+v", st)
 	}
 }
+
+// Search result pages are bounded on their own, so random ?s= values cannot push posts out of the LRU.
+func TestStoreBoundsSearchEntries(t *testing.T) {
+	s, err := NewStore(StoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(key string) error {
+		e, err := NewEntry(key, 200, http.Header{}, []byte("x"), nil, time.Now(), time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.Set(e)
+	}
+	for i := 0; i < maxSearchEntries; i++ {
+		if err := put(fmt.Sprintf("https://ex.test/?s=q%d#d", i)); err != nil {
+			t.Fatalf("search %d: %v", i, err)
+		}
+	}
+	if err := put("https://ex.test/?s=one-too-many#d"); err != ErrNotCacheable {
+		t.Fatalf("search past the bound: err = %v, want ErrNotCacheable", err)
+	}
+	if err := put("https://ex.test/?paged=2&s=q1#d"); err != ErrNotCacheable {
+		t.Fatalf("paged search past the bound: err = %v, want ErrNotCacheable", err)
+	}
+	if err := put("https://ex.test/?s=q1#d"); err != nil { // replacing a cached search is fine
+		t.Fatalf("replace: %v", err)
+	}
+	if err := put("https://ex.test/post/#d"); err != nil { // other pages are not affected
+		t.Fatalf("post: %v", err)
+	}
+	if !s.Delete("https://ex.test/?s=q0#d") {
+		t.Fatal("delete")
+	}
+	if err := put("https://ex.test/?s=fits-again#d"); err != nil {
+		t.Fatalf("after a removal: %v", err)
+	}
+	for k, want := range map[string]bool{"https://ex.test/?s=a#d": true, "https://ex.test/?paged=2&s=a#d": true,
+		"https://ex.test/?paged=2#d": false, "https://ex.test/post/#d": false, "https://ex.test/?ss=a#d": false} {
+		if got := isSearchKey(k); got != want {
+			t.Errorf("isSearchKey(%q) = %v, want %v", k, got, want)
+		}
+	}
+}
