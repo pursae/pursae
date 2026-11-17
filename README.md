@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="web/wp-includes/images/brand/logo-dark.svg">
-    <img src="web/wp-includes/images/brand/logo.svg" alt="Pursae" width="104">
-  </picture>
+  <img src="docs/readme/icon.png" alt="Pursae" width="128">
 </p>
 
 <h1 align="center">Pursae</h1>
