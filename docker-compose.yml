@@ -1,0 +1,120 @@
+# Pursae — official Docker Compose file (production build).
+#
+#   cp .env.example .env      # set WPGO_DB_PASSWORD and WPGO_SITE_URL at least
+#   docker compose up -d --build
+#   docker compose logs pursae | grep install     # the install link with the setup token
+#
+# What you get:
+# - Pursae (production binary: talks to https://hub.pursae.com for core updates, marketplace and licenses,
+#   trusts only Manager keys endorsed by the pinned release root) and PostgreSQL 17.
+# - PostgreSQL is never published on the host; the site is published on 127.0.0.1:8088 by default, so put
+#   your TLS proxy (Caddy, nginx, Traefik) on this host. Set WPGO_BIND=0.0.0.0 only if clients cannot reach
+#   the port directly, and then list your proxy in WPGO_TRUSTED_PROXIES.
+# - Every setting comes from .env (template: .env.example; reference: docs/developer/operations/configuration.md).
+# - All state lives in named volumes: `docker compose down` keeps it, `docker compose down -v` deletes it.
+#
+# Development (devhub build, local Pursae Manager, demo keys) stays in docker/compose.yaml (`make docker-up`).
+
+name: pursae
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:17-alpine
+    <<: *restart
+    environment:
+      POSTGRES_DB: ${WPGO_DB_NAME:-wpgo}
+      POSTGRES_USER: ${WPGO_DB_USER:-wpgo}
+      # Applied only when the pgdata volume is created; to change it later run ALTER USER first.
+      POSTGRES_PASSWORD: ${WPGO_DB_PASSWORD:?set WPGO_DB_PASSWORD in .env (openssl rand -hex 24)}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  pursae:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        VERSION: ${WPGO_VERSION:-}
+        # Production binary: no devhub tag, so WPGO_DEV_HUB_URL / WPGO_TRUST_HUB_KEYS are ignored.
+        GO_TAGS: ""
+    image: ${PURSAE_IMAGE:-pursae:local}
+    <<: *restart
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${WPGO_DB_USER:-wpgo}:${WPGO_DB_PASSWORD:?set WPGO_DB_PASSWORD in .env}@db:5432/${WPGO_DB_NAME:-wpgo}?sslmode=disable
+      WPGO_SITE_URL: ${WPGO_SITE_URL:?set WPGO_SITE_URL in .env (the public address, e.g. https://example.com)}
+      WPGO_UPLOADS_DIR: /data/uploads
+
+      # Installer lock (/wp-admin/install). Empty: generated on first start and printed in the log.
+      WPGO_SETUP_TOKEN: ${WPGO_SETUP_TOKEN:-}
+      # Cookie / nonce signing secret. Empty: generated on first start and kept in the settings.
+      WPGO_SECRET: ${WPGO_SECRET:-}
+
+      # Pursae Manager (hub.pursae.com): 1 = on (default). off = no updates, marketplace or licenses.
+      WPGO_HUB: ${WPGO_HUB:-1}
+
+      # Reverse proxy and security
+      WPGO_TRUSTED_PROXIES: ${WPGO_TRUSTED_PROXIES:-}
+      WPGO_PLUGIN_KEYS: ${WPGO_PLUGIN_KEYS:-}
+      WPGO_DISALLOW_FILE_EDIT: ${WPGO_DISALLOW_FILE_EDIT:-}
+      WPGO_EXPOSE_USERS: ${WPGO_EXPOSE_USERS:-}
+      WPGO_FIREWALL: ${WPGO_FIREWALL:-}
+      WPGO_ADMINSEC_DISABLE_HIDE_LOGIN: ${WPGO_ADMINSEC_DISABLE_HIDE_LOGIN:-}
+      # Never trust the demo plugin signing key in production (devhub builds only read it anyway).
+      WPGO_TRUST_DEV_KEY: "0"
+
+      # Outgoing mail. Without WPGO_SMTP_HOST messages are written as .eml files to /data/mail.
+      WPGO_SMTP_HOST: ${WPGO_SMTP_HOST:-}
+      WPGO_SMTP_PORT: ${WPGO_SMTP_PORT:-587}
+      WPGO_SMTP_USER: ${WPGO_SMTP_USER:-}
+      WPGO_SMTP_PASS: ${WPGO_SMTP_PASS:-}
+      WPGO_MAIL_FROM: ${WPGO_MAIL_FROM:-}
+
+      # Content and operations
+      WPGO_POST_REVISIONS: ${WPGO_POST_REVISIONS:-}
+      WPGO_EMPTY_TRASH_DAYS: ${WPGO_EMPTY_TRASH_DAYS:-}
+      WPGO_LOG_FORMAT: ${WPGO_LOG_FORMAT:-}
+      WPGO_GEOIP_UPDATE: ${WPGO_GEOIP_UPDATE:-}
+      WPGO_CDN_SETTINGS: ${WPGO_CDN_SETTINGS:-}
+    ports:
+      - "${WPGO_BIND:-127.0.0.1}:${WPGO_PORT:-8088}:8080"
+    # On SIGTERM the server drains requests, jobs, background writes and the pool (~30 s in all).
+    stop_grace_period: 35s
+    healthcheck:
+      test: ["CMD", "/usr/local/lib/pursae/wpgo", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    volumes:
+      - bin:/data/bin # the running binary: Dashboard › Updates replaces it
+      - uploads:/data/uploads
+      - plugins:/data/plugins
+      - themes:/data/themes
+      - pagecache:/data/wpgo-cache
+      - languages:/data/languages
+      - backups:/data/backups
+      - geoip:/data/geoip
+      - mail:/data/mail
+
+volumes:
+  pgdata:
+  bin:
+  uploads:
+  plugins:
+  themes:
+  pagecache:
+  languages:
+  backups:
+  geoip:
+  mail:

@@ -37,14 +37,15 @@ You need Docker (with Compose v2), git and make.
 
 ```sh
 git clone https://github.com/pursae/pursae.git && cd pursae
-cp docker/.env.example docker/.env    # set WPGO_DB_PASSWORD, WPGO_SITE_URL (https://…), SMTP
-make prod-up                          # → 127.0.0.1:8088; point Caddy or nginx at it
+cp .env.example .env                  # set WPGO_DB_PASSWORD, WPGO_SITE_URL (https://…), SMTP
+docker compose up -d --build          # → 127.0.0.1:8088; point Caddy or nginx at it
 ```
 
 The installer is locked with a setup token: open the install link the server prints on its first start
-(`make prod-logs`, a line like `https://example.com/wp-admin/install?token=…`), or set your own
-`WPGO_SETUP_TOKEN` in `docker/.env`. Lost the link? `docker compose -f docker/compose.yaml -f
-docker/compose.prod.yaml exec wpgo wpgo setup-token` prints a new one. Updates arrive in **Dashboard › Updates** (one click); data lives in Docker volumes.
+(`docker compose logs pursae`, a line like `https://example.com/wp-admin/install?token=…`), or set your own
+`WPGO_SETUP_TOKEN` in `.env`. Lost the link? `docker compose exec pursae wpgo setup-token` prints a new one.
+Updates arrive in **Dashboard › Updates** (one click); data lives in Docker volumes. Every setting is listed
+in [`.env.example`](.env.example).
 
 **On your machine** (development build to try it out; it does not talk to hub.pursae.com):
 
