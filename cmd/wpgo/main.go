@@ -230,6 +230,7 @@ func connectGuarded(ctx context.Context, cfg config.Config) (*pgxpool.Pool, erro
 }
 
 func serve(ctx context.Context, cfg config.Config) error {
+	mx := setupMetrics(cfg)
 	pool, err := db.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -252,6 +253,8 @@ func serve(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	announceSetupToken(ctx, cfg, srv)
+	srv.UseMetrics(mx)
+	serveMetrics(ctx, cfg, mx, pool)
 	httpSrv := newHTTPServer(cfg.Addr, srv.Handler())
 	// Shutdown order: stop accepting and drain requests, then stop the scheduler (its jobs finish or
 	// go back to the queue), then the background writers, then the database pool.

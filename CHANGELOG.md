@@ -10,6 +10,16 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Added
+
+- **Prometheus metrics and slow query log.** `PURSAE_METRICS=1` with `PURSAE_METRICS_ADDR` (own listener) or
+  `PURSAE_METRICS_TOKEN` (bearer token, `/metrics` on the site port) exposes request counts and duration
+  histograms by route group and status class, requests in flight, the database pool, the Go runtime and build
+  info, written by a small built-in text-format writer: no new dependency, fixed memory (about 12 KB of heap, no
+  allocation per request), no URL or user labels. Off by default and not installed at all while off.
+  `PURSAE_SLOW_QUERY=250ms` logs (SQL text only, never arguments) and counts slow database queries. See
+  [metrics](docs/developer/operations/metrics.md).
+
 ## [0.5.0] - 2026-11-22
 
 0.5.0, the stable beta: the contract is frozen (see [compatibility](docs/developer/compatibility.md)),

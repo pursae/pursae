@@ -46,6 +46,10 @@ func (s *Server) opsHandler(next http.Handler) http.Handler {
 		case "/readyz":
 			s.readyz(w, r)
 			return
+		case "/metrics":
+			if s.serveMetrics(w, r) {
+				return
+			}
 		}
 		id := r.Header.Get(HeaderRequestID)
 		if !requestIDRe.MatchString(id) {

@@ -56,6 +56,10 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	}
 }
 
+// QueryTracer, when set before Connect, is installed on every connection of the pool (the slow
+// query log and counter of internal/metrics). Nil is the default: no tracer, no per-query work.
+var QueryTracer pgx.QueryTracer
+
 // PoolConfig parses url and applies the pool defaults below to every setting the URL does not
 // carry itself (pool_max_conns, pool_min_conns, pool_max_conn_lifetime, pool_max_conn_idle_time,
 // pool_health_check_period — pgx's own query parameters).
@@ -69,6 +73,9 @@ func PoolConfig(rawURL string) (*pgxpool.Config, error) {
 		return nil, err
 	}
 	set := func(param string) bool { return poolParamSet(rawURL, param) }
+	if QueryTracer != nil {
+		cfg.ConnConfig.Tracer = QueryTracer
+	}
 	if !set("pool_max_conns") {
 		cfg.MaxConns = defaultMaxConns(runtime.NumCPU())
 	}

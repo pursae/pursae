@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadDefaults(t *testing.T) {
 	for _, k := range []string{"PURSAE_ADDR", "DATABASE_URL", "PURSAE_SITE_URL", "PURSAE_UPLOADS_DIR", "PURSAE_DEV_HUB_URL", "PURSAE_SMTP_PORT", "PURSAE_SECRET", "PURSAE_WEB_DIR"} {
@@ -47,5 +50,15 @@ func TestSetupToken(t *testing.T) {
 	t.Setenv("PURSAE_SETUP_TOKEN", "  s3cret-token \n")
 	if c := Load(); c.SetupToken != "s3cret-token" {
 		t.Errorf("SetupToken = %q", c.SetupToken)
+	}
+}
+
+func TestParseSlowQuery(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"": 0, "0": 0, "-5": 0, "abc": 0, "250": 250 * time.Millisecond, "250ms": 250 * time.Millisecond, "1s": time.Second, "-1s": 0,
+	} {
+		if got := parseSlowQuery(in); got != want {
+			t.Errorf("parseSlowQuery(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
