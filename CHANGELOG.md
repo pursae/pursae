@@ -10,6 +10,12 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Changed
+
+- **Translations completed.** The 567 admin strings added since the language packs were last updated (Pursae
+  product updates, forum, remote storage, import recovery, setup wizard and more) are now translated in every
+  `web/languages/wpgo-*.json` pack except the English variants; regional variants share their base language.
+
 ## [0.5.0] - 2026-11-22
 
 0.5.0, the stable beta: the contract is frozen (see [compatibility](docs/developer/compatibility.md)),
