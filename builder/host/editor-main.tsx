@@ -10,6 +10,8 @@ import { createRoot } from 'react-dom/client'
 import App from '@/App'
 import { setHost } from '@/builder/host'
 import { setThemeLibrarySeam } from '@/builder/themeLibraryHost'
+import { setSiteStyleSeam } from '@/builder/siteStyleHost'
+import { createSiteStyleSeam } from './site-style'
 import { createCmsHost, fontsBase, readBoot, type CmsHost } from './cms-host'
 import { HostLayer, isolateHostKeys } from './HostLayer'
 import { installTemplateUi } from './TemplateBar'
@@ -118,6 +120,8 @@ async function boot() {
   )
   setHost(host)
   window.__WEB_BUILDER_HOST__ = host
+  // Site style (patch 0022): the Globals panel follows / saves it; new designs start with it.
+  setSiteStyleSeam(createSiteStyleSeam(host.rest, host.boot, (s) => setSiteStyleSeam({ ...s })))
   // Pages of code sections: the element editor's canvas and navigator branch (patch 0020).
   installElements()
   installFontNonce(host)

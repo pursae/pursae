@@ -20,7 +20,8 @@
     "0018-code-sections.patch": "46a13fb6ea2ae417d429fda82ab3ddd787c5130f75ce3e26d6261ad4495331bf",
     "0019-code-blocks.patch": "45660d851de20c00159dbbcb0f817fabb66e66cac76d1c56ba06c2e3e05e93f9",
     "0020-elements-seam.patch": "7685431c894020adcc4ceacbeac1ea69554fea872a2666f69f2ce8350b265e42",
-    "0021-mixed-frames.patch": "977b6afc9d52873b2b5cc47c9fa3b143f57bf07c4d186bf2833b191f72bbbcb8"
+    "0021-mixed-frames.patch": "977b6afc9d52873b2b5cc47c9fa3b143f57bf07c4d186bf2833b191f72bbbcb8",
+    "0022-site-style.patch": "86404c2bcb038d36555f442d9c0dda7919cfa08b535c95383a0dc5fa9d86fb79"
   },
   "apiVersion": 2,
   "rendererVersion": 1

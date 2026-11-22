@@ -157,6 +157,23 @@ or a part's CSS that reads `var(--wb-color-primary)` follows a change at once, w
 pages again. Values are validated (hex, `rgb()/hsl()` functions, colour keywords; plain font-family
 lists); anything else is dropped.
 
+### Site style
+
+The Site Editor's global styles: one brand colour, font pair, heading and body fonts and corner style for
+the whole site. In the editor, **Items › Globals › Site style**:
+
+- **Save as site style** (administrators, `edit_theme_options`) stores this design's colours, fonts and
+  corners as the site style; the design then follows it.
+- **Follow the site style** switches a page or template to the site style (or back to its own look).
+  New pages and templates start with the site style once one is saved. Changing a colour, font or
+  corner of a design that follows the style gives it its own look again.
+
+Published pages are static HTML, so a design that follows the style shows a new style once it is
+published again: after saving, the editor says how many pages and templates are waiting, and
+Settings › Web Builder › Regenerate pages lists them and publishes them all with one button. The
+design tokens (below) stay the way to reach the site's colours and fonts from custom CSS and code
+sections without publishing again.
+
 ### Menus and custom fields
 
 A `data-wb-menu-loc` list repeats its card per menu item, depth first: each sub-menu item follows its
@@ -197,9 +214,9 @@ Not in the builder (yet):
 - Pursae Commerce: product templates and widgets exist (Theme Builder), but not a product loop
   card designed widget by widget (the products grid uses the store's own cards), filters or the
   account page as a widget.
-- **Global classes** and a colour picker in the editor that writes design tokens (popups and design
-  kits do exist, see Popups above and [code sections](web-builder-code-sections.md)): the
-  tokens themselves exist (below), but the editor's own colour and font fields still write fixed
+- **Global classes** and a colour picker in the editor that writes design tokens (popups, design
+  kits and the site style do exist, see Popups and Site style above and [code sections](web-builder-code-sections.md)):
+  the tokens themselves exist (below), but the editor's own colour and font fields still write fixed
   values; use `var(--wb-color-primary)` in custom CSS or an HTML section to follow a token.
 - A setup wizard and a template library beyond saved sections. (The builder menu has **Revisions** — restore loads a published version as your draft — **Schedule publish**, and in a popup template **Popup settings**; builder revisions are pruned to the newest 50 per page, Settings › Web Builder › Revisions to keep.)
 

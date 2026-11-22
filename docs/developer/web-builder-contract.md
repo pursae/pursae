@@ -91,6 +91,7 @@ ever part of it.**
 | `dynamic` | DynContext | sample data for dynamic widgets (§11.6): the template's preview object, else the post itself |
 | `kitBreakpoints` | `{[kit]: {tablet, mobile}}` | local-style breakpoints (max-width px) of every design kit the page's code sections and its `codeParts` name (`content.kit`); a section without a kit uses `{tablet: 1023, mobile: 639}`. The element editor's Style panel prints the frame's local styles with them |
 | `codeParts` | CodeParts \| null | the header and footer templates Hello Pursae draws around this page, when they are made of code sections: `{header, footer}`, each `null` or `{id, title, editUrl, sections}` (`sections`: the template's published visible sections, every one `kind: "code"`, as stored; without `edit_theme_options` their `content.binds` is left out, since a bound form's recipients and redirects are there). The element editor draws them locked in the page's frame. `null` for a template, a canvas page, a page without code sections, or another theme |
+| `siteStyle` | SiteSettings \| null | the site style: `{brand, fontPair, corners, headingFont?, headingWeight?, bodyFont?, bodyWeight?}`, `null` while none was saved. A doc whose `site.global` is `true` follows it (§3.x *Site style*) |
 
 `ai` (BootAi):
 
@@ -455,6 +456,17 @@ Error codes added: `wb_bad_language` (400), `wb_translation_exists` (409).
   `POST templates/import` takes one and creates a disabled template (doc validated like a publish for the
   importing user). Theme Builder screen: row action *Export*, *Import Template*, and *Export Theme Parts*
   (the published templates, single excluded, as a library `web-builder/parts.json`).
+- **Site style** (the Site Editor's global styles): option `web_builder_site_style`, the doc.site keys
+  `brand`, `fontPair`, `corners`, `headingFont`, `headingWeight`, `bodyFont`, `bodyWeight`, validated like
+  doc.site (brand, fontPair and corners required). `Boot.siteStyle` carries it; site-settings GET adds
+  `site_style` (object or `null`) and `site_style_outdated` (docs that follow it and still hold another look);
+  PUT takes `site_style` (an object, or `null` to remove it; 400 `rest_invalid_param` when invalid, needs
+  `edit_theme_options` like the rest of the route). A doc follows it with `site.global: true`: the editor
+  starts new pages and templates with the style and `global: true`; `GET documents/{id}` (and the boot
+  document and draft) answer such a doc with the current style's values in `site`; changing a colour, font
+  or corner in the editor sets `global: false`. `GET outdated` (and Regenerate pages) also lists published
+  docs with `site.global` whose stored site keys differ from the style, so after a style change they are
+  drawn and published again with it.
 - **Audience rules** (§11): `include|exclude/user/logged_in`, `user/logged_out`, `user/role/<role>`. They never
   place or score a template: with include audience rules the visitor must match one of them, a matching
   exclude vetoes. `SiteBoot.roles` lists the roles. Cache: while any published template has an audience rule,

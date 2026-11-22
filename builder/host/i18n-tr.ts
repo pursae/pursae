@@ -631,6 +631,9 @@ const tr: Record<string, string> = {
   "The design’s classes and variables could not be saved.": "Tasarımın sınıfları ve değişkenleri kaydedilemedi.", // i18n-ignore
   "The design’s class and variable changes could not be published: {m}": "Tasarımın sınıf ve değişken değişiklikleri yayınlanamadı: {m}", // i18n-ignore
   "Embedded content plays on the published page. Publish and open the page to watch it.": "Gömülü içerik yayınlanan sayfada oynar. İzlemek için yayınlayıp sayfayı açın.", // i18n-ignore
+  "The site style could not be saved.": "Site stili kaydedilemedi.", // i18n-ignore
+  "Site style saved. {n} pages and templates that follow it keep the old look until they are published again (Settings › Web Builder › Regenerate pages).": "Site stili kaydedildi. Onu izleyen {n} sayfa ve şablon yeniden yayınlanana kadar eski görünümünü korur (Ayarlar › Web Builder › Sayfaları yeniden oluştur).", // i18n-ignore
+  "Site style saved": "Site stili kaydedildi", // i18n-ignore
 }
 
 export default tr

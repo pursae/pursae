@@ -349,15 +349,16 @@ const wbOutdatedLimit = 200
 // older than webbuilder.RendererVersion, most recently modified first, and how many there are.
 // Only the editor renders (renderStatic runs in the browser), so each needs opening and publishing.
 func (s *Server) wbOutdatedPages(ctx context.Context) ([]wbOutdatedPage, int, error) {
+	where, args := s.wbOutdatedWhere() // an older renderer, or a changed site style (webbuilder_site_style.go)
 	var total int
 	if err := s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM web_builder_docs d JOIN posts p ON p.id = d.post_id
-		WHERE d.renderer < $1 AND p.status NOT IN ('trash', 'auto-draft')`, webbuilder.RendererVersion).Scan(&total); err != nil {
+		WHERE `+where+` AND p.status NOT IN ('trash', 'auto-draft')`, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.store.Pool.Query(ctx, `SELECT p.id, p.title, p.type, p.status, d.renderer FROM web_builder_docs d
 		JOIN posts p ON p.id = d.post_id
-		WHERE d.renderer < $1 AND p.status NOT IN ('trash', 'auto-draft')
-		ORDER BY p.modified_at DESC, p.id DESC LIMIT $2`, webbuilder.RendererVersion, wbOutdatedLimit)
+		WHERE `+where+` AND p.status NOT IN ('trash', 'auto-draft')
+		ORDER BY p.modified_at DESC, p.id DESC LIMIT $3`, append(args, wbOutdatedLimit)...)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -35,15 +35,16 @@ func (s *Server) wbOutdatedBatch(c *gin.Context, after int64, limit int) ([]wbOu
 		limit = wbOutdatedBatchMax
 	}
 	ctx := c.Request.Context()
+	where, args := s.wbOutdatedWhere() // an older renderer, or a changed site style (webbuilder_site_style.go)
 	var total int
 	if err := s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM web_builder_docs d JOIN posts p ON p.id = d.post_id
-		WHERE d.renderer < $1 AND p.status NOT IN ('trash', 'auto-draft')`, webbuilder.RendererVersion).Scan(&total); err != nil {
+		WHERE `+where+` AND p.status NOT IN ('trash', 'auto-draft')`, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.store.Pool.Query(ctx, `SELECT p.id, p.title, p.type, p.status, d.renderer FROM web_builder_docs d
 		JOIN posts p ON p.id = d.post_id
-		WHERE d.renderer < $1 AND p.status NOT IN ('trash', 'auto-draft') AND p.id > $2
-		ORDER BY p.id ASC LIMIT $3`, webbuilder.RendererVersion, after, limit)
+		WHERE `+where+` AND p.status NOT IN ('trash', 'auto-draft') AND p.id > $3
+		ORDER BY p.id ASC LIMIT $4`, append(args, after, limit)...)
 	if err != nil {
 		return nil, 0, err
 	}

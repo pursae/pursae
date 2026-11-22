@@ -35,8 +35,12 @@ type wbSiteSettings struct {
 	PageForPosts    int64        `json:"page_for_posts"`
 	CustomCSS       string       `json:"custom_css"`
 	Tokens          wbTokens     `json:"tokens"`
-	Pages           []wbSitePage `json:"pages"`
-	CanUpload       bool         `json:"can_upload"`
+	// SiteStyle: the site style designs can follow (webbuilder_site_style.go), null while none was
+	// saved. StyleOutdated: designs that follow it and still show an older style (Regenerate pages).
+	SiteStyle     *webbuilder.SiteSettings `json:"site_style"`
+	StyleOutdated int                      `json:"site_style_outdated"`
+	Pages         []wbSitePage             `json:"pages"`
+	CanUpload     bool                     `json:"can_upload"`
 }
 
 func (s *Server) wbSiteImageOf(c *gin.Context, id int64) *wbSiteImage {
@@ -61,6 +65,8 @@ func (s *Server) wbSiteSettingsView(c *gin.Context, u *store.User) wbSiteSetting
 		PageForPosts:    int64(s.settings.Int("page_for_posts")),
 		CustomCSS:       modString(mods, "custom_css", ""),
 		Tokens:          s.wbSiteTokens(),
+		SiteStyle:       s.wbSiteStyle(),
+		StyleOutdated:   s.wbSiteStyleFollowers(c),
 		Pages:           []wbSitePage{},
 		CanUpload:       u.Can("upload_files", nil),
 	}
@@ -89,7 +95,8 @@ func (s *Server) wbRESTSiteSettings(c *gin.Context, _ *restRequest) {
 
 // wbRESTSiteSettingsSave is PUT site-settings: a partial object of blogname, blogdescription,
 // site_icon (attachment id, 0 removes), custom_logo, show_on_front, page_on_front, page_for_posts and
-// custom_css, plus tokens ({colors, fonts}: the design tokens, webbuilder_tokens.go). It answers with the new state.
+// custom_css, plus tokens ({colors, fonts}: the design tokens, webbuilder_tokens.go) and site_style (the
+// site style designs follow, null removes it: webbuilder_site_style.go). It answers with the new state.
 func (s *Server) wbRESTSiteSettingsSave(c *gin.Context, r *restRequest) {
 	u := wbUser(c, "edit_theme_options")
 	if u == nil {
@@ -114,6 +121,21 @@ func (s *Server) wbRESTSiteSettingsSave(c *gin.Context, r *restRequest) {
 		}
 		tokens = &t
 		delete(in, "tokens")
+	}
+	var style *webbuilder.SiteSettings
+	clearStyle := false
+	if sv, ok := in["site_style"]; ok {
+		if string(sv) == "null" {
+			clearStyle = true
+		} else {
+			st, err := wbParseSiteStyle(sv)
+			if err != nil {
+				restErr(c, http.StatusBadRequest, "rest_invalid_param", err.Error(), map[string]any{"key": "site_style"})
+				return
+			}
+			style = st
+		}
+		delete(in, "site_style")
 	}
 	for key, v := range in {
 		id := key
@@ -145,6 +167,12 @@ func (s *Server) wbRESTSiteSettingsSave(c *gin.Context, r *restRequest) {
 	if err != nil {
 		restErr(c, http.StatusBadRequest, "rest_invalid_param", err.Error())
 		return
+	}
+	if style != nil || clearStyle {
+		if err := s.wbSetSiteStyle(c, style); err != nil {
+			restErr(c, http.StatusInternalServerError, "db_error", "Could not save the settings.")
+			return
+		}
 	}
 	if tokens != nil {
 		if err := s.wbSetTokens(c, *tokens); err != nil {

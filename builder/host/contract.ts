@@ -397,6 +397,22 @@ export interface Boot {
    * code parts use, by kit slug; a section without a kit uses DEFAULT_BREAKPOINTS.
    */
   kitBreakpoints?: Record<string, Breakpoints>
+  /**
+   * The site style (doc.site values without `global`) that designs with `site.global` follow; null
+   * while none was saved. Saved through site-settings (`site_style`, edit_theme_options).
+   */
+  siteStyle?: SiteStyle | null
+}
+
+/** Boot.siteStyle: the doc.site keys a site style sets. */
+export interface SiteStyle {
+  brand: string
+  fontPair: string
+  corners: string
+  headingFont?: string
+  headingWeight?: number
+  bodyFont?: string
+  bodyWeight?: number
 }
 
 /** Boot.kitBreakpoints values: tablet and mobile max-width thresholds in px. */

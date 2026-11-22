@@ -24,6 +24,12 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
   global styles and fonts are counted in one report line with a link to the Theme Builder instead of one
   "Invalid post type" line each. New guide: [coming from the Site Editor](docs/developer/web-builder-site-editor.md).
 
+- **Web Builder site style.** One brand colour, font pair, fonts and corners for the whole site (the Site
+  Editor's global styles): **Items › Globals › Site style** saves a design's look as the site style, and
+  pages and templates that follow it share it. New pages and templates start with it; after a change,
+  Settings › Web Builder › Regenerate pages publishes the designs that follow it again. Contract: additive
+  `Boot.siteStyle`, `doc.site.global`, site-settings `site_style` / `site_style_outdated`.
+
 ### Changed
 
 - **Translations completed.** The 567 admin strings added since the language packs were last updated (Pursae

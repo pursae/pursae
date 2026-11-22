@@ -59,6 +59,10 @@ export interface SiteSettings {
   can_upload: boolean
   /** Absent on an older server. */
   tokens?: DesignTokens
+  /** The site style designs follow (site-style.ts); null while none was saved. Absent on an older server. */
+  site_style?: Record<string, unknown> | null
+  /** Designs that follow the site style and still show an older one. */
+  site_style_outdated?: number
 }
 
 /** The fields the dialog edits (and PUT sends): images by attachment id, 0 removes. */

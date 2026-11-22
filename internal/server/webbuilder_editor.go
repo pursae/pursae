@@ -166,6 +166,8 @@ type wbBoot struct {
 	CodeParts *webbuilder.CodeParts `json:"codeParts"`
 	// KitBreakpoints: local-style breakpoints of the kits the page and its parts use.
 	KitBreakpoints map[string]webbuilder.Breakpoints `json:"kitBreakpoints"`
+	// SiteStyle: the site style designs can follow (webbuilder_site_style.go).
+	SiteStyle *webbuilder.SiteSettings `json:"siteStyle"`
 }
 
 // wbDocument is webbuilder.DocumentResponse with raw doc / page JSON (GET documents/{id} answers it
@@ -250,15 +252,17 @@ func (s *Server) wbDocumentFor(ctx context.Context, p *store.Post, u *store.User
 	_ = json.Unmarshal(postPage, &ps)
 	loaded := wbPageLoaded{Rev: d.Rev, Description: ps.Description, Indexable: ps.Indexable}
 	d.Page = wbPageStamp(d.Page, loaded)
+	style := s.wbSiteStyle()
 	if d.Draft != nil {
 		if draftLoaded != nil {
 			loaded = *draftLoaded
 		}
 		d.Draft.Page = wbPageStamp(d.Draft.Page, loaded)
-		d.Draft.Doc = webbuilder.TagCodeDoc(wbDocSiteDefaults(d.Draft.Doc))
+		d.Draft.Doc = webbuilder.TagCodeDoc(wbDocFollowStyle(wbDocSiteDefaults(d.Draft.Doc), style))
 	}
-	// Every element of a code section gets the id the editor addresses it by as a block.
-	d.Doc = webbuilder.TagCodeDoc(wbDocSiteDefaults(d.Doc))
+	// Every element of a code section gets the id the editor addresses it by as a block. A design
+	// that follows the site style gets the current one (webbuilder_site_style.go).
+	d.Doc = webbuilder.TagCodeDoc(wbDocFollowStyle(wbDocSiteDefaults(d.Doc), style))
 	return d, nil
 }
 
@@ -449,6 +453,7 @@ func (s *Server) wbBootFor(c *gin.Context, p *store.Post, u *store.User, doc *wb
 		Dynamic:        dyn,
 		CodeParts:      parts,
 		KitBreakpoints: s.wbEditorKitBreakpoints(doc, parts),
+		SiteStyle:      s.wbSiteStyle(),
 	}
 }
 

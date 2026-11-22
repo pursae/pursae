@@ -512,6 +512,9 @@ type SiteSettings struct {
 	HeadingWeight *float64 `json:"headingWeight,omitempty"`
 	BodyFont      string   `json:"bodyFont,omitempty"`
 	BodyWeight    *float64 `json:"bodyWeight,omitempty"`
+	// Global: the design follows the site style (Boot.SiteStyle); the server puts the style's
+	// values above into it whenever it is loaded.
+	Global bool `json:"global,omitempty"`
 }
 
 type DocState struct {
@@ -821,6 +824,9 @@ type Boot struct {
 	// KitBreakpoints: the local-style breakpoints of every design kit the page's code sections and
 	// its CodeParts use, by kit slug (a section without a kit uses DefaultBreakpoints).
 	KitBreakpoints map[string]Breakpoints `json:"kitBreakpoints"`
+	// SiteStyle: the site style designs can follow (SiteSettings.Global), null while none was
+	// saved; saved through site-settings ("site_style", edit_theme_options).
+	SiteStyle *SiteSettings `json:"siteStyle"`
 }
 
 // CodeParts are the header and footer templates around a page, as the editor draws them.

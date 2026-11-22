@@ -216,4 +216,5 @@ are in the contract (§11.12).
   taxonomy and term rules of Archive templates.
 - Popups (a template type, see [Web Builder](web-builder.md#popups)) and design kits (files a design
   brings, see [code sections](web-builder-code-sections.md)) exist, but there are no global classes.
-  Colours and fonts are set per template.
+  Colours, fonts and corners are the template's own unless it follows the
+  [site style](web-builder.md#site-style) (Items › Globals › Site style), which new templates do.
