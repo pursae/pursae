@@ -4936,5 +4936,7 @@
  "Menu “%s” already exists.": "“%s” menüsü zaten var.",
  "Menu “%s” was assigned to the Primary Menu location.": "“%s” menüsü Birincil Menü konumuna atandı.",
  "Failed to import the navigation menu “%s”: %s": "“%s” gezinme menüsü içe aktarılamadı: %s",
- "Skipped %d Site Editor items (block theme templates, template parts, global styles and fonts): design the header, footer and templates in the Theme Builder of Pursae Web Builder.": "%d Site Düzenleyici öğesi atlandı (blok teması şablonları, şablon parçaları, genel stiller ve yazı tipleri): üst bilgi, alt bilgi ve şablonları Pursae Web Builder'ın Tema oluşturucusunda tasarlayın."
+ "Skipped %d Site Editor items (block theme templates, template parts, global styles and fonts): design the header, footer and templates in the Theme Builder of Pursae Web Builder.": "%d Site Düzenleyici öğesi atlandı (blok teması şablonları, şablon parçaları, genel stiller ve yazı tipleri): üst bilgi, alt bilgi ve şablonları Pursae Web Builder'ın Tema oluşturucusunda tasarlayın.",
+ "1 item has to be published again: drawn by an older renderer (current: version %d) or following the site style, which changed since. Or open each one and click Update:": "1 öge yeniden yayımlanmalı: eski bir oluşturucu çizmiş (güncel: sürüm %d) ya da o zamandan beri değişen site stilini izliyor. Ya da her birini açıp Güncelle'ye tıklayın:",
+ "%d items have to be published again: drawn by an older renderer (current: version %d) or following the site style, which changed since. Or open each one and click Update:": "%d öge yeniden yayımlanmalı: eski bir oluşturucu çizmiş (güncel: sürüm %d) ya da o zamandan beri değişen site stilini izliyorlar. Ya da her birini açıp Güncelle'ye tıklayın:"
 }

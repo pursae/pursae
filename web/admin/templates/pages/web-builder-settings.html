@@ -62,7 +62,7 @@
 {{else if .Outdated}}<p><button type="button" class="button button-primary" id="web-builder-regenerate-start" data-src="{{.RegenerateURL}}">Regenerate all {{.OutdatedTotal}} items</button></p>
 <iframe id="web-builder-regenerate-frame" title="Regenerate pages" hidden style="display:none;width:100%;height:220px;margin:12px 0;border:1px solid #c3c4c7;border-radius:8px;background:#17181c"></iframe>
 <script {{cspNonce}}>document.getElementById('web-builder-regenerate-start').addEventListener('click',function(){var f=document.getElementById('web-builder-regenerate-frame');f.hidden=false;f.style.display='block';f.src=this.getAttribute('data-src');this.disabled=true;});</script>
-<p>{{if eq .OutdatedTotal 1}}1 item was{{else}}{{.OutdatedTotal}} items were{{end}} published with an older renderer (current: version {{.RendererVersion}}). Or open each one and click Update:</p>
+<p>{{if eq .OutdatedTotal 1}}1 item has{{else}}{{.OutdatedTotal}} items have{{end}} to be published again: drawn by an older renderer (current: version {{.RendererVersion}}) or following the site style, which changed since. Or open each one and click Update:</p>
 <ul class="ul-disc" id="web-builder-outdated">
 {{range .Outdated}}<li><a href="{{.EditURL}}">{{.Title}}</a> &mdash; {{.Type}}{{if ne .Status "publish"}}, {{.Status}}{{end}} (renderer {{.Renderer}})</li>
 {{end}}</ul>

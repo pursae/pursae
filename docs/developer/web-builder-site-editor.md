@@ -19,7 +19,8 @@ that are not built with the builder.
 | Other template parts (a sidebar, a comments area…) | a **saved section** (Items › Components) placed in each template, or a section of the template itself |
 | Templates: Single, Page, Index / Home, Archive, Category, Tag, Author, Date, Search, 404, Front Page | **Single Post**, **Single Page**, **Single** (custom post types), **Archive**, **Search Results**, **404 Page** and **Front Page** templates |
 | The template hierarchy (`single-{post-type}`, `category-{slug}`, `page-{slug}`…) and custom page templates | **Display conditions** on each template: Include / Exclude rules down to one post, page, term or author, with priorities ([which template wins](web-builder-theme-builder.md#display-conditions)) |
-| Global Styles: palette, font families | **Design tokens** (Settings › Web Builder): five colours and two fonts as CSS custom properties on every page; and each design's own brand colour, fonts and corners (Items › Globals) |
+| Global Styles: colours, typography, corners | the **site style** (Items › Globals › Site style): one brand colour, font pair, fonts and corners that pages and templates follow ([site style](web-builder.md#site-style)) |
+| Global Styles: palette and font presets for custom CSS | **Design tokens** (Settings › Web Builder): five colours and two fonts as CSS custom properties on every page |
 | Style variations | the designs of the [theme library](web-builder-theme-library.md) and design kits |
 | Navigation block / `wp_navigation` menus | **Menus** under Appearance › Menus, shown by the **Menu** widget or a navigation section bound to a menu location |
 | Site Logo, Site Title, Site Tagline blocks | the **Site logo**, **Site title** and **Tagline** widgets (Site group) |
@@ -54,7 +55,8 @@ A quick start for a block theme site:
 3. Under Appearance › Theme Builder, add a **Header** and a **Footer** (or import a whole design
    from **Items › Components › Browse theme library** in the editor), then the **Single Post**,
    **Archive** and other templates you need.
-4. Under Settings › Web Builder › Design tokens, set the site's colours and fonts.
+4. In the editor, set the brand colour, fonts and corners under **Items › Globals** and click
+   **Save as site style**: new pages and templates follow it.
 
 ## For developers
 
