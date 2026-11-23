@@ -96,7 +96,9 @@ func wbTokenCSS(t wbTokens) string {
 	if len(decl) > 0 {
 		b.WriteString(":root{" + strings.Join(decl, ";") + "}\n")
 	}
-	b.WriteString(".wb-menu-d1{padding-inline-start:1em}.wb-menu-d2{padding-inline-start:2em}\n</style>\n")
+	b.WriteString(".wb-menu-d1{padding-inline-start:1em}.wb-menu-d2{padding-inline-start:2em}\n")
+	b.WriteString(wbDropdownCSS)
+	b.WriteString("</style>\n")
 	return b.String()
 }
 
@@ -126,3 +128,19 @@ func (s *Server) wbTokenFields() []wbTokenField {
 	}
 	return out
 }
+
+// wbDropdownCSS folds the sub-menus of a builder nav (data-wb-menu-tree="dropdown": a top-level
+// item with sub-items is span.wb-menu-group holding its link and span.wb-menu-sub) into drop-downs
+// that open on hover and keyboard focus, in the section's own colours (--bg, --fg, --line). In a
+// mobile menu (details[data-wb-menu]) and a column menu (.wb-menu-col) they stay open below their
+// parent, indented.
+const wbDropdownCSS = `.wb-menu-group{position:relative;display:inline-flex;align-items:center}` +
+	`.wb-menu-group>a.has-children::after{content:"";display:inline-block;width:.34em;height:.34em;margin-inline-start:.45em;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-.18em) rotate(45deg);opacity:.7}` +
+	`.wb-menu-sub{display:none;position:absolute;top:100%;inset-inline-start:0;z-index:60;min-width:12rem;flex-direction:column;padding:.4rem 0;background:var(--bg,#fff);color:var(--fg,#121418);border:1px solid var(--line,rgba(0,0,0,.1));border-radius:10px;box-shadow:0 18px 40px -18px rgba(0,0,0,.35)}` +
+	`.wb-menu-group:hover>.wb-menu-sub,.wb-menu-group:focus-within>.wb-menu-sub{display:flex}` +
+	`.wb-menu-sub>a{display:block;padding:.45em 1.1em;white-space:nowrap;color:inherit;text-align:start}` +
+	`.wb-menu-sub>a.wb-menu-d2{padding-inline-start:2.1em}` +
+	`details[data-wb-menu] .wb-menu-group,.wb-menu-col .wb-menu-group{display:block}` +
+	`details[data-wb-menu] .wb-menu-sub,.wb-menu-col .wb-menu-sub{display:flex;position:static;min-width:0;padding:0 0 0 1em;background:none;border:0;border-radius:0;box-shadow:none}` +
+	`details[data-wb-menu] .wb-menu-sub>a,.wb-menu-col .wb-menu-sub>a{padding:.35em 0}` +
+	`details[data-wb-menu] .wb-menu-sub>a.wb-menu-d2,.wb-menu-col .wb-menu-sub>a.wb-menu-d2{padding-inline-start:1em}` + "\n"

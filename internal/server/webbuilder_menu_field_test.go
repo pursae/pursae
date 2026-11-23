@@ -222,3 +222,32 @@ func TestWebBuilderRESTOutdated(t *testing.T) {
 		t.Errorf("subscriber: %d", code)
 	}
 }
+
+// A drop-down menu (data-wb-menu-tree="dropdown") lists the top level; a parent takes the
+// "parent" template, whose sub-list holds all its descendants with their level classes.
+func TestWBMenuDropdown(t *testing.T) {
+	leaf := &store.MenuItem{ID: 3, Label: "Deep", URL: "/deep/"}
+	child := &store.MenuItem{ID: 2, Label: "Child", URL: "/child/", Children: []*store.MenuItem{leaf}}
+	top := &store.MenuItem{ID: 1, Label: "Top", URL: "/top/", Children: []*store.MenuItem{child}}
+	other := &store.MenuItem{ID: 4, Label: "Other", URL: "/other/"}
+	env := &wbSlotEnv{v: &siteView{Menus: map[string][]*store.MenuItem{"primary": {top, other}}}}
+	src := `<nav><span class="contents" data-wb-menu-loc="primary" data-wb-menu-tree="dropdown">` +
+		`<a class="l" data-wb-loop-item="default" data-wb-slot="menu.url"><span data-wb-slot="menu.label"></span></a>` +
+		`<span class="wb-menu-group" data-wb-loop-item="parent"><a class="l" data-wb-slot="menu.url"><span data-wb-slot="menu.label"></span></a>` +
+		`<span class="wb-menu-sub" data-wb-menu-sub=""><a data-wb-loop-item="" data-wb-slot="menu.url"><span data-wb-slot="menu.label"></span></a></span></span>` +
+		`</span></nav>`
+	out := wbExec(t, src, &wbSlotResolver{env: env})
+	for _, want := range []string{
+		`data-wb-loop-item="parent"><a class="l has-children" data-wb-slot="menu.url" href="/top/">`,
+		`data-wb-menu-sub=""><a data-wb-loop-item="" data-wb-slot="menu.url" href="/child/" class="wb-menu-d1 has-children">`,
+		`href="/deep/" class="wb-menu-d2">`,
+		`<a class="l" data-wb-loop-item="default" data-wb-slot="menu.url" href="/other/">`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %s", want, out)
+		}
+	}
+	if strings.Count(out, "wb-menu-group") != 1 || strings.Count(out, "Other") != 1 {
+		t.Errorf("wrong templates: %s", out)
+	}
+}

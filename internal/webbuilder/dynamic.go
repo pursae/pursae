@@ -57,6 +57,9 @@ type SlotArgs struct {
 	Raw    bool   // data-wb-raw: the value as stored (code bindings, AttrRaw)
 	Meta   bool   // data-wb-meta: a custom field may fall back to the post's own meta (code bindings, AttrMeta)
 	Tree   bool   // data-wb-menu-tree: a code menu (top level only; ItemKeyer and SubMenuer items)
+	// Dropdown: data-wb-menu-tree="dropdown", a builder nav's drop-down menu: Tree, and each
+	// top-level item's sub-menu lists all its descendants depth first (one drop-down per item).
+	Dropdown bool
 }
 
 // Resolver supplies slot values for one scope (the request, a loop item or a menu item). Item
@@ -593,8 +596,9 @@ func slotArgs(n *html.Node) SlotArgs {
 	if hasAttr(n, AttrMeta) {
 		a.Meta = true
 	}
-	if hasAttr(n, AttrMenuTree) {
+	if v, ok := getAttr(n, AttrMenuTree); ok {
 		a.Tree = true
+		a.Dropdown = strings.TrimSpace(v) == "dropdown"
 	}
 	if v, ok := getAttr(n, AttrWords); ok {
 		if w, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && w >= MinDynWords && w <= MaxDynWords {

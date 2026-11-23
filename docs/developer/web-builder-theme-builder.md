@@ -90,7 +90,8 @@ the template is used.
 logo or, without one, the site title). The links are then read-only in the editor: edit them under
 Appearance › Menus, and every page follows. The **Menu** widget does the same in a layout cell,
 as a row, a column or a menu button, with the width below which a row turns into a menu button.
-Only the top level of a menu is shown in this version.
+Sub-menus open as drop-downs on hover and keyboard focus (three levels, the third indented in its
+drop-down); in the menu button's panel and a column they sit indented under their parent.
 
 **Post loops.** The **Posts** widget is a grid of cards. You design one card with post widgets
 (featured image, title, excerpt, date…); the site repeats it for each post. Its **Query** panel
@@ -211,7 +212,6 @@ are in the contract (§11.12).
 
 ## Limits
 
-- Only the top level of a menu is shown (no drop-down sub-menus yet).
 - Archives of Pursae Custom Fields taxonomies are routed (`/?taxonomy=…&term=…`) and match the
   taxonomy and term rules of Archive templates.
 - Popups (a template type, see [Web Builder](web-builder.md#popups)) and design kits (files a design

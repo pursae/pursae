@@ -66,6 +66,10 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
   pages and templates that follow it share it. New pages and templates start with it; after a change,
   Settings › Web Builder › Regenerate pages publishes the designs that follow it again. Contract: additive
   `Boot.siteStyle`, `doc.site.global`, site-settings `site_style` / `site_style_outdated`.
+- **Web Builder drop-down menus.** Navigation sections bound to a menu location and the Menu widget open
+  sub-menus as drop-downs on hover and keyboard focus (the third level indented inside); in the mobile
+  menu they sit indented under their parent. Pages published earlier keep the flat list until they are
+  published again. New `data-wb-menu-tree="dropdown"` placeholder (contract §11.5).
 
 ### Changed
 

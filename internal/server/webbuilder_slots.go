@@ -240,8 +240,11 @@ type wbSlotResolver struct {
 	menuDepth int
 	// tree: an item of a code section's menu (data-wb-menu-tree): it picks its own template and
 	// its sub-items fill the template's data-wb-menu-sub list (codebind.go).
-	tree   bool
-	parent *wbSlotResolver
+	tree bool
+	// dropdown: a top-level item of a builder nav's drop-down menu (data-wb-menu-tree="dropdown"):
+	// its sub-menu lists all its descendants, depth first.
+	dropdown bool
+	parent   *wbSlotResolver
 }
 
 // ItemKey names the menu item for its template (webbuilder.ItemKeyer).
@@ -261,6 +264,25 @@ func (r *wbSlotResolver) HasChildren() bool {
 func (r *wbSlotResolver) SubMenu() (webbuilder.LoopIter, bool) {
 	if r.menu == nil || !r.tree || len(r.menu.Children) == 0 {
 		return nil, false
+	}
+	if r.dropdown {
+		// One drop-down per top-level item: every level below it, depth first (the engine nests
+		// loops only MaxLoopDepth deep, so a third level could not have a list of its own).
+		var items []webbuilder.Resolver
+		var walk func(list []*store.MenuItem, depth int)
+		walk = func(list []*store.MenuItem, depth int) {
+			for _, it := range list {
+				if it == nil {
+					continue
+				}
+				items = append(items, &wbSlotResolver{env: r.env, menu: it, menuDepth: depth, parent: r})
+				if depth+1 < wbMenuMaxDepth && len(it.Children) > 0 {
+					walk(it.Children, depth+1)
+				}
+			}
+		}
+		walk(r.menu.Children, r.menuDepth+1)
+		return &webbuilder.SliceIter{Items: items}, true
 	}
 	items := make([]webbuilder.Resolver, 0, len(r.menu.Children))
 	for _, it := range r.menu.Children {
@@ -629,7 +651,7 @@ func (r *wbSlotResolver) Menu(location string, a webbuilder.SlotArgs) (webbuilde
 		// A code section's menu: the top level; each item brings its sub-items (SubMenu).
 		for _, it := range menu {
 			if it != nil {
-				items = append(items, &wbSlotResolver{env: r.env, menu: it, tree: true, parent: r})
+				items = append(items, &wbSlotResolver{env: r.env, menu: it, tree: true, dropdown: a.Dropdown, parent: r})
 			}
 		}
 		return &webbuilder.SliceIter{Items: items}, true

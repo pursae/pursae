@@ -1,0 +1,105 @@
+diff --git a/src/builder/dynamic/menu.tsx b/src/builder/dynamic/menu.tsx
+index 2af8708..914bd9e 100644
+--- a/src/builder/dynamic/menu.tsx
++++ b/src/builder/dynamic/menu.tsx
+@@ -24,6 +24,27 @@ const TEMPLATES: Item[] = [
+ ]
+ const PART: Record<string, string> = { 'wbm-1': '1/2', 'wbm-2': '2/2' }
+ 
++/**
++ * The placeholder templates of a drop-down menu (`data-wb-menu-tree="dropdown"`, contract §11.4): a
++ * plain link for an item without sub-items; for a parent its link and a list the server fills with
++ * all its descendants (`.wb-menu-sub`, folded into a drop-down by the site's wb-tokens CSS).
++ */
++export function dropdownTemplates(link: (p: { 'data-wb-loop-item'?: string }) => ReactNode): ReactNode {
++  return (
++    <>
++      {link({ 'data-wb-loop-item': 'default' })}
++      <span className="wb-menu-group" data-wb-loop-item="parent">
++        {link({})}
++        <span className="wb-menu-sub" data-wb-menu-sub="">
++          <a data-wb-loop-item="" data-wb-slot="menu.url">
++            <span data-wb-slot="menu.label" />
++          </a>
++        </span>
++      </span>
++    </>
++  )
++}
++
+ /** Link items drawn from a menu location (editor or placeholder); never in the stored doc. */
+ export const isBoundItem = (i: Pick<Item, 'id'>) => i.id.startsWith('wbm-')
+ /** A placeholder link template (snapshot only). */
+@@ -115,9 +136,17 @@ export function boundEl(o: { bound: Bound; s: Section; el: string; as: string; c
+   if (!el.endsWith('.title')) return null
+   if (m.ph) {
+     const loc = menuLoc(s)
++    const link = (p: { 'data-wb-loop-item'?: string }) => createElement(as, { className: cn('ed', className), style, 'data-el': `${s.id}:${el}`, ...p, 'data-wb-slot': 'menu.url' }, <span data-wb-slot="menu.label" />)
++    // A navigation's sub-menus fold out as drop-downs; a footer lists the top level as before.
++    if (s.kind !== 'nav')
++      return (
++        <span className="contents" data-wb-menu-loc={loc} data-wb-loop-part={PART[id]}>
++          {link({ 'data-wb-loop-item': '' })}
++        </span>
++      )
+     return (
+-      <span className="contents" data-wb-menu-loc={loc} data-wb-loop-part={PART[id]}>
+-        {createElement(as, { className: cn('ed', className), style, 'data-el': `${s.id}:${el}`, 'data-wb-loop-item': '', 'data-wb-slot': 'menu.url' }, <span data-wb-slot="menu.label" />)}
++      <span className="contents" data-wb-menu-loc={loc} data-wb-loop-part={PART[id]} data-wb-menu-tree="dropdown">
++        {dropdownTemplates(link)}
+       </span>
+     )
+   }
+diff --git a/src/builder/dynamic/widgets.tsx b/src/builder/dynamic/widgets.tsx
+index 5b9bdbc..4550056 100644
+--- a/src/builder/dynamic/widgets.tsx
++++ b/src/builder/dynamic/widgets.tsx
+@@ -8,6 +8,7 @@ import { liveHref } from '../live/ctx'
+ import { LiveMenu } from '../live/ui'
+ import { t } from '../i18n'
+ import { DYN_DEFS, burgerWidth, isShopWidget } from './model'
++import { dropdownTemplates } from './menu'
+ import { LanguageSwitcher, ShopWidget } from './shop'
+ import { When, attr, html, txt, useDyn, type DynMode } from './ctx'
+ import { DATE_FORMAT_RE, cleanHtml, formatDate, paginationHtml, postNavHtml, termsHtml, trimWords } from './format'
+@@ -271,14 +272,16 @@ function SiteLogo({ m, link }: { m: DynMode; link: boolean }) {
+   )
+ }
+ 
+-/** Menu links of a location: one placeholder template, or the sample items. */
+-function MenuList({ m, loc, className, linkClass }: { m: DynMode; loc: string; className: string; linkClass: string }) {
++/** Menu links of a location: the placeholder templates (drop-down sub-menus, menu.tsx), or the sample items. */
++function MenuList({ m, loc, className, linkClass, column }: { m: DynMode; loc: string; className: string; linkClass: string; column?: boolean }) {
+   if (m.ph)
+     return (
+-      <div className={className} data-wb-menu-loc={loc}>
+-        <a data-wb-loop-item="" data-wb-slot="menu.url" className={linkClass}>
+-          <span data-wb-slot="menu.label" />
+-        </a>
++      <div className={cn(className, column && 'wb-menu-col')} data-wb-menu-loc={loc} data-wb-menu-tree="dropdown">
++        {dropdownTemplates((p) => (
++          <a {...p} data-wb-slot="menu.url" className={linkClass}>
++            <span data-wb-slot="menu.label" />
++          </a>
++        ))}
+       </div>
+     )
+   const items: DynMenuItem[] = m.ctx.menus[loc] ?? []
+@@ -304,7 +307,7 @@ function NavMenu({ m, d }: { m: DynMode; d: DynSettings }) {
+   const burger = (className?: string) =>
+     m.live ? (
+       <LiveMenu className={className} summaryClass="grid size-10 place-items-center" panelClass="absolute right-0 top-full z-50 min-w-[240px] p-5 shadow-[0_30px_40px_-30px_rgba(0,0,0,.35)]" panelStyle={{ background: 'var(--bg)', color: 'var(--fg)', borderRadius: 'min(var(--r-card), 14px)' }}>
+-        <MenuList m={m} loc={loc} className="flex flex-col" linkClass={cn(MENU_LINK, 'block border-b py-2.5')} />
++        <MenuList m={m} loc={loc} className="flex flex-col" column linkClass={cn(MENU_LINK, 'block border-b py-2.5')} />
+       </LiveMenu>
+     ) : (
+       <span className={cn('grid size-10 place-items-center', className)}>
+@@ -313,7 +316,7 @@ function NavMenu({ m, d }: { m: DynMode; d: DynSettings }) {
+     )
+   return (
+     <nav aria-label="Menu" className="relative">
+-      {layout !== 'burger' && <MenuList m={m} loc={loc} className={cn(layout === 'column' ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-x-6 gap-y-2', at > 0 && HIDE_BELOW[at])} linkClass={MENU_LINK} />}
++      {layout !== 'burger' && <MenuList m={m} loc={loc} column={layout === 'column'} className={cn(layout === 'column' ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-x-6 gap-y-2', at > 0 && HIDE_BELOW[at])} linkClass={MENU_LINK} />}
+       {(layout === 'burger' || at > 0) && burger(at > 0 ? HIDE_FROM[at] : undefined)}
+     </nav>
+   )

@@ -176,9 +176,16 @@ sections without publishing again.
 
 ### Menus and custom fields
 
-A `data-wb-menu-loc` list repeats its card per menu item, depth first: each sub-menu item follows its
-parent (three levels). The link of a sub-item gets the class `wb-menu-d1` / `wb-menu-d2`, a parent's
-link `has-children`, so a card template can indent or fold them (`wb-tokens` indents the two levels).
+A navigation section bound to a menu location, and the **Menu** widget, show sub-menus as drop-downs:
+a top-level item with sub-items opens a list of them on hover or keyboard focus, in the section's own
+colours, with the third level indented in it; in the mobile menu (and a Menu widget laid out as a
+column) the sub-items sit indented under their parent. Pages published before this release keep the
+flat list until they are published again. Footers list the menu flat.
+
+A plain `data-wb-menu-loc` list (code widgets, older snapshots) repeats its card per menu item, depth
+first: each sub-menu item follows its parent (three levels). The link of a sub-item gets the class
+`wb-menu-d1` / `wb-menu-d2`, a parent's link `has-children`, so a card template can indent or fold them
+(`wb-tokens` indents the two levels).
 
 `data-wb-slot="post.field"` with `data-wb-field="<field name>"` prints a Pursae Custom Fields value of the
 post (text, escaped; lists are joined with a comma); `post.field-url` sets `href` (or `src` on an
@@ -199,9 +206,7 @@ Not in the builder (yet):
 
 - **AI** — the upstream AI assistant, AI images and site cloning are stubbed out of the build; no
   AI request leaves the site. The design for a server-side proxy is in the contract (§9).
-- **Drop-down menus**: a menu bound to a menu location lists its sub-menu items (three levels, indented
-  by the classes below), but not as fold-out drop-downs; archives of Pursae Custom Fields taxonomies are
-  not routed, so conditions on them match nothing.
+- Archives of Pursae Custom Fields taxonomies are not routed, so conditions on them match nothing.
 - **Popup designer UI in the editor**: popups are designed like any template; their trigger and
   frequency are set under Appearance › Theme Builder › Popup Settings (no panel in the editor yet), and
   they show only with Hello Pursae.
