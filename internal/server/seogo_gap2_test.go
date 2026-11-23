@@ -153,7 +153,7 @@ func TestSEOGoTermSlugRedirectAndListFilters(t *testing.T) {
 	_, body := restSend(t, c, base, http.MethodPost, "/wp-json/wp/v2/posts", `{"title":"Plain post","status":"publish","content":"<p>x</p>"}`)
 	_ = body
 	_, list, _ := get(t, c, base+"/wp-admin/edit")
-	if !strings.Contains(list, `column-seogo-seo`) || !strings.Contains(list, `column-seogo-readability`) || !strings.Contains(list, "seo_filter=nofocus") {
+	if !strings.Contains(list, `column-seogo-details`) || !strings.Contains(list, "Keyword:") || !strings.Contains(list, "seo_filter=nofocus") {
 		t.Error("posts list lacks the SEO columns or the filter view")
 	}
 	_, filtered, _ := get(t, c, base+"/wp-admin/edit?seo_filter=nofocus")

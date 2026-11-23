@@ -102,6 +102,15 @@ type seogoOptions struct {
 	BCShowBlog  bool   `json:"bc_show_blog"`
 	BCHideTitle bool   `json:"bc_hide_title"`
 
+	// Table of Contents
+	TOCTitle       string   `json:"toc_title"`
+	TOCLevels      []int    `json:"toc_levels"`
+	TOCNumbered    bool     `json:"toc_numbered"`
+	TOCCollapsible bool     `json:"toc_collapsible"`
+	TOCAuto        bool     `json:"toc_auto"`       // insert one before the first heading of singular content
+	TOCAutoTypes   []string `json:"toc_auto_types"` // post types of the automatic insert
+	TOCMin         int      `json:"toc_min"`        // headings the automatic insert needs
+
 	// Sitemaps
 	SitemapPerPage   int    `json:"sitemap_per_page"`
 	SitemapImages    bool   `json:"sitemap_images"`
@@ -154,6 +163,7 @@ var seogoModules = []struct{ Key, Name, Desc, Icon string }{
 	{"schema", "Schema (Structured Data)", "The JSON-LD graph: WebSite, Organization or Person, WebPage, Article, BreadcrumbList, FAQ and HowTo blocks, custom JSON-LD.", "dashicons-editor-code"},
 	{"sitemap", "XML Sitemaps", "sitemap_index.xml with one sitemap per post type, taxonomy and authors, image entries; replaces wp-sitemap.xml.", "dashicons-networking"},
 	{"breadcrumbs", "Breadcrumbs", "Breadcrumb trail as a shortcode, a block and a template function, with BreadcrumbList schema.", "dashicons-menu"},
+	{"toc", "Table of Contents", "A Table of Contents block that lists the headings of a post with jump links, optionally inserted automatically.", "dashicons-list-view"},
 	{"redirections", "Redirections", "301, 302, 307, 410 and 451 redirects with exact, partial and regex matching; automatic redirects on slug changes.", "dashicons-randomize"},
 	{"monitor", "404 Monitor", "Logs URLs that end in a 404 so they can be redirected.", "dashicons-dismiss"},
 	{"links", "Link Counter", "Internal and external link counts, orphaned content and internal linking suggestions.", "dashicons-admin-links"},
@@ -183,7 +193,7 @@ var seogoCaps = []struct{ Key, Label string }{
 
 func seogoDefaults() *seogoOptions {
 	return &seogoOptions{
-		Modules: map[string]bool{"analysis": true, "schema": true, "sitemap": true, "breadcrumbs": true, "redirections": true,
+		Modules: map[string]bool{"analysis": true, "schema": true, "sitemap": true, "breadcrumbs": true, "toc": true, "redirections": true,
 			"monitor": true, "links": true, "image_seo": false, "local": false, "news_sitemap": false, "video_sitemap": false,
 			"indexnow": false, "role_manager": true},
 		Separator: "-",
@@ -209,7 +219,8 @@ func seogoDefaults() *seogoOptions {
 		Verify:   map[string]string{},
 		RSSAfter: "The post %postlink% appeared first on %bloglink%.",
 		BCSep:    "»", BCHome: "Home", BCArchive: "Archives for", BCSearch: "You searched for", BC404: "Error 404: Page not found",
-		BCShowBlog:     true,
+		BCShowBlog: true,
+		TOCTitle:   "Table of Contents", TOCLevels: []int{2, 3, 4}, TOCNumbered: true, TOCAutoTypes: []string{"post"}, TOCMin: 3,
 		SitemapPerPage: 1000, SitemapImages: true,
 		AutoRedirect: true, MonitorLimit: 1000,
 		ImgAlt: "%filename%", ImgTitle: "%filename%",

@@ -120,7 +120,7 @@ func (s *Server) seogoEditor(c *gin.Context, p *store.Post, block bool) {
 	blocks := ""
 	if block {
 		a.Script("wp-plugins")
-		blocks = `<script` + cspNonceAttr() + ` src="/wp-admin/js/seogo-blocks.js?ver=1.0.0" defer></script>`
+		blocks = `<script` + cspNonceAttr() + ` src="/wp-admin/js/seogo-blocks.js?ver=1.1.0" defer></script>`
 	}
 	s.enqueueMedia(c, p.ID)
 	addBodyHTML(c, template.HTML(`<link rel="stylesheet" id="seogo-editor-css" href="/wp-admin/css/seogo.css?ver=1.0.0" media="all" />`+

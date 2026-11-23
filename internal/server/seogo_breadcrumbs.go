@@ -220,12 +220,13 @@ func (s *Server) seogoBreadcrumbsFor(ctx context.Context) string {
 
 var seogoBreadcrumbTags = []string{"seogo_breadcrumb", "wpseo_breadcrumb", "rank_math_breadcrumb"}
 
-// seogoContent is Pursae SEO's the_content filter: Image SEO and the breadcrumb shortcodes.
+// seogoContent is Pursae SEO's the_content filter: Image SEO, tables of contents and the breadcrumb shortcodes.
 func (s *Server) seogoContent(ctx context.Context, content string) string {
 	if !s.seogoOn() {
 		return content
 	}
 	content = s.seogoImageSEO(ctx, content)
+	content = s.seogoTOCFor(ctx, content)
 	if !strings.Contains(content, "_breadcrumb") {
 		return content
 	}
@@ -256,4 +257,5 @@ func (s *Server) seogoRegisterBlocks() {
 	}
 	blocks.RegisterDynamic("seogo/breadcrumbs", bc)
 	blocks.RegisterDynamic("yoast-seo/breadcrumbs", bc)
+	s.seogoRegisterTOCBlock()
 }
