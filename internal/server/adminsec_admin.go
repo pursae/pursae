@@ -48,6 +48,7 @@ type asAdminData struct {
 	Checks            []asCheck
 	Users, With2FA    int
 	WithMFA, Failed24 int
+	WithPasskey       int
 	ActiveLockouts    int
 	Recent            []asLogRow
 	// Lockouts
@@ -190,14 +191,17 @@ func (s *Server) asDashboard(c *gin.Context, d *asAdminData) {
 	st := d.S
 	_ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&d.Users)
 	_ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE totp_enabled AND email_enabled), count(*) FILTER (WHERE email_enabled) FROM adminsec_factors`).Scan(&d.With2FA, &d.WithMFA)
+	_ = s.store.Pool.QueryRow(ctx, `SELECT count(DISTINCT user_id) FROM adminsec_passkeys WHERE NOT clone_warning`).Scan(&d.WithPasskey)
+	pkTwoStep := st.Passkeys && st.PasskeyTwoStep // a passkey counts as two-step login
 	_ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM login_attempts WHERE NOT success AND NOT pending AND attempted_at > now() - interval '24 hours'`).Scan(&d.Failed24)
 	_ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM adminsec_lockouts WHERE until > now() AND NOT released`).Scan(&d.ActiveLockouts)
 	d.Recent, _, _ = s.asLogQuery(ctx, asLogFilter{}, 8, 0)
 
 	var admins, adminsWith2FA int
-	_ = s.store.Pool.QueryRow(ctx, `SELECT count(DISTINCT u.id), count(DISTINCT f.user_id) FILTER (WHERE f.totp_enabled AND f.email_enabled)
+	_ = s.store.Pool.QueryRow(ctx, `SELECT count(DISTINCT u.id), count(DISTINCT u.id) FILTER (WHERE (f.totp_enabled AND f.email_enabled)
+			OR ($1 AND EXISTS (SELECT 1 FROM adminsec_passkeys p WHERE p.user_id = u.id AND NOT p.clone_warning)))
 		FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
-		LEFT JOIN adminsec_factors f ON f.user_id = u.id WHERE r.slug = 'administrator'`).Scan(&admins, &adminsWith2FA)
+		LEFT JOIN adminsec_factors f ON f.user_id = u.id WHERE r.slug = 'administrator'`, pkTwoStep).Scan(&admins, &adminsWith2FA)
 	me := s.asFactors(ctx, currentUser(c).ID)
 	var adminLogin bool
 	_ = s.store.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE lower(login) IN ('admin', 'administrator'))`).Scan(&adminLogin)
@@ -206,8 +210,8 @@ func (s *Server) asDashboard(c *gin.Context, d *asAdminData) {
 	https := strings.HasPrefix(s.settings.String("home"), "https://")
 	d.Checks = []asCheck{
 		{Label: "E-mail delivery is configured", Detail: "Login codes and alerts need working e-mail.", OK: d.MailReady, Points: 10, FixURL: d.MailFixURL, FixLabel: "Set up Pursae SMTP"},
-		{Label: "Your account uses two-factor authentication", Detail: "An authenticator app with e-mailed codes as the fallback.", OK: me.TOTPEnabled && me.EmailEnabled, Points: 10, FixURL: "/wp-admin/admin?page=" + asSlug + "-account", FixLabel: "Set up 2FA"},
-		{Label: "Administrators are required to use 2FA", Detail: "Two-Factor › Requirement per role.", OK: st.RequireRoles["administrator"] == "2fa", Points: 10, FixURL: set("twofactor"), FixLabel: "Require 2FA"},
+		{Label: "Your account uses two-factor authentication", Detail: "An authenticator app with e-mailed codes as the fallback.", OK: (me.TOTPEnabled && me.EmailEnabled) || (pkTwoStep && me.Passkeys > 0), Points: 10, FixURL: "/wp-admin/admin?page=" + asSlug + "-account", FixLabel: "Set up 2FA"},
+		{Label: "Administrators are required to use 2FA", Detail: "Two-Factor › Requirement per role.", OK: st.RequireRoles["administrator"] == "2fa" || (st.Passkeys && st.RequireRoles["administrator"] == "passkey"), Points: 10, FixURL: set("twofactor"), FixLabel: "Require 2FA"},
 		{Label: "Every administrator has 2FA", Detail: strconv.Itoa(adminsWith2FA) + " of " + strconv.Itoa(admins) + " administrators.", OK: admins > 0 && adminsWith2FA == admins, Points: 8, FixURL: "/wp-admin/users?role=administrator", FixLabel: "See administrators"},
 		{Label: "Login attempts are limited", Detail: "Lockouts by IP address and by username.", OK: st.IPMaxFailures > 0 && st.UserMaxFailures > 0, Points: 8, FixURL: set("lockouts"), FixLabel: "Configure lockouts"},
 		{Label: "The login page has a custom URL", Detail: "Bots looking for /wp-login and /wp-admin get a 404.", OK: st.hideActive(), Points: 6, FixURL: set("login"), FixLabel: "Set a login URL"},
@@ -318,14 +322,23 @@ func (s *Server) asParseSettings(c *gin.Context, st asSettings, tab string) (asS
 	case "twofactor":
 		st.RequireRoles = map[string]string{}
 		for _, r := range s.asRoleNames(c) {
-			if v := c.PostForm("require_" + r.Slug); v == "mfa" || v == "2fa" {
+			if v := c.PostForm("require_" + r.Slug); v == "mfa" || v == "2fa" || v == "passkey" {
 				st.RequireRoles[r.Slug] = v
 			}
 		}
 		st.GraceDays = asFormInt(c, "grace_days", st.GraceDays, 0, 90)
 		st.RememberDays = asFormInt(c, "remember_days", st.RememberDays, 0, 365)
-		if ok, why := s.asMailReady(); !ok && len(st.RequireRoles) > 0 {
+		st.Passkeys, st.PasskeyTwoStep = on("passkeys"), on("passkey_two_step")
+		needMail, needPasskey := false, false
+		for _, v := range st.RequireRoles {
+			needMail = needMail || v == "mfa" || v == "2fa"
+			needPasskey = needPasskey || v == "passkey"
+		}
+		if ok, why := s.asMailReady(); !ok && needMail {
 			errs = append(errs, "Two-step login can only be required once e-mail can be delivered. "+why)
+		}
+		if needPasskey && !st.Passkeys {
+			errs = append(errs, "A passkey can only be required while passkeys are allowed.")
 		}
 	case "login":
 		slug := strings.ToLower(strings.Trim(strings.TrimSpace(c.PostForm("login_slug")), "/"))

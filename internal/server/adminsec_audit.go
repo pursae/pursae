@@ -45,6 +45,9 @@ var asEventLabels = [][2]string{
 	{"totp_disabled", "Authenticator app disabled"},
 	{"backup_codes_generated", "Backup codes generated"},
 	{"backup_code_used", "Backup code used"},
+	{"passkey_added", "Passkey added"},
+	{"passkey_removed", "Passkey removed"},
+	{"passkey_clone_warning", "Passkey refused: possible copy"},
 	{"factors_reset", "Factors reset by an administrator"},
 	{"device_remembered", "Device remembered"},
 	{"devices_forgotten", "Remembered devices forgotten"},
@@ -286,6 +289,7 @@ func (s *Server) adminsecDaily(ctx context.Context) error {
 		return err
 	}
 	_, _ = s.store.Pool.Exec(ctx, `DELETE FROM adminsec_devices WHERE expires_at < now()`)
+	_, _ = s.store.Pool.Exec(ctx, `DELETE FROM adminsec_passkey_ceremonies WHERE expires_at < now()`)
 	_, _ = s.store.Pool.Exec(ctx, `DELETE FROM adminsec_lockouts WHERE until < now() - interval '30 days'`)
 	if !s.adminsecOn() {
 		return nil

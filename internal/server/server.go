@@ -25,6 +25,7 @@ import (
 	"wpgo/internal/config"
 	"wpgo/internal/i18n"
 	"wpgo/internal/links"
+	"wpgo/internal/metrics"
 	"wpgo/internal/settings"
 	"wpgo/internal/store"
 	"wpgo/internal/wp"
@@ -38,6 +39,7 @@ var Version = "0.5.0"
 
 type Server struct {
 	cfg      config.Config
+	metrics  *metrics.Metrics // nil unless PURSAE_METRICS=1 (UseMetrics); then the request middleware and /metrics are installed
 	store    *store.Store
 	settings *settings.Store
 	auth     *auth.Manager
@@ -184,7 +186,7 @@ func (s *Server) Handler() http.Handler {
 	app := s.appHandler()
 	// Outermost: probes and the request ID (ops_http.go); then gzip for what Pursae Cache does not serve
 	// compressed itself (compress.go).
-	return s.opsHandler(gzipResponses(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.opsHandler(s.instrument(gzipResponses(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nw := newNonceWriter(w) // the response's CSP nonce (csp_nonce.go); every request, a websocket handshake too
 		defer nw.close()
 		w = nw
@@ -211,7 +213,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		app.ServeHTTP(w, r)
-	})))
+	}))))
 }
 
 // appHandler is the app without the page cache.

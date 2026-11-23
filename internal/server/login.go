@@ -24,6 +24,8 @@ type loginView struct {
 	CanRegister bool
 	Email       string // user_email on the registration form
 	Captcha     template.HTML
+	// Passkey: Pursae Security offers "Log in with a passkey" (and the browser's passkey autofill).
+	Passkey bool
 }
 
 // login handles wp-login.php: the form, the POST and ?action=logout.
@@ -49,6 +51,7 @@ func (s *Server) login(c *gin.Context) {
 		CanRegister: s.settings.Bool("users_can_register"),
 		Captcha:     s.loginCaptchaWidget(c),
 	}
+	v.Passkey = s.asPasskeysUsable(c)
 	switch action {
 	case "lostpassword", "retrievepassword":
 		if e := c.Query("error"); e == "invalidkey" || e == "expiredkey" {
@@ -68,6 +71,16 @@ func (s *Server) login(c *gin.Context) {
 	case "adminsec_2fa": // AdminSecGo: the second-factor step of a login
 		if s.adminsecOn() {
 			s.adminsecChallengePost(c, v)
+			return
+		}
+	case "passkey_options": // Pursae Security: the options of a passkey sign-in (JSON)
+		if s.adminsecOn() {
+			s.adminsecPasskeyOptions(c)
+			return
+		}
+	case "passkey_login": // Pursae Security: a passkey sign-in
+		if s.adminsecOn() {
+			s.adminsecPasskeyLogin(c, v)
 			return
 		}
 	}

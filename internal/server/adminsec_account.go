@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -47,6 +46,12 @@ type asAccountData struct {
 	RememberOn  bool
 	BackupLeft  int
 	RequiredMsg string
+
+	PasskeysOn     bool // the setting
+	PasskeysUsable bool // and the site has a domain name passkeys can use
+	PasskeyTwoStep bool
+	Passkeys       []asPasskey
+	MaxPasskeys    int
 }
 
 func (s *Server) asDevices(ctx context.Context, userID int64) []asDeviceRow {
@@ -122,6 +127,10 @@ func (s *Server) adminsecAccount(c *gin.Context) {
 			s.denyNonce(c)
 			return
 		}
+		if c.PostForm("adminsec_do") == "passkey_begin" { // JSON for the page's script
+			s.asPasskeyBegin(c, u)
+			return
+		}
 		ns, redirect := s.asAccountAction(c, u, d)
 		if redirect != "" {
 			c.Redirect(http.StatusFound, redirect)
@@ -131,6 +140,7 @@ func (s *Server) adminsecAccount(c *gin.Context) {
 		f := s.asFactors(c, u.ID)
 		d.F, d.BackupLeft, d.Enroll = f, f.backupLeft(), s.asEnrollState(c, u)
 		d.Devices = s.asDevices(c, u.ID)
+		d.Passkeys = s.asPasskeys(c, u.ID)
 	} else {
 		switch c.Query("done") {
 		case "mfa-off":
@@ -140,14 +150,28 @@ func (s *Server) adminsecAccount(c *gin.Context) {
 		case "devices":
 			notices = append(notices, notice{Type: "success", Message: "Remembered devices forgotten: the next login on them asks for a code again.", Dismissible: true})
 		}
+		for _, p := range d.Passkeys {
+			if p.CloneWarning {
+				notices = append(notices, notice{Type: "error", Message: template.HTML("<strong>A passkey may have been copied.</strong> “" + template.HTMLEscapeString(p.Name) +
+					"” sent a signature counter that went backwards, so it is no longer accepted. Remove it, and add it again if you still have the device.")})
+			}
+		}
 		if d.F.TOTPPending != "" && c.Query("step") == "totp" {
 			s.asTOTPStep(c, u, d, s.asReveal(d.F.TOTPPending))
 		}
 	}
 	if d.Enroll.Required != "" && !d.Enroll.Satisfied {
 		what := "two-step login with e-mailed codes"
-		if d.Enroll.Required == "2fa" {
+		switch d.Enroll.Required {
+		case "2fa":
 			what = "an authenticator app (with e-mailed codes as its fallback)"
+		case "passkey":
+			what = "a passkey"
+		case "2fa+passkey":
+			what = "an authenticator app (with e-mailed codes as its fallback) and a passkey"
+		}
+		if d.PasskeyTwoStep && (d.Enroll.Required == "mfa" || d.Enroll.Required == "2fa") {
+			what += " or a passkey"
 		}
 		msg := "Your role requires " + what + ". "
 		if d.Enroll.Expired {
@@ -163,9 +187,12 @@ func (s *Server) adminsecAccount(c *gin.Context) {
 func (s *Server) asAccountView(c *gin.Context, u *store.User) *asAccountData {
 	f := s.asFactors(c, u.ID)
 	ready, why := s.asMailReady()
+	st := s.asLoad()
 	return &asAccountData{Page: "account", Nonce: s.nonce(c, "adminsec-account"), User: u, F: f, MailReady: ready, MailWhy: why,
 		MailFixURL: s.asMailFixURL(), Enroll: s.asEnrollState(c, u), Devices: s.asDevices(c, u.ID),
-		RememberOn: s.asLoad().RememberDays > 0, BackupLeft: f.backupLeft(), SetupEmail: u.Email}
+		RememberOn: st.RememberDays > 0, BackupLeft: f.backupLeft(), SetupEmail: u.Email,
+		PasskeysOn: st.Passkeys, PasskeysUsable: s.asPasskeysUsable(c), PasskeyTwoStep: st.Passkeys && st.PasskeyTwoStep,
+		Passkeys: s.asPasskeys(c, u.ID), MaxPasskeys: asMaxPasskeys}
 }
 
 func (s *Server) asTOTPStep(c *gin.Context, u *store.User, d *asAccountData, secret string) {
@@ -283,14 +310,19 @@ func (s *Server) asAccountAction(c *gin.Context, u *store.User, d *asAccountData
 		if f.TOTPEnabled {
 			return errNotice("Remove the authenticator app first: e-mailed codes are its fallback."), ""
 		}
-		if required != "" {
-			return errNotice("Your role requires two-step login, so it cannot be switched off."), ""
+		if without := *f; required != "" {
+			without.EmailEnabled = false
+			if !s.asLoad().satisfies(required, &without) {
+				return errNotice("Your role requires two-step login, so it cannot be switched off."), ""
+			}
 		}
 		if !needPassword() {
 			return errNotice("Your current password is incorrect."), ""
 		}
 		f.EmailEnabled, f.EmailVerifiedAt = false, nil
-		f.Backup, f.BackupAt = nil, nil
+		if f.Passkeys == 0 { // backup codes stay while passkeys still use them
+			f.Backup, f.BackupAt = nil, nil
+		}
 		_ = s.asSaveFactors(c, f)
 		_, _ = s.store.Pool.Exec(c, `DELETE FROM adminsec_devices WHERE user_id = $1`, u.ID)
 		s.asAudit(c, asEvent{Event: "mfa_disabled", Severity: "warning", Object: u.Login, Message: "E-mailed login codes disabled."})
@@ -333,8 +365,11 @@ func (s *Server) asAccountAction(c *gin.Context, u *store.User, d *asAccountData
 		_ = s.asSaveFactors(c, f)
 		return nil, back
 	case "totp_disable":
-		if required == "2fa" {
-			return errNotice("Your role requires an authenticator app, so it cannot be removed."), ""
+		if without := *f; required != "" {
+			without.TOTPEnabled = false
+			if !s.asLoad().satisfies(required, &without) {
+				return errNotice("Your role requires an authenticator app, so it cannot be removed."), ""
+			}
 		}
 		if !needPassword() {
 			return errNotice("Your current password is incorrect."), ""
@@ -357,6 +392,12 @@ func (s *Server) asAccountAction(c *gin.Context, u *store.User, d *asAccountData
 		d.Step, d.NewCodes = "codes", codes
 		s.asAudit(c, asEvent{Event: "backup_codes_generated", Severity: "notice", Object: u.Login, Message: "New backup codes generated; the old ones no longer work."})
 		return okNotice("New backup codes generated. The old ones no longer work."), ""
+	case "passkey_finish":
+		return s.asPasskeyFinish(c, u, d), ""
+	case "passkey_rename":
+		return s.asPasskeyRename(c, u), ""
+	case "passkey_delete":
+		return s.asPasskeyDelete(c, u, required), ""
 	case "devices_forget":
 		_, _ = s.store.Pool.Exec(c, `DELETE FROM adminsec_devices WHERE user_id = $1`, u.ID)
 		s.asAudit(c, asEvent{Event: "devices_forgotten", Object: u.Login})
@@ -385,6 +426,8 @@ type asProfileData struct {
 	F               *asFactors
 	BackupLeft      int
 	Enroll          asEnrollment
+	RequiredLabel   string
+	Passkeys        int
 	Sessions        []asSessionRow
 	Devices         int
 	ForcePassword   bool
@@ -426,6 +469,8 @@ func (s *Server) adminsecProfileHTML(c *gin.Context, target *store.User, self bo
 		Sessions: s.asSessions(c, target.ID, cur), Devices: len(s.asDevices(c, target.ID)), ForcePassword: s.asForcePassword(c, target),
 		AccountURL: "/wp-admin/admin?page=" + asSlug + "-account", IdleMinutes: s.asLoad().IdleMinutes}
 	d.Enroll = s.asEnrollState(c, target)
+	d.Passkeys = f.Passkeys
+	d.RequiredLabel = asRequiredLabel(d.Enroll.Required)
 	var buf bytes.Buffer
 	if err := s.tmpl.get(false).ExecuteTemplate(&buf, "adminsecgo-profile", d); err != nil {
 		return template.HTML("<!-- adminsecgo: " + template.HTMLEscapeString(err.Error()) + " -->")
@@ -478,8 +523,10 @@ func (s *Server) adminsecProfileAction(c *gin.Context, target *store.User, back 
 		_, _ = s.store.Pool.Exec(c, `DELETE FROM adminsec_factors WHERE user_id = $1`, target.ID)
 		_, _ = s.store.Pool.Exec(c, `DELETE FROM adminsec_devices WHERE user_id = $1`, target.ID)
 		_, _ = s.store.Pool.Exec(c, `DELETE FROM adminsec_challenges WHERE user_id = $1`, target.ID)
+		_, _ = s.store.Pool.Exec(c, `DELETE FROM adminsec_passkeys WHERE user_id = $1`, target.ID)
+		_, _ = s.store.Pool.Exec(c, `DELETE FROM adminsec_passkey_ceremonies WHERE user_id = $1`, target.ID)
 		_ = s.setUserMeta(c, target, "adminsec_grace_start", nil)
-		s.asAudit(c, asEvent{Event: "factors_reset", Severity: "warning", Object: target.Login, Message: "Two-step login factors, backup codes and remembered devices of " + target.Login + " removed."})
+		s.asAudit(c, asEvent{Event: "factors_reset", Severity: "warning", Object: target.Login, Message: "Two-step login factors, passkeys, backup codes and remembered devices of " + target.Login + " removed."})
 	case act == "force-password" && manage:
 		_ = s.setUserMeta(c, target, "adminsec_force_password", "admin")
 		s.asAudit(c, asEvent{Event: "password_change_forced", Severity: "notice", Object: target.Login, Message: "Password change required at the next login."})
@@ -523,13 +570,21 @@ func (s *Server) adminsecUsersColumn(c *gin.Context, rows []userRow, users []*st
 	for _, r := range rows {
 		ids = append(ids, r.ID)
 	}
-	type fs struct{ mfa, totp bool }
+	type fs struct {
+		mfa, totp bool
+		passkeys  int
+	}
 	have := map[int64]fs{}
-	if res, err := s.store.Pool.Query(c, `SELECT user_id, email_enabled, totp_enabled FROM adminsec_factors WHERE user_id = ANY($1)`, ids); err == nil {
+	if res, err := s.store.Pool.Query(c, `SELECT u.id, coalesce(f.email_enabled, false), coalesce(f.totp_enabled, false),
+		(SELECT count(*) FROM adminsec_passkeys p WHERE p.user_id = u.id AND NOT p.clone_warning)
+		FROM users u LEFT JOIN adminsec_factors f ON f.user_id = u.id WHERE u.id = ANY($1)`, ids); err == nil {
 		for res.Next() {
 			var id int64
 			var x fs
-			if res.Scan(&id, &x.mfa, &x.totp) == nil {
+			if res.Scan(&id, &x.mfa, &x.totp, &x.passkeys) == nil {
+				if !st.Passkeys {
+					x.passkeys = 0
+				}
 				have[id] = x
 			}
 		}
@@ -547,12 +602,18 @@ func (s *Server) adminsecUsersColumn(c *gin.Context, rows []userRow, users []*st
 			label = `<span class="adminsec-badge is-2fa">2FA</span> app + e-mail`
 		case x.mfa:
 			label = `<span class="adminsec-badge is-mfa">MFA</span> e-mail`
-		default:
+		case x.passkeys == 0:
 			label = `<span aria-hidden="true">&#8212;</span><span class="screen-reader-text">Off</span>`
 		}
+		if x.passkeys > 0 {
+			if label != "" {
+				label += "<br>"
+			}
+			label += `<span class="adminsec-badge is-passkey">Passkey</span> ` + strconv.Itoa(x.passkeys)
+		}
 		if u := byID[rows[i].ID]; u != nil {
-			if req := st.required(u); req != "" && !asSatisfies(req, &asFactors{EmailEnabled: x.mfa, TOTPEnabled: x.totp}) {
-				label += fmt.Sprintf(`<br><span class="adminsec-required">%s required</span>`, strings.ToUpper(req))
+			if req := st.required(u); req != "" && !st.satisfies(req, &asFactors{EmailEnabled: x.mfa, TOTPEnabled: x.totp, Passkeys: x.passkeys}) {
+				label += `<br><span class="adminsec-required">` + asRequiredLabel(req) + ` required</span>`
 			}
 		}
 		rows[i].Security = template.HTML(label)
@@ -565,4 +626,15 @@ func (s *Server) adminsecUsersColumn(c *gin.Context, rows []userRow, users []*st
 func (s *Server) asSessionLogoutFailed(c *gin.Context, target *store.User, err error) {
 	slog.Error("adminsec: session logout failed", "user_id", target.ID, "err", err)
 	s.asAudit(c, asEvent{Event: "sessions_logout_failed", Severity: "warning", Object: target.Login, Message: "Session logout failed for " + target.Login + "."})
+}
+
+// asRequiredLabel names a requirement in the Users list and notices.
+func asRequiredLabel(req string) string {
+	switch req {
+	case "passkey":
+		return "Passkey"
+	case "2fa+passkey":
+		return "2FA and passkey"
+	}
+	return strings.ToUpper(req)
 }

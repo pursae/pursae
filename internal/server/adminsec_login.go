@@ -52,9 +52,12 @@ type asFactors struct {
 	TOTPEnabledAt   *time.Time
 	Backup          []asBackup
 	BackupAt        *time.Time
+	Passkeys        int // usable passkeys, counted only while passkeys are switched on
 }
 
-func (f *asFactors) any() bool { return f != nil && (f.EmailEnabled || f.TOTPEnabled) }
+func (f *asFactors) any() bool {
+	return f != nil && (f.EmailEnabled || f.TOTPEnabled || f.Passkeys > 0)
+}
 
 func (f *asFactors) backupLeft() int {
 	n := 0
@@ -74,6 +77,9 @@ func (s *Server) asFactors(ctx context.Context, userID int64) *asFactors {
 		Scan(&f.EmailEnabled, &f.Email, &f.EmailVerifiedAt, &f.TOTPEnabled, &f.TOTPSecret, &f.TOTPPending, &f.TOTPLastStep, &f.TOTPEnabledAt, &raw, &f.BackupAt)
 	if err == nil {
 		_ = json.Unmarshal(raw, &f.Backup)
+	}
+	if s.asPasskeysOn() {
+		f.Passkeys = s.asPasskeyCount(ctx, userID)
 	}
 	return f
 }
@@ -147,29 +153,52 @@ func (s *Server) asCheckTOTP(ctx context.Context, f *asFactors, code string) boo
 
 // --- requirement per role ----------------------------------------------------------------
 
-// asRequired is the strongest second factor the user's roles require: "", "mfa" or "2fa".
+// asRequired is the strongest second factor the user's roles require: "", "mfa", "2fa" or "passkey".
+// A passkey requirement ranks with 2FA; when roles ask for both, both apply ("2fa+passkey").
 func (st asSettings) required(u *store.User) string {
 	req := ""
+	twofa, passkey := false, false
 	for _, r := range u.Roles {
 		switch st.RequireRoles[r] {
 		case "2fa":
-			return "2fa"
+			twofa = true
+		case "passkey":
+			passkey = st.Passkeys
 		case "mfa":
 			req = "mfa"
 		}
 	}
+	switch {
+	case twofa && passkey && !st.PasskeyTwoStep:
+		return "2fa+passkey"
+	case passkey:
+		return "passkey"
+	case twofa:
+		return "2fa"
+	}
 	return req
 }
 
-func asSatisfies(req string, f *asFactors) bool {
+// satisfies reports whether the factors meet a requirement. A passkey meets the MFA and 2FA
+// requirements too while a passkey sign-in counts as two-step login.
+func (st asSettings) satisfies(req string, f *asFactors) bool {
+	pk := st.Passkeys && f.Passkeys > 0
+	byPasskey := pk && st.PasskeyTwoStep
 	switch req {
+	case "2fa+passkey":
+		return pk && f.TOTPEnabled && f.EmailEnabled
+	case "passkey":
+		return pk
 	case "2fa":
-		return f.TOTPEnabled && f.EmailEnabled
+		return (f.TOTPEnabled && f.EmailEnabled) || byPasskey
 	case "mfa":
-		return f.EmailEnabled
+		return f.EmailEnabled || byPasskey
 	}
 	return true
 }
+
+// asNeedsMail reports whether a requirement can only be met with e-mail delivery.
+func asNeedsMail(req string) bool { return req == "mfa" || req == "2fa" || req == "2fa+passkey" }
 
 type asEnrollment struct {
 	Required  string // "", "mfa", "2fa"
@@ -188,10 +217,10 @@ func (s *Server) asEnrollState(c *gin.Context, u *store.User) asEnrollment {
 		return e
 	}
 	f := s.asFactors(c, u.ID)
-	if e.Satisfied = asSatisfies(e.Required, f); e.Satisfied {
+	if e.Satisfied = st.satisfies(e.Required, f); e.Satisfied {
 		return e
 	}
-	if ok, _ := s.asMailReady(); !ok {
+	if ok, _ := s.asMailReady(); !ok && asNeedsMail(e.Required) {
 		e.Required, e.Satisfied = "", true
 		return e
 	}
@@ -633,9 +662,12 @@ func asMaskEmail(e string) string {
 type asLoginView struct {
 	loginView
 	Token        string
-	Provider     string // totp, email, backup
+	Provider     string // totp, email, backup, passkey
 	HasTOTP      bool
 	HasEmail     bool
+	HasPasskey   bool
+	PasskeyOpts  string // JSON request options while Provider is passkey
+	PasskeyToken string
 	BackupLeft   int
 	MaskedEmail  string
 	RememberDays int
@@ -662,27 +694,62 @@ func (s *Server) adminsecPasswordOK(c *gin.Context, v loginView, u *store.User, 
 		s.asFinishLogin(c, u, v.Remember, v.RedirectTo, method)
 		return
 	}
-	ch := &asChallenge{UserID: u.ID, Purpose: "login", Remember: v.Remember, RedirectTo: v.RedirectTo, IP: clientIP(c)}
+	s.asStartChallenge(c, v, u, f, "login")
+}
+
+// asStartChallenge opens the second step of a login: purpose "login" after a password, "login_pk"
+// after a passkey sign-in that does not count as two-step login (the passkey can't be the second step).
+func (s *Server) asStartChallenge(c *gin.Context, v loginView, u *store.User, f *asFactors, purpose string) {
+	ch := &asChallenge{UserID: u.ID, Purpose: purpose, Remember: v.Remember, RedirectTo: v.RedirectTo, IP: clientIP(c)}
 	token, err := s.asNewChallenge(c, ch)
 	if err != nil {
 		v.Error = "<strong>Error:</strong> Could not start the verification. Please try again."
 		s.renderAdminTemplate(c, http.StatusOK, "admin/login", v)
 		return
 	}
-	provider := "totp"
-	if !f.TOTPEnabled {
-		provider = "email"
+	provider := asDefaultProvider(f, ch)
+	if provider == "email" {
 		_ = s.asSendCode(c, ch, u, f.Email)
 	}
-	s.asRenderChallenge(c, v, token, ch, f, provider, "", "")
+	s.asRenderChallenge(c, v, token, ch, u, f, provider, "", "")
 }
 
-func (s *Server) asRenderChallenge(c *gin.Context, v loginView, token string, ch *asChallenge, f *asFactors, provider string, errMsg, msg template.HTML) {
-	lv := asLoginView{loginView: v, Token: token, Provider: provider, HasTOTP: f.TOTPEnabled, HasEmail: f.EmailEnabled, BackupLeft: f.backupLeft(),
-		MaskedEmail: asMaskEmail(f.Email), RememberDays: s.asLoad().RememberDays, FormAction: s.loginPath() + "?action=adminsec_2fa"}
+// asPasskeyOnly reports whether the second step after a password must be the passkey: the user's role
+// requires one and the user has one. Backup codes stay as the way back in; the app and e-mailed codes
+// are not offered, so the requirement means passkey logins, not only a registered passkey.
+func (s *Server) asPasskeyOnly(u *store.User, f *asFactors, ch *asChallenge) bool {
+	return asPasskeyStep(f, ch) && strings.Contains(s.asLoad().required(u), "passkey")
+}
+
+// asPasskeyStep reports whether the challenge may be answered with a passkey.
+func asPasskeyStep(f *asFactors, ch *asChallenge) bool {
+	return f.Passkeys > 0 && ch.Purpose == "login"
+}
+
+// asDefaultProvider is the method a challenge opens with: a passkey (no code to type or mail), then
+// the authenticator app, then an e-mailed code.
+func asDefaultProvider(f *asFactors, ch *asChallenge) string {
+	switch {
+	case asPasskeyStep(f, ch):
+		return "passkey"
+	case f.TOTPEnabled:
+		return "totp"
+	case f.EmailEnabled:
+		return "email"
+	}
+	return "backup"
+}
+
+func (s *Server) asRenderChallenge(c *gin.Context, v loginView, token string, ch *asChallenge, u *store.User, f *asFactors, provider string, errMsg, msg template.HTML) {
+	only := s.asPasskeyOnly(u, f, ch)
+	lv := asLoginView{loginView: v, Token: token, Provider: provider, HasTOTP: f.TOTPEnabled && !only, HasEmail: f.EmailEnabled && !only, HasPasskey: asPasskeyStep(f, ch),
+		BackupLeft: f.backupLeft(), MaskedEmail: asMaskEmail(f.Email), RememberDays: s.asLoad().RememberDays, FormAction: s.loginPath() + "?action=adminsec_2fa"}
 	lv.Title, lv.Action = "Verify it's you", "adminsec-2fa"
 	lv.Error, lv.Message = errMsg, msg
 	lv.ResendWait = int(ch.resendWait().Seconds() + 0.99)
+	if provider == "passkey" {
+		lv.PasskeyOpts, lv.PasskeyToken = s.asPasskeySecondOptions(c, ch, u)
+	}
 	c.Header("Cache-Control", "no-store")
 	s.renderAdminTemplate(c, http.StatusOK, "admin/login-adminsec", lv)
 }
@@ -695,6 +762,9 @@ func (s *Server) adminsecChallengePost(c *gin.Context, v loginView) {
 	}
 	token := c.PostForm("adminsec_token")
 	ch, err := s.asChallengeByToken(c, token, "login")
+	if err != nil {
+		ch, err = s.asChallengeByToken(c, token, "login_pk")
+	}
 	expired := func() {
 		v.Error = "<strong>Error:</strong> Your verification expired or was used. Please log in again."
 		s.renderAdminTemplate(c, http.StatusOK, "admin/login", v)
@@ -715,19 +785,23 @@ func (s *Server) adminsecChallengePost(c *gin.Context, v loginView) {
 		return
 	}
 	f := s.asFactors(c, u.ID)
-	if !f.any() { // factors were reset meanwhile
+	first := map[bool]string{true: "passkey", false: "password"}[ch.Purpose == "login_pk"]
+	if !f.any() || (ch.Purpose == "login_pk" && !f.EmailEnabled && !f.TOTPEnabled) { // factors were reset meanwhile
 		s.asDropChallenge(c, ch)
-		s.asFinishLogin(c, u, ch.Remember, ch.RedirectTo, "password")
+		s.asFinishLogin(c, u, ch.Remember, ch.RedirectTo, first)
 		return
 	}
 	provider := c.PostForm("provider")
 	switch provider {
-	case "totp", "email", "backup":
+	case "totp", "email", "backup", "passkey":
 	default:
-		provider = map[bool]string{true: "totp", false: "email"}[f.TOTPEnabled]
+		provider = asDefaultProvider(f, ch)
 	}
-	if provider == "totp" && !f.TOTPEnabled {
-		provider = "email"
+	if (provider == "totp" && !f.TOTPEnabled) || (provider == "passkey" && !asPasskeyStep(f, ch)) || (provider == "email" && !f.EmailEnabled) {
+		provider = asDefaultProvider(f, ch)
+	}
+	if (provider == "totp" || provider == "email") && s.asPasskeyOnly(u, f, ch) {
+		provider = "passkey"
 	}
 	v.Login = u.Login
 	switch c.PostForm("adminsec_do") {
@@ -743,9 +817,13 @@ func (s *Server) adminsecChallengePost(c *gin.Context, v loginView) {
 				errMsg = "<strong>Error:</strong> No more codes can be sent for this login. Log in again to start over."
 			}
 		}
-		s.asRenderChallenge(c, v, token, ch, f, provider, errMsg, msg)
+		s.asRenderChallenge(c, v, token, ch, u, f, provider, errMsg, msg)
 		return
 	case "resend":
+		if s.asPasskeyOnly(u, f, ch) { // no codes are mailed while a passkey is required
+			s.asRenderChallenge(c, v, token, ch, u, f, provider, "", "")
+			return
+		}
 		var msg, errMsg template.HTML
 		switch err := s.asSendCode(c, ch, u, f.Email); err {
 		case nil:
@@ -755,7 +833,7 @@ func (s *Server) adminsecChallengePost(c *gin.Context, v loginView) {
 		default:
 			errMsg = "<strong>Error:</strong> No more codes can be sent for this login. Log in again to start over."
 		}
-		s.asRenderChallenge(c, v, token, ch, f, "email", errMsg, msg)
+		s.asRenderChallenge(c, v, token, ch, u, f, "email", errMsg, msg)
 		return
 	}
 	code := c.PostForm("authcode")
@@ -769,24 +847,34 @@ func (s *Server) adminsecChallengePost(c *gin.Context, v loginView) {
 	method := ""
 	switch provider {
 	case "totp":
-		ok, method = s.asCheckTOTP(c, f, code), "password + authenticator app"
+		ok, method = s.asCheckTOTP(c, f, code), first+" + authenticator app"
 	case "email":
-		ok, method = s.asCheckCode(c, ch, code), "password + e-mailed code"
+		ok, method = s.asCheckCode(c, ch, code), first+" + e-mailed code"
+	case "passkey":
+		ok, method = s.asCheckPasskeySecond(c, ch, u), "password + passkey"
 	case "backup":
-		ok, method = s.asUseBackupCode(c, f, code), "password + backup code"
+		ok, method = s.asUseBackupCode(c, f, code), first+" + backup code"
 		if ok {
 			s.asAudit(c, asEvent{Event: "backup_code_used", Severity: "notice", User: u, Message: fmt.Sprintf("Backup code used to log in; %d left.", f.backupLeft())})
 		}
 	}
 	if !ok {
-		s.adminsecLoginFailed(c, u.Login, u, "Wrong or expired "+map[string]string{"totp": "authenticator", "email": "e-mailed", "backup": "backup"}[provider]+" code.", 0)
+		reason := "Wrong or expired " + map[string]string{"totp": "authenticator", "email": "e-mailed", "backup": "backup"}[provider] + " code."
+		if provider == "passkey" {
+			reason = "Passkey not verified."
+		}
+		s.adminsecLoginFailed(c, u.Login, u, reason, 0)
 		if ch.Attempts >= asMaxCodeAttempts {
 			s.asDropChallenge(c, ch)
 			v.Error = "<strong>Error:</strong> Too many wrong codes. Please log in again."
 			s.renderAdminTemplate(c, http.StatusOK, "admin/login", v)
 			return
 		}
-		s.asRenderChallenge(c, v, token, ch, f, provider, "<strong>Error:</strong> The code is incorrect or has expired. Please try again.", "")
+		errMsg := template.HTML("<strong>Error:</strong> The code is incorrect or has expired. Please try again.")
+		if provider == "passkey" {
+			errMsg = "<strong>Error:</strong> The passkey could not be verified. Please try again, or choose another way below."
+		}
+		s.asRenderChallenge(c, v, token, ch, u, f, provider, errMsg, "")
 		return
 	}
 	if !s.asClaimChallenge(c, ch) { // another request finished this login already

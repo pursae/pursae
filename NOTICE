@@ -308,6 +308,7 @@ linux/arm64; versions from go.mod):
   github.com/dlclark/regexp2/v2              v2.11.0                              MIT            Doug Clark
   github.com/dop251/goja                     v0.0.0-20261110204830-f493a2b600d6   MIT            2016 Dmitry Panov
   github.com/ebitengine/purego               v0.10.1                              Apache-2.0     The Ebitengine Authors (includes code from Go, BSD-3-Clause)
+  github.com/fxamacker/cbor/v2               v2.9.4                               MIT            2019-present Faye Amacker
   github.com/gabriel-vasile/mimetype         v1.4.12                              MIT            2018 Gabriel Vasile
   github.com/gen2brain/avif                  v0.6.0                               MIT            2024 gen2brain
   github.com/gen2brain/webp                  v0.6.4                               MIT            2024 gen2brain
@@ -317,8 +318,14 @@ linux/arm64; versions from go.mod):
   github.com/go-playground/universal-translator v0.18.1                           MIT            2016 Go Playground
   github.com/go-playground/validator/v10     v10.30.1                             MIT            2015 Dean Karn
   github.com/go-sourcemap/sourcemap          v2.1.3+incompatible                  BSD-2-Clause   2016 The github.com/go-sourcemap/sourcemap Contributors
+  github.com/go-viper/mapstructure/v2        v2.5.0                               MIT            2013 Mitchell Hashimoto
+  github.com/go-webauthn/webauthn            v0.18.2                              BSD-3-Clause   2025 github.com/go-webauthn/webauthn authors
+  github.com/go-webauthn/x                   v0.3.1                               BSD-3-Clause   2021-2023 github.com/go-webauthn authors (revoke: BSD-2-Clause, 2014 CloudFlare Inc.; crypto/secp256k1: ISC, 2013-2017 The btcsuite developers, 2015-2024 The Decred developers, 2017 The Lightning Network Developers; encoding/asn1: BSD-3-Clause, 2009 The Go Authors)
   github.com/goccy/go-yaml                   v1.19.2                              MIT            2019 Masaaki Goshima
+  github.com/golang-jwt/jwt/v5               v5.3.1                               MIT            2012 Dave Grijalva, 2021 golang-jwt maintainers
+  github.com/google/go-tpm                   v0.9.8                               Apache-2.0     Google LLC
   github.com/google/pprof                    v0.0.0-20230207041349-798e818bf904   Apache-2.0     Google Inc.
+  github.com/google/uuid                     v1.6.0                               BSD-3-Clause   2009, 2014 Google Inc.
   github.com/gorilla/css                     v1.0.1                               BSD-3-Clause   2023 The Gorilla Authors
   github.com/jackc/pgpassfile                v1.0.0                               MIT            2019 Jack Christensen
   github.com/jackc/pgservicefile             v0.0.0-20240606120523-5a60cdf6a761   MIT            2020 Jack Christensen
@@ -329,10 +336,13 @@ linux/arm64; versions from go.mod):
   github.com/microcosm-cc/bluemonday         v1.0.27                              BSD-3-Clause   2014 David Kitchen
   github.com/oschwald/maxminddb-golang/v2    v2.9.1                               ISC            2015 Gregory J. Oschwald
   github.com/pelletier/go-toml/v2            v2.2.4                               MIT            2021-2023 Thomas Pelletier
+  github.com/philhofer/fwd                   v1.2.0                               MIT            2014-2015 Philip Hofer
   github.com/quic-go/qpack                   v0.6.0                               MIT            2019 Marten Seemann
   github.com/quic-go/quic-go                 v0.59.1                              MIT            2016 the quic-go authors & Google, Inc.
   github.com/tetratelabs/wazero              v1.12.0                              Apache-2.0     2020-2023 wazero authors (NOTICE: "wazero / Copyright 2020-2023 wazero authors")
+  github.com/tinylib/msgp                    v1.6.4                               MIT            2014 Philip Hofer (portions 2009 The Go Authors, BSD-3-Clause)
   github.com/ugorji/go/codec                 v1.3.1                               MIT            2012-2020 Ugorji Nwoke
+  github.com/x448/float16                    v0.8.4                               MIT            2019 Montgomery Edwards⁴⁴⁸ and Faye Amacker
   go.mongodb.org/mongo-driver/v2             v2.5.0                               Apache-2.0     MongoDB, Inc. (only the bson package is linked; its THIRD-PARTY-NOTICES names AWS SDK for Go code, Apache-2.0, Amazon.com, Inc. and Stripe, Inc.)
   golang.org/x/crypto                        v0.58.0                              BSD-3-Clause   2009 The Go Authors
   golang.org/x/image                         v0.47.0                              BSD-3-Clause   2009 The Go Authors

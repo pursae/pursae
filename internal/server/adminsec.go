@@ -25,7 +25,7 @@ import (
 )
 
 // AdminSecGo is WordPress Go's native security plugin: e-mailed one-time codes (MFA), an
-// authenticator app (2FA, RFC 6238) with MFA as its fallback, backup codes, remembered devices,
+// authenticator app (2FA, RFC 6238) with MFA as its fallback, passkeys (WebAuthn), backup codes, remembered devices,
 // per-role enforcement, a custom login URL, lockouts, password policy, session management,
 // hardening toggles, admin alerts and an activity log. Like the other native plugins it is off
 // on a fresh install, and while it is off nothing of it runs: every hook below starts with
@@ -36,7 +36,7 @@ import (
 // adminsec_login.go (login hooks, challenges, lockouts, devices), adminsec_account.go (the user's
 // Security screen, profile and Users list), adminsec_admin.go (the AdminSecGo screens),
 // adminsec_audit.go (activity log, alerts, purge), adminsec_password.go (policy, strength),
-// adminsec_totp.go and adminsec_qr.go (TOTP and the QR code).
+// adminsec_totp.go and adminsec_qr.go (TOTP and the QR code), adminsec_passkey.go (passkeys).
 
 const (
 	asSlug    = "adminsecgo"
@@ -53,6 +53,10 @@ type asSettings struct {
 	RequireRoles map[string]string `json:"require_roles"` // role -> "" | "mfa" | "2fa"
 	GraceDays    int               `json:"grace_days"`
 	RememberDays int               `json:"remember_days"` // 0: no "remember this device"
+
+	// Passkeys (adminsec_passkey.go)
+	Passkeys       bool `json:"passkeys"`         // users may register passkeys and sign in with them
+	PasskeyTwoStep bool `json:"passkey_two_step"` // a passkey sign-in counts as two-step login (no code asked)
 
 	// Login
 	HideLogin        bool   `json:"hide_login"`
@@ -114,7 +118,7 @@ var asRoles = []string{"administrator", "editor", "author", "contributor", "subs
 
 func asDefaults() asSettings {
 	return asSettings{
-		RequireRoles: map[string]string{}, GraceDays: 7, RememberDays: 30,
+		RequireRoles: map[string]string{}, GraceDays: 7, RememberDays: 30, Passkeys: true, PasskeyTwoStep: true,
 		LoginSlug: "", GenericErrors: true, BlockEnumeration: true,
 		IPMaxFailures: 5, UserMaxFailures: 5, FailWindow: 15, LockoutMinutes: 20, LongLockoutAfter: 4, LongLockoutHours: 24,
 		PwMinLength:   map[string]int{"administrator": 12, "editor": 10, "author": 10, "contributor": 8, "subscriber": 8},
@@ -663,11 +667,14 @@ func AdminSecCLI(ctx context.Context, pool *pgxpool.Pool, args []string) (string
 		if len(args) < 2 {
 			return "", errFmt("reset-user needs a login")
 		}
-		tag, err := pool.Exec(ctx, `DELETE FROM adminsec_factors WHERE user_id = (SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email) = lower($1) LIMIT 1)`, args[1])
-		if err == nil {
-			_, err = pool.Exec(ctx, `DELETE FROM adminsec_devices WHERE user_id = (SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email) = lower($1) LIMIT 1)`, args[1])
+		login := args[1]
+		tag, err := pool.Exec(ctx, `DELETE FROM adminsec_factors WHERE user_id = (SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email) = lower($1) LIMIT 1)`, login)
+		for _, table := range []string{"adminsec_devices", "adminsec_passkeys"} {
+			if err == nil {
+				_, err = pool.Exec(ctx, `DELETE FROM `+table+` WHERE user_id = (SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email) = lower($1) LIMIT 1)`, login)
+			}
 		}
-		return "Second factors removed for " + args[1] + " (" + strconv.FormatInt(tag.RowsAffected(), 10) + " record).", err
+		return "Second factors and passkeys removed for " + args[1] + " (" + strconv.FormatInt(tag.RowsAffected(), 10) + " record).", err
 	case "unlock-all":
 		_, err := pool.Exec(ctx, `UPDATE adminsec_lockouts SET released = true WHERE until > now()`)
 		if err == nil {

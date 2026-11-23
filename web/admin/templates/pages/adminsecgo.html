@@ -31,6 +31,8 @@
 .adminsecgo-admin .asg-filters{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
 .adminsecgo-admin .asg-filters input[type=text],.adminsecgo-admin .asg-filters input[type=date]{width:auto}
 .adminsecgo-admin table.asg-roles td,.adminsecgo-admin table.asg-roles th{padding:8px 10px}
+.adminsecgo-admin .asg-passkey-manage summary{cursor:pointer;color:#2271b1;margin-top:4px}
+.adminsecgo-admin .asg-pk-status{color:#8a2424}
 @media screen and (max-width:782px){.adminsecgo-admin .asg-checks li{flex-wrap:wrap}.adminsecgo-admin .asg-checks .asg-fix{margin-left:30px}}
 </style>
 <div class="wrap adminsecgo-admin">
@@ -116,9 +118,45 @@
 			<p><button type="submit" name="adminsec_do" value="totp_start" class="button button-primary">Set up the app</button></p></form>
 		{{end}}
 	</div>
-	<div class="asg-card{{if not (or .F.EmailEnabled .F.TOTPEnabled)}} asg-disabled{{end}}" id="adminsec-backup-card">
+	{{if .PasskeysOn}}<div class="asg-card{{if not .PasskeysUsable}} asg-disabled{{end}}" id="adminsec-passkeys-card">
+		<h2><span class="dashicons dashicons-admin-network"></span> Passkeys {{if .Passkeys}}<span class="asg-pill on">On</span>{{else}}<span class="asg-pill">Off</span>{{end}}</h2>
+		{{if not .PasskeysUsable}}
+		<p><strong>Not available:</strong> passkeys need the site to be reached by its domain name (not an IP address), over HTTPS.</p>
+		{{else if .PasskeyTwoStep}}
+		<p>Log in with your fingerprint, face or screen lock instead of a password and a code. After a password, a passkey also works as the second step.</p>
+		{{else}}
+		<p>Log in with your fingerprint, face or screen lock instead of a password. After a password, a passkey also works as the second step.</p>
+		{{end}}
+		{{if .Passkeys}}<table class="widefat striped" id="adminsec-passkeys"><tbody>{{range .Passkeys}}<tr><td>
+			<strong translate="no">{{.Name}}</strong>{{if .CloneWarning}} <span class="asg-pill off">Refused</span>{{else if .Synced}} <span class="asg-pill">Synced</span>{{end}}<br>
+			<span class="description"><span>Added {{date .Created ""}}</span> &middot; <span>{{if .LastUsed}}Last used {{date .LastUsed.Local ""}}{{else}}Not used yet{{end}}</span></span>
+			<details class="asg-passkey-manage"><summary>Rename or remove</summary>
+				<form method="post" action="/wp-admin/admin?page=adminsecgo-account"><input type="hidden" name="_wpnonce" value="{{$.Data.Nonce}}"><input type="hidden" name="passkey" value="{{.ID}}">
+					<p><input type="text" name="passkey_name" value="{{.Name}}" maxlength="64" required aria-label="Passkey name"> <button type="submit" name="adminsec_do" value="passkey_rename" class="button">Rename</button></p></form>
+				<form method="post" action="/wp-admin/admin?page=adminsecgo-account"><input type="hidden" name="_wpnonce" value="{{$.Data.Nonce}}"><input type="hidden" name="passkey" value="{{.ID}}">
+					<p><label>Current password <input type="password" name="adminsec_password" autocomplete="current-password" required></label> <button type="submit" name="adminsec_do" value="passkey_delete" class="button">Remove</button></p></form>
+			</details></td></tr>{{end}}</tbody></table>{{end}}
+		{{if and .PasskeysUsable (lt (len .Passkeys) .MaxPasskeys)}}
+		<form method="post" action="/wp-admin/admin?page=adminsecgo-account" id="adminsec-passkey-add">
+			<input type="hidden" name="_wpnonce" value="{{.Nonce}}"><input type="hidden" name="adminsec_do" value="passkey_finish"><input type="hidden" name="passkey_token" value=""><input type="hidden" name="passkey_response" value="">
+			<p><label for="adminsec-passkey-name">Name</label><br><input type="text" name="passkey_name" id="adminsec-passkey-name" class="regular-text" maxlength="64" placeholder="MacBook, iPhone, security key …"></p>
+			<p><label>Current password <input type="password" name="adminsec_password" autocomplete="current-password" required></label></p>
+			<p><button type="submit" class="button button-primary" id="adminsec-passkey-add-btn" disabled>Add a passkey</button></p>
+			<p class="description" data-pk-unsupported>This browser can't create passkeys.</p>
+			<p class="asg-pk-status" data-pk-status role="status" hidden></p>
+			<span hidden data-pk-msg="password">Your current password is incorrect.</span>
+			<span hidden data-pk-msg="limit">You have the maximum number of passkeys. Remove one first.</span>
+			<span hidden data-pk-msg="unavailable">Passkeys are not available on this site.</span>
+			<span hidden data-pk-msg="cancelled">The passkey was not created: the request was cancelled.</span>
+			<span hidden data-pk-msg="exists">This device already has a passkey for your account.</span>
+			<span hidden data-pk-msg="failed">The passkey could not be added. Please try again.</span>
+		</form>
+		<script {{cspNonce}} src="/wp-admin/assets/js/adminsec-passkey.js?ver={{version}}" defer></script>
+		{{end}}
+	</div>{{end}}
+	<div class="asg-card{{if not (or .F.EmailEnabled .F.TOTPEnabled .F.Passkeys)}} asg-disabled{{end}}" id="adminsec-backup-card">
 		<h2><span class="dashicons dashicons-tickets-alt"></span> Backup codes</h2>
-		{{if or .F.EmailEnabled .F.TOTPEnabled}}
+		{{if or .F.EmailEnabled .F.TOTPEnabled .F.Passkeys}}
 		<p><strong>{{.BackupLeft}}</strong> of 10 unused codes left{{if .F.BackupAt}} (generated {{date .F.BackupAt.Local ""}}){{end}}.</p>
 		<form method="post" action="/wp-admin/admin?page=adminsecgo-account"><input type="hidden" name="_wpnonce" value="{{.Nonce}}">
 			<p><label>Current password <input type="password" name="adminsec_password" autocomplete="current-password" required></label></p>
@@ -145,7 +183,7 @@
 		<div class="asg-score"><div class="asg-ring" style="--p:{{.Score}};--c:{{if ge .Score 80}}#00a32a{{else if ge .Score 50}}#dba617{{else}}#d63638{{end}}"><span id="adminsec-score">{{.Score}}%</span></div>
 		<div><p>{{if ge .Score 80}}Well protected.{{else if ge .Score 50}}Good start: a few things left.{{else}}The site needs attention.{{end}}</p><p class="description">Work through the checklist below to raise it.</p></div></div></div>
 	<div class="asg-card"><h2>At a glance</h2>
-		<div class="asg-stats"><div><b>{{.With2FA}}</b>users with 2FA</div><div><b>{{.WithMFA}}</b>users with e-mailed codes</div><div><b>{{.Failed24}}</b>failed logins (24 h)</div><div><b>{{.ActiveLockouts}}</b>active lockouts</div></div>
+		<div class="asg-stats"><div><b>{{.With2FA}}</b>users with 2FA</div><div><b>{{.WithMFA}}</b>users with e-mailed codes</div><div><b>{{.WithPasskey}}</b>users with passkeys</div><div><b>{{.Failed24}}</b>failed logins (24 h)</div><div><b>{{.ActiveLockouts}}</b>active lockouts</div></div>
 		<p>Login URL: <code>{{.HomeURL}}{{.LoginURL}}</code></p></div>
 </div>
 <div class="asg-card"><h2>Checklist</h2>
@@ -167,15 +205,23 @@
 {{if not .MailReady}}<div class="notice notice-warning inline"><p><strong>E-mail delivery is not set up.</strong> {{.MailWhy}} <a href="{{.MailFixURL}}">Set it up</a>. Until then nobody can enable e-mailed codes, and requirements cannot be switched on.</p></div>{{end}}
 <h2 class="title">Requirement per role</h2>
 <p>Users of a role that requires two-step login are reminded on every screen during the grace period; afterwards they can only reach their Security screen until it is set up. 2FA (authenticator app) always includes e-mailed codes as its fallback.</p>
-<table class="widefat striped asg-roles" style="max-width:640px"><thead><tr><th>Role</th><th>Not required</th><th>E-mailed codes (MFA)</th><th>Authenticator app (2FA)</th></tr></thead><tbody>
+<table class="widefat striped asg-roles" style="max-width:760px"><thead><tr><th>Role</th><th>Not required</th><th>E-mailed codes (MFA)</th><th>Authenticator app (2FA)</th><th>Passkey</th></tr></thead><tbody>
 {{range .Roles}}{{$v := index $.Data.S.RequireRoles .Slug}}<tr><td>{{.Name}}</td>
 	<td><input type="radio" name="require_{{.Slug}}" value=""{{if eq $v ""}} checked{{end}} aria-label="{{.Name}}: not required"></td>
 	<td><input type="radio" name="require_{{.Slug}}" value="mfa"{{if eq $v "mfa"}} checked{{end}} aria-label="{{.Name}}: MFA"></td>
-	<td><input type="radio" name="require_{{.Slug}}" value="2fa"{{if eq $v "2fa"}} checked{{end}} aria-label="{{.Name}}: 2FA"></td></tr>{{end}}
+	<td><input type="radio" name="require_{{.Slug}}" value="2fa"{{if eq $v "2fa"}} checked{{end}} aria-label="{{.Name}}: 2FA"></td>
+	<td><input type="radio" name="require_{{.Slug}}" value="passkey"{{if eq $v "passkey"}} checked{{end}} aria-label="{{.Name}}: passkey"></td></tr>{{end}}
 </tbody></table>
 <table class="form-table" role="presentation">
 <tr><th scope="row"><label for="grace_days">Grace period</label></th><td><input type="number" min="0" max="90" class="small-text" name="grace_days" id="grace_days" value="{{.S.GraceDays}}"> days</td></tr>
 <tr><th scope="row"><label for="remember_days">Remember devices for</label></th><td><input type="number" min="0" max="365" class="small-text" name="remember_days" id="remember_days" value="{{.S.RememberDays}}"> days <p class="description">0 switches “Remember this device” off. Users can forget their devices under Users › Security.</p></td></tr>
+</table>
+<h2 class="title">Passkeys</h2>
+<table class="form-table" role="presentation">
+<tr><th scope="row">Passkeys</th><td><label><input type="checkbox" name="passkeys" value="1"{{if .S.Passkeys}} checked{{end}}> Users can add passkeys and log in with them</label>
+	<p class="description">A passkey signs in with the device's fingerprint, face or screen lock; the login form offers “Log in with a passkey”. Passkeys need the site to be reached by its domain name over HTTPS (or on localhost). Switched off, stored passkeys are kept but not accepted.</p></td></tr>
+<tr><th scope="row">Two-step login</th><td><label><input type="checkbox" name="passkey_two_step" value="1"{{if .S.PasskeyTwoStep}} checked{{end}}> A passkey sign-in counts as two-step login</label>
+	<p class="description">On: a passkey sign-in asks for no code, and a passkey meets the MFA and 2FA requirements. Off: a passkey only replaces the password, users with e-mailed codes or an app enter a code after it, and the requirements need those methods.</p></td></tr>
 </table>
 {{else if eq .Tab "login"}}
 <h2 class="title">Custom login URL</h2>
@@ -348,11 +394,12 @@
 <h2 id="adminsecgo">Two-Step Login &amp; Sessions</h2>
 <table class="form-table" role="presentation">
 <tr><th>Two-step login</th><td>
-	{{if .F.TOTPEnabled}}<span class="adminsec-badge is-2fa">2FA</span> Authenticator app with e-mailed codes as the fallback{{else if .F.EmailEnabled}}<span class="adminsec-badge is-mfa">MFA</span> E-mailed codes{{if .F.Email}} to {{.F.Email}}{{end}}{{else}}Off{{end}}
-	{{if or .F.TOTPEnabled .F.EmailEnabled}} &middot; {{.BackupLeft}} backup codes left{{end}}{{if .Devices}} &middot; {{.Devices}} remembered device{{if ne .Devices 1}}s{{end}}{{end}}
-	{{if and .Enroll.Required (not .Enroll.Satisfied)}}<p class="description" style="color:#b32d2e">The role requires {{if eq .Enroll.Required "2fa"}}2FA{{else}}MFA{{end}}{{if not .Enroll.Deadline.IsZero}}, deadline {{date .Enroll.Deadline ""}}{{end}}.</p>{{end}}
+	{{if .F.TOTPEnabled}}<span class="adminsec-badge is-2fa">2FA</span> Authenticator app with e-mailed codes as the fallback{{else if .F.EmailEnabled}}<span class="adminsec-badge is-mfa">MFA</span> E-mailed codes{{if .F.Email}} to {{.F.Email}}{{end}}{{else if not .Passkeys}}Off{{end}}
+	{{if .Passkeys}}{{if or .F.TOTPEnabled .F.EmailEnabled}} &middot; {{end}}<span class="adminsec-badge is-passkey">Passkey</span> <span>Passkeys: {{.Passkeys}}</span>{{end}}
+	{{if or .F.TOTPEnabled .F.EmailEnabled .Passkeys}} &middot; {{.BackupLeft}} backup codes left{{end}}{{if .Devices}} &middot; {{.Devices}} remembered device{{if ne .Devices 1}}s{{end}}{{end}}
+	{{if and .Enroll.Required (not .Enroll.Satisfied)}}<p class="description" style="color:#b32d2e">The role requires {{.RequiredLabel}}{{if not .Enroll.Deadline.IsZero}}, deadline {{date .Enroll.Deadline ""}}{{end}}.</p>{{end}}
 	{{if .Self}}<p><a class="button" href="{{.AccountURL}}">Manage two-step login</a></p>{{end}}
-	{{if .CanManage}}<p>{{if or .F.TOTPEnabled .F.EmailEnabled .Devices}}<button type="submit" class="button" name="adminsec_action" value="reset-factors" data-confirm="Remove this user's second factors, backup codes and remembered devices?">Reset two-step login</button> {{end}}
+	{{if .CanManage}}<p>{{if or .F.TOTPEnabled .F.EmailEnabled .Devices .Passkeys}}<button type="submit" class="button" name="adminsec_action" value="reset-factors" data-confirm="Remove this user's second factors, backup codes and remembered devices?">Reset two-step login</button> {{end}}
 		{{if .ForcePassword}}<button type="submit" class="button" name="adminsec_action" value="unforce-password">Cancel the required password change</button>{{else}}<button type="submit" class="button" name="adminsec_action" value="force-password">Require a password change at next login</button>{{end}}</p>{{end}}
 </td></tr>
 <tr><th>Active sessions</th><td>
@@ -364,5 +411,5 @@
 	{{if .IdleMinutes}}<p class="description">Sessions end after {{.IdleMinutes}} minutes without activity.</p>{{end}}
 </td></tr>
 </table>
-<style>.adminsec-badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#f0f0f1;color:#50575e}.adminsec-badge.is-2fa{background:#edfaef;color:#007017}.adminsec-badge.is-mfa{background:#f0f6fc;color:#0a4b78}</style>
+<style>.adminsec-badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#f0f0f1;color:#50575e}.adminsec-badge.is-2fa{background:#edfaef;color:#007017}.adminsec-badge.is-mfa{background:#f0f6fc;color:#0a4b78}.adminsec-badge.is-passkey{background:#f6f0fc;color:#5b2a86}</style>
 {{end}}

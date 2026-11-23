@@ -3,7 +3,9 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // DefaultHubURL is the Pursae Manager every Pursae install talks to.
@@ -48,6 +50,16 @@ type Config struct {
 	GeoIPDB        string
 	GeoIPUpdateOff bool
 
+	// Metrics (docs/developer/operations/metrics.md). MetricsOn (PURSAE_METRICS=1) enables the Prometheus
+	// endpoint; MetricsAddr (PURSAE_METRICS_ADDR) serves it on its own listener, MetricsToken
+	// (PURSAE_METRICS_TOKEN) is a bearer token it requires; without MetricsAddr the endpoint is /metrics on
+	// the site listener and needs the token. SlowQuery (PURSAE_SLOW_QUERY, "250ms" or whole
+	// milliseconds) logs and counts database queries at least that slow; 0 is off.
+	MetricsOn    bool
+	MetricsAddr  string
+	MetricsToken string
+	SlowQuery    time.Duration
+
 	// Outgoing mail. Without SMTPHost, messages are written as .eml files to MailDir (development).
 	SMTPHost, SMTPUser, SMTPPass, MailFrom string
 	SMTPPort                               string
@@ -79,6 +91,10 @@ func Load() Config {
 		MailDir:              Env("MAIL_DIR"),
 		GeoIPDB:              Env("GEOIP_DB"),
 		GeoIPUpdateOff:       hubOff(Env("GEOIP_UPDATE")),
+		MetricsOn:            Env("METRICS") == "1",
+		MetricsAddr:          strings.TrimSpace(Env("METRICS_ADDR")),
+		MetricsToken:         strings.TrimSpace(Env("METRICS_TOKEN")),
+		SlowQuery:            parseSlowQuery(Env("SLOW_QUERY")),
 	}
 	if c.HubOff {
 		c.HubURL = "off" // hubBase() treats it as no Manager
@@ -106,4 +122,23 @@ func hubOff(v string) bool {
 		return true
 	}
 	return false
+}
+
+// parseSlowQuery reads PURSAE_SLOW_QUERY: a Go duration ("250ms", "1s") or a plain number of
+// milliseconds. Empty, invalid or not positive: 0 (off).
+func parseSlowQuery(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		if n < 0 {
+			return 0
+		}
+		return time.Duration(n) * time.Millisecond
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	return 0
 }

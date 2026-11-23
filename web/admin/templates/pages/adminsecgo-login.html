@@ -8,6 +8,8 @@
 	.adminsec-alt form{margin:0;padding:0;background:none;border:0;box-shadow:none}
 	.adminsec-alt .button-link{color:#2271b1;text-decoration:underline;cursor:pointer;padding:0;font-size:13px}
 	.adminsec-alt li{margin:0 0 8px}
+	#adminsec-form .adminsec-passkey-go{width:100%}
+	.adminsec-passkey-status{margin:8px 0 0;font-size:13px;color:#8a2424}
 	</style>
 	<form name="adminsec-form" id="adminsec-form" action="{{.FormAction}}" method="post" autocomplete="off">
 		<input type="hidden" name="adminsec_token" value="{{.Token}}" />
@@ -20,17 +22,29 @@
 		<p class="adminsec-lead">We e-mailed a 6-digit code to <strong>{{.MaskedEmail}}</strong>. It is valid for 10 minutes.</p>
 		<p><label for="authcode">Verification Code</label>
 		<input type="text" inputmode="numeric" name="authcode" id="authcode" class="input adminsec-code" value="" size="20" pattern="[0-9 ]*" maxlength="8" autocomplete="one-time-code" placeholder="123 456" required autofocus /></p>
+		{{else if eq .Provider "passkey"}}
+		<div id="adminsec-passkey-step" data-options="{{.PasskeyOpts}}"{{if .Error}} data-error="1"{{end}}>
+			<p class="adminsec-lead">Use the passkey you saved for <strong>{{.SiteName}}</strong>. Your device asks for your fingerprint, face or screen lock.</p>
+			<p data-pk-unsupported>This browser can't use passkeys. Choose another way below.</p>
+			<input type="hidden" name="passkey_token" value="{{.PasskeyToken}}" /><input type="hidden" name="passkey_response" value="" />
+			<p><button type="button" class="button button-primary button-large adminsec-passkey-go" id="adminsec-passkey-go" hidden>Use your passkey</button></p>
+			<p class="adminsec-passkey-status" data-pk-status role="status" hidden></p>
+			<span hidden data-pk-msg="cancelled">The passkey request was cancelled. Try again, or choose another way below.</span>
+			<span hidden data-pk-msg="failed">The passkey could not be used. Try again, or choose another way below.</span>
+		</div>
 		{{else}}
 		<p class="adminsec-lead">Enter one of the backup codes you saved when you set up two-step login. Each code works once.</p>
 		<p><label for="authcode">Backup Code</label>
 		<input type="text" name="authcode" id="authcode" class="input adminsec-code" value="" size="20" maxlength="14" autocomplete="off" placeholder="xxxxx-xxxxx" required autofocus /></p>
 		{{end}}
 		{{if .RememberDays}}<p class="adminsec-remember"><label><input type="checkbox" name="adminsec_remember" value="1" /> Remember this device for {{.RememberDays}} days</label></p>{{end}}
-		<p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="Verify" /></p>
+		{{if ne .Provider "passkey"}}<p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="Verify" /></p>{{end}}
 	</form>
 	<div class="adminsec-alt"><ul>
 		{{if eq .Provider "email"}}<li><form action="{{.FormAction}}" method="post"><input type="hidden" name="adminsec_token" value="{{.Token}}" /><input type="hidden" name="provider" value="email" /><input type="hidden" name="adminsec_do" value="resend" />
 			<button type="submit" class="button-link" id="adminsec-resend"{{if .ResendWait}} data-wait="{{.ResendWait}}"{{end}}>Resend code</button>{{if .ResendWait}} <span class="description" id="adminsec-resend-wait">(available in {{.ResendWait}} s)</span>{{end}}</form></li>{{end}}
+		{{if and .HasPasskey (ne .Provider "passkey")}}<li><form action="{{.FormAction}}" method="post"><input type="hidden" name="adminsec_token" value="{{.Token}}" /><input type="hidden" name="provider" value="passkey" /><input type="hidden" name="adminsec_do" value="switch" />
+			<button type="submit" class="button-link" id="adminsec-use-passkey">Use a passkey</button></form></li>{{end}}
 		{{if and .HasTOTP (ne .Provider "totp")}}<li><form action="{{.FormAction}}" method="post"><input type="hidden" name="adminsec_token" value="{{.Token}}" /><input type="hidden" name="provider" value="totp" /><input type="hidden" name="adminsec_do" value="switch" />
 			<button type="submit" class="button-link">Use your authenticator app</button></form></li>{{end}}
 		{{if and .HasEmail (ne .Provider "email")}}<li><form action="{{.FormAction}}" method="post"><input type="hidden" name="adminsec_token" value="{{.Token}}" /><input type="hidden" name="provider" value="email" /><input type="hidden" name="adminsec_do" value="switch" />
@@ -54,4 +68,5 @@
 	}, 1000);
 })();
 </script>
+{{if eq .Provider "passkey"}}<script {{cspNonce}} src="/wp-admin/assets/js/adminsec-passkey.js?ver={{version}}" defer></script>{{end}}
 </body></html>{{end}}

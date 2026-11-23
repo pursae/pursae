@@ -29,7 +29,7 @@
 	<br class="clear" />
 </div>
 <h2 class="screen-reader-text">Users list</h2>
-{{if .SecColumn}}<style>.column-adminsec{width:9em}.adminsec-badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#f0f0f1;color:#50575e}.adminsec-badge.is-2fa{background:#edfaef;color:#007017}.adminsec-badge.is-mfa{background:#f0f6fc;color:#0a4b78}.adminsec-required{color:#b32d2e;font-size:12px}</style>{{end}}
+{{if .SecColumn}}<style>.column-adminsec{width:9em}.adminsec-badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#f0f0f1;color:#50575e}.adminsec-badge.is-2fa{background:#edfaef;color:#007017}.adminsec-badge.is-mfa{background:#f0f6fc;color:#0a4b78}.adminsec-badge.is-passkey{background:#f6f0fc;color:#5b2a86}.adminsec-required{color:#b32d2e;font-size:12px}</style>{{end}}
 <table class="wp-list-table widefat fixed striped table-view-list users">
 <thead>{{template "users-head" dict "Top" true "D" .}}</thead>
 <tbody id="the-list" data-wp-lists="list:user">

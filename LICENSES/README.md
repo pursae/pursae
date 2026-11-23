@@ -13,11 +13,11 @@ stand for the copyright lines NOTICE gives for each component.
 | `GPL-2.0.txt` | GNU GPL v2 | Pursae, WordPress core and block editor, Plupload, mOxie, Iris, Dashicons (with font exception) |
 | `LGPL-2.1.txt` | GNU LGPL v2.1 | TinyMCE, Crystal Project icons, libvips and GLib in wasm-vips |
 | `MPL-2.0.txt` | Mozilla Public License 2.0 | Mediabunny (block editor video conversion) |
-| `Apache-2.0.txt` | Apache License 2.0 | PDF.js, wazero, purego, pprof, MongoDB Go driver (bson), Mousetrap |
+| `Apache-2.0.txt` | Apache License 2.0 | PDF.js, wazero, purego, pprof, go-tpm, MongoDB Go driver (bson), Mousetrap |
 | `MIT.txt` | MIT | jQuery, jQuery UI, React, Lodash, Moment.js, CodeMirror, MediaElement.js, Go modules, … |
-| `BSD-2-Clause.txt` | BSD 2-Clause | Esprima, Espree, go-sourcemap, libavif, dav1d, libaom |
-| `BSD-3-Clause.txt` | BSD 3-Clause | Go and golang.org/x, bluemonday, gorilla/css, protobuf, libwebp, libyuv, Cropper |
-| `ISC.txt` | ISC | lucide-react, maxminddb-golang, world-atlas, objectFitPolyfill |
+| `BSD-2-Clause.txt` | BSD 2-Clause | Esprima, Espree, go-sourcemap, go-webauthn/x (revoke), libavif, dav1d, libaom |
+| `BSD-3-Clause.txt` | BSD 3-Clause | Go and golang.org/x, bluemonday, gorilla/css, go-webauthn, google/uuid, protobuf, libwebp, libyuv, Cropper |
+| `ISC.txt` | ISC | lucide-react, maxminddb-golang, go-webauthn/x (secp256k1), world-atlas, objectFitPolyfill |
 | `0BSD.txt` | BSD Zero Clause | tslib |
 | `OFL-1.1.txt` | SIL Open Font License 1.1 | Every bundled web font except Dashicons |
 | `CC-BY-4.0.txt` | Creative Commons Attribution 4.0 | DB-IP IP to Country Lite database |

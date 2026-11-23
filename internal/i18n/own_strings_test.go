@@ -138,3 +138,30 @@ func TestOwnStringsInstallTurkish(t *testing.T) {
 		}
 	}
 }
+
+// Pursae Security's passkey screens (adminsec_passkey.go) read in Turkish: the button, the second step
+// with the site name in markup, the counts and dates of the Security screen, a notice with a name.
+func TestOwnStringsPasskeyTurkish(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "web", "languages", "wpgo-tr_TR.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Catalog{layers: []layer{{domain: "wpgo", mo: parseJSONCatalog(b)}}}
+	for _, page := range []string{
+		`<button type="button" class="button" id="adminsec-passkey-btn"><span class="dashicons" aria-hidden="true"></span> Log in with a passkey</button>`,
+		`<p class="adminsec-lead">Use the passkey you saved for <strong>My Site</strong>. Your device asks for your fingerprint, face or screen lock.</p>`,
+		`<span class="description"><span>Added November 23, 2026</span> &middot; <span>Last used November 23, 2026</span></span>`,
+		`<span>Passkeys: 2</span>`,
+		`<p>Passkey “Work laptop” added. You can now log in with it.</p>`,
+		`<p><strong>Error:</strong> The passkey could not be verified. Try again, or log in with your password.</p>`,
+	} {
+		out := string(c.TranslateHTML([]byte(page)))
+		text := ownTag.ReplaceAllString(out, "")
+		for _, en := range []string{"passkey", "Added", "Last used"} {
+			if strings.Contains(text, en) {
+				t.Errorf("left in English: %s", out)
+				break
+			}
+		}
+	}
+}

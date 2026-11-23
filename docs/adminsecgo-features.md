@@ -2,7 +2,8 @@
 
 Pursae Security is Pursae's native (compiled-in) login-security plugin. It covers the feature
 level of **Wordfence Login Security**, **Two Factor**, **WPS Hide Login** and the login, user and
-hardening parts of **Solid Security** — without a firewall service or malware scanner.
+hardening parts of **Solid Security** — without a firewall service or malware scanner — and adds
+**passkeys** (WebAuthn).
 
 Like the other native plugins it is listed on **Plugins › Installed Plugins**, starts **inactive**
 and adds nothing while inactive: no menu, no route, no header, no login step, no log row. Every
@@ -17,10 +18,10 @@ Legend: ✅ implemented · ◐ implemented with a Pursae specific difference · 
 | | Pursae | |
 |---|---|---|
 | Activation switch | Option `native_adminsecgo`; settings in one JSON option `adminsecgo_settings` (parsed once per stored version) | ✅ |
-| Storage | Migration `0014_adminsecgo.sql`: `adminsec_factors`, `adminsec_challenges`, `adminsec_devices`, `adminsec_lockouts`, `adminsec_known_ips`, `adminsec_log` (+ an index on `login_attempts(lower(login))`). Failed and successful logins keep going to the core `login_attempts` table | ✅ |
-| Code | `internal/server/adminsec*.go`: `adminsec.go` (settings, switch, front gate, custom login URL, headers, menu, CLI), `adminsec_login.go` (login hooks, challenges, lockouts, devices), `adminsec_account.go` (Users › Security, profile block, Users column), `adminsec_admin.go` (admin screens), `adminsec_audit.go` (log, alerts, purge), `adminsec_password.go` (policy, strength), `adminsec_totp.go` (TOTP, sealing), `adminsec_qr.go` (QR encoder). Templates `web/admin/templates/pages/adminsecgo*.html` | ✅ |
+| Storage | Migration `0014_adminsecgo.sql`: `adminsec_factors`, `adminsec_challenges`, `adminsec_devices`, `adminsec_lockouts`, `adminsec_known_ips`, `adminsec_log` (+ an index on `login_attempts(lower(login))`). Migration `0112_adminsec_passkeys.sql` (expand-only): `adminsec_passkey_users`, `adminsec_passkeys`, `adminsec_passkey_ceremonies`. Failed and successful logins keep going to the core `login_attempts` table | ✅ |
+| Code | `internal/server/adminsec*.go`: `adminsec.go` (settings, switch, front gate, custom login URL, headers, menu, CLI), `adminsec_login.go` (login hooks, challenges, lockouts, devices), `adminsec_account.go` (Users › Security, profile block, Users column), `adminsec_admin.go` (admin screens), `adminsec_audit.go` (log, alerts, purge), `adminsec_password.go` (policy, strength), `adminsec_totp.go` (TOTP, sealing), `adminsec_qr.go` (QR encoder), `adminsec_passkey.go` (passkeys, with `github.com/go-webauthn/webauthn`; browser side `web/admin/assets/js/adminsec-passkey.js`). Templates `web/admin/templates/pages/adminsecgo*.html` | ✅ |
 | Menu | Top-level **Pursae Security** (Dashboard, Settings, Lockouts, Activity Log) for `manage_options`, right after Users; **Users › Security** (or **Profile › Security**) for every user — only while active | ✅ |
-| Daily job | `adminsecgo_daily` (scheduled on activation): purges log rows older than the retention, expired challenges and devices, lockouts older than 30 days | ✅ |
+| Daily job | `adminsecgo_daily` (scheduled on activation): purges log rows older than the retention, expired challenges, passkey ceremonies and devices, lockouts older than 30 days | ✅ |
 
 ## 2. The two second factors (owner's rules)
 
@@ -48,11 +49,32 @@ Legend: ✅ implemented · ◐ implemented with a Pursae specific difference · 
 | Application Passwords | REST Basic authentication with an Application Password **skips the second factor** (like the Two Factor plugin); the account password never works on the API. Lockouts and the block list apply to the API (429 `too_many_retries`) | ✅ |
 | XML-RPC | — Pursae has no XML-RPC endpoint | — |
 
+## 3a. Passkeys (WebAuthn)
+
+| Feature | | |
+|---|---|---|
+| Library | `github.com/go-webauthn/webauthn` does the protocol: attestation and assertion parsing, challenge, origin, RP ID hash, flags, signature and counter checks. Attestation `none` (no device allow-list) | ✅ |
+| Register | Users › Security › *Passkeys*: **Add a passkey** with a name (current password first), any number up to 20 per account; discoverable credential (resident key required), user verification preferred; the browser is told to exclude the user's existing passkeys. The first passkey generates backup codes when the account has none | ✅ |
+| Manage | Each passkey shows its name, when it was added and last used, and *Synced* for a backup-eligible (synced) passkey; **rename**, **remove** (current password). Removing the last method also drops backup codes and remembered devices | ✅ |
+| Log in with a passkey | The login form gets **“Log in with a passkey”** and the browser's passkey **autofill** on the username field (`autocomplete="username webauthn"`, conditional mediation). No username is typed: the credential names the account (discoverable credential); user verification required | ✅ |
+| Passkey as the second step | After a correct password, a user with a passkey is offered it first on *Verify it's you* (“Use a passkey” from the other methods); it opens with the user's own credentials only after the password | ✅ |
+| Counts as two-step login | Settings › Two-Factor › *A passkey sign-in counts as two-step login* (default on): a passkey sign-in asks for no code, and a passkey meets the MFA and 2FA role requirements. Off: a passkey only replaces the password; users with e-mailed codes or an app enter a code after it (the passkey can't be that second step), and MFA/2FA requirements need those methods | ✅ |
+| Switch | Settings › Two-Factor › *Users can add passkeys and log in with them* (default on). Off: no button, no endpoints, stored passkeys kept but not accepted and not counted | ✅ |
+| Require per role | Requirement per role › **Passkey** (with the same grace period and gate as MFA/2FA); needs no e-mail delivery. Once the user has a passkey the requirement holds at login too: after a password only the passkey (or a backup code) is accepted, the app and e-mailed codes are not offered. A passkey the requirement depends on can't be removed (parallel removals are checked one after the other) | ✅ |
+| Relying party | RP ID = the host of the site URL; the only accepted origin is the site URL's origin (on a local development site reached on another local address, the request's origin, as links do). A site reached by an IP address can't use passkeys (WebAuthn forbids IP RP IDs): the card says so, the login form shows no button | ✅ |
+| Single-use, short-lived challenges | Every ceremony (`adminsec_passkey_ceremonies`) expires after 5 minutes and is deleted when it is answered, before the answer is checked: a replayed assertion or registration finds nothing | ✅ |
+| Clone detection | The stored counter only moves forward. A signature counter that does not increase (authenticators that always send 0, like synced passkeys, are fine) refuses the sign-in, flags the passkey, logs a **critical** `passkey_clone_warning` and tells the user on the Security screen; the flagged passkey stays refused until it is removed | ✅ |
+| Login CSRF | The sign-in ceremony token travels only in a `SameSite=Strict`, `HttpOnly` cookie set with the options; cross-site requests (`Origin`, `Sec-Fetch-Site`) are refused. Registration and passkey management carry the screen's nonce | ✅ |
+| No user enumeration | The sign-in takes no username and fails with one message for an unknown passkey, a wrong signature or origin, and an expired ceremony. The user handle is 32 random bytes (`adminsec_passkey_users`), not the user id | ✅ |
+| Lockouts and rate limit | Failed passkey sign-ins count as failed logins (IP lockouts, the account's lockout once the passkey names it, the block list, the log); a locked-out or blocked IP gets no options. An IP keeps at most its 30 newest open sign-in ceremonies (the login page asks for one per view for autofill; older ones are dropped instead of refusing everyone behind a shared address), on top of the core firewall's per-IP request limit | ✅ |
+| Users list, profile, dashboard | Two-Step column and profile show the passkeys (and “Passkey required” when unmet); the dashboard counts users with passkeys, and a passkey counts for the 2FA checklist items while it counts as two-step login | ✅ |
+| Reset | User-edit › *Reset two-step login* and `pursae adminsec reset-user` remove passkeys too | ✅ |
+
 ## 4. Enforcement per role
 
 | | | |
 |---|---|---|
-| Require MFA or 2FA per role | Settings › Two-Factor: per role *Not required / MFA / 2FA* (strictest of a user's roles wins). Can only be saved while e-mail can be delivered; while e-mail is broken requirements are not enforced (nobody could meet them) | ✅ |
+| Require MFA or 2FA per role | Settings › Two-Factor: per role *Not required / MFA / 2FA / Passkey* (strictest of a user's roles wins). Can only be saved while e-mail can be delivered; while e-mail is broken requirements are not enforced (nobody could meet them) | ✅ |
 | Grace period with a nag | Starts the first time a user is seen without the factor (user meta `adminsec_grace_start`, default 7 days); a warning notice on every admin screen with the days left | ✅ |
 | After the grace period | Login succeeds but every admin screen redirects to Users › Security until the factor is set up (profile and heartbeat stay reachable); required factors cannot be removed | ✅ |
 | Users list | **Two-Step** column: `2FA app + e-mail`, `MFA e-mail` or —, plus “2FA required” / “MFA required” when unmet | ✅ |
@@ -94,7 +116,7 @@ Legend: ✅ implemented · ◐ implemented with a Pursae specific difference · 
 | Minimum length and strength per role | Defaults: administrator 12 / Strong, editor and author 10 / Medium, contributor 8 / Weak, subscriber 8 / any. A zxcvbn-like 0–4 score: character-pool entropy, cut for repeats, sequences, keyboard walks (`qwerty`, `asdf`, `7890`), a common password with a few characters around it, and the user's own name | ✅ |
 | Common passwords | The 10,000 most common passwords (the list WordPress' bundled `zxcvbn.min.js` carries, de-obfuscated) in `adminsec_passwords.txt`, embedded | ✅ |
 | Breached passwords (opt-in) | Settings › Passwords: Have I Been Pwned range API with k-anonymity — only the first 5 hex characters of the SHA-1 leave the server (padded responses); an unreachable service never blocks the password (`adminsec_hibp.go`) | ✅ |
-| Passkeys (WebAuthn) | — not implemented yet: TOTP 2FA, e-mail MFA and backup codes cover second factors | — |
+| Passkeys (WebAuthn) | See [section 3a](#3a-passkeys-webauthn) | ✅ |
 | Where it applies | Profile and user-edit, Add User, password reset, REST `wp/v2/users` create/update | ✅ |
 | Force password change | Admin action on user-edit (*Require a password change at next login*), and automatically at login when the current password breaks the policy (setting). The user lands on the profile with a notice; every other admin screen redirects there until a compliant password is saved | ✅ |
 | Password expiry | — not included (current NIST guidance advises against periodic changes) | — |
@@ -124,7 +146,7 @@ Legend: ✅ implemented · ◐ implemented with a Pursae specific difference · 
 
 | | | |
 |---|---|---|
-| Events | Logins (with the method: password, + app, + e-mailed code, + backup code, + remembered device), failed logins, lockouts and releases, blocked IPs, logouts, factor changes (MFA/2FA on/off, backup codes generated/used, devices remembered/forgotten, admin resets), sessions logged out, password changes and forced changes, role changes (user-edit, Users bulk, REST), users created/deleted, plugin activation/deactivation (including Pursae Security itself), theme switches, Settings screens saved, Pursae Security settings saved | ✅ |
+| Events | Logins (with the method: password, passkey, + app, + e-mailed code, + passkey, + backup code, + remembered device), failed logins, lockouts and releases, blocked IPs, logouts, factor changes (MFA/2FA on/off, passkeys added/removed, a possibly copied passkey, backup codes generated/used, devices remembered/forgotten, admin resets), sessions logged out, password changes and forced changes, role changes (user-edit, Users bulk, REST), users created/deleted, plugin activation/deactivation (including Pursae Security itself), theme switches, Settings screens saved, Pursae Security settings saved | ✅ |
 | Screen | Filters: event, severity, user, IP, date range; 50 per page; user agent per row | ✅ |
 | CSV export | The filtered rows, formula-safe cells | ✅ |
 | Retention | Days (default 90, 0 = forever), purged by the daily job; option to skip logging failed logins on busy sites | ✅ |
@@ -142,7 +164,7 @@ lockouts, the login URL and recent activity.
 
 ```
 pursae adminsec disable-hide-login   # custom login URL off (restart a running server, or use the env var)
-pursae adminsec reset-user <login>   # remove a user's second factors and remembered devices
+pursae adminsec reset-user <login>   # remove a user's second factors, passkeys and remembered devices
 pursae adminsec unlock-all           # release every lockout and forget failed attempts
 pursae adminsec deactivate           # switch the plugin off
 ```
@@ -160,3 +182,10 @@ reset; Application Passwords bypass 2FA on REST and lockouts apply to the API; c
 username, progressive lockouts, allow and block lists, alert e-mail; enumeration and REST
 restriction; sessions list, revoke, log out others, idle timeout, new-IP alert; password policy
 and forced change; activity log entries, filters, CSV and retention; all screens render.
+
+`internal/server/adminsec_passkey_test.go` drives a software authenticator (ES256, `none`
+attestation, signature counter): registration (password, nonce, RP ID, single use, wrong origin,
+duplicate), passkey sign-in, replay, login CSRF (no cookie, cross-site), expired ceremony, wrong
+origin, forged signature, unknown credential, clone detection, rename and remove, lockout and rate
+limit, the second step after a password, “counts as two-step login” off, role requirement, the
+switch, plugin off and the CLI reset.
