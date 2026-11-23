@@ -22,7 +22,7 @@ that are not built with the builder.
 | Global Styles: colours, typography, corners | the **site style** (Items › Globals › Site style): one brand colour, font pair, fonts and corners that pages and templates follow ([site style](web-builder.md#site-style)) |
 | Global Styles: palette and font presets for custom CSS | **Design tokens** (Settings › Web Builder): five colours and two fonts as CSS custom properties on every page |
 | Style variations | the designs of the [theme library](web-builder-theme-library.md) and design kits |
-| Navigation block / `wp_navigation` menus | **Menus** under Appearance › Menus, shown by the **Menu** widget or a navigation section bound to a menu location |
+| Navigation block / `wp_navigation` menus, submenus | **Menus** under Appearance › Menus, shown by the **Menu** widget or a navigation section bound to a menu location, with drop-down sub-menus (three levels) |
 | Site Logo, Site Title, Site Tagline blocks | the **Site logo**, **Site title** and **Tagline** widgets (Site group) |
 | Query Loop, Post Template | the **Posts** widget (a card you design, repeated per post, with its own query) |
 | Post Title, Post Content, Post Featured Image, Post Date, Post Terms, Post Author, Comments, Pagination… | the **Post**, **Archive** and **Search** widget groups |
