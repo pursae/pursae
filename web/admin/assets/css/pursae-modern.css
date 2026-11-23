@@ -857,6 +857,7 @@ body.pursae-modern .wp-list-table.fixed.posts thead .column-categories,
 body.pursae-modern .wp-list-table.fixed.posts thead .column-tags { width: 12%; }
 body.pursae-modern .wp-list-table.fixed thead .column-comments { width: 56px; }
 body.pursae-modern .wp-list-table.fixed thead [class*="column-seogo"] { width: 64px; }
+body.pursae-modern .wp-list-table.fixed thead .column-seogo-details { width: 220px; }
 body.pursae-modern .wp-list-table thead th, body.pursae-modern .wp-list-table tfoot th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Media › Library (list): its actions stay text links, so they wrap instead of being cut off */

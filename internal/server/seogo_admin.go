@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"html"
 	"html/template"
 	"io"
 	"net/http"
@@ -130,6 +131,21 @@ func (s *Server) seogoAdmin(c *gin.Context) {
 		d.Data["Detected"] = s.seogoDetectImport(ctx)
 	case "titles":
 		d.Types = s.seogoTypeRows()
+	case "general":
+		if d.Tab == "toc" {
+			type opt struct {
+				Value, Label string
+				On           bool
+			}
+			var lv, ty []opt
+			for n := 1; n <= 6; n++ {
+				lv = append(lv, opt{strconv.Itoa(n), "H" + strconv.Itoa(n), slices.Contains(d.Opts.seogoTOCDefaults().Levels, n)})
+			}
+			for _, t := range s.sitemapPostTypes(ctx) {
+				ty = append(ty, opt{t, t, slices.Contains(d.Opts.TOCAutoTypes, t)})
+			}
+			d.Data["TOCLevels"], d.Data["TOCTypes"] = lv, ty
+		}
 	case "schema":
 		d.Data["Users"] = s.seogoAdmins(ctx)
 	case "sitemap":
@@ -513,45 +529,51 @@ func (s *Server) seogoLinkCounts(ctx context.Context) []seogoLinkRow {
 	return rows
 }
 
-// The Dashboard's orphan count is cached for a few minutes (and dropped whenever a post is saved),
-// so opening the screen does not rescan every post.
-var seogoOrphanCache = struct {
+// The link index (every post's link counts) is cached for a few minutes and dropped whenever a post
+// is saved, so the Dashboard's orphan count and the posts list's incoming links do not rescan every
+// post on each request.
+var seogoLinkCache = struct {
 	sync.Mutex
-	m map[*Server]struct {
-		n  int
-		at time.Time
+	m map[*Server]seogoLinkCacheEntry
+}{m: map[*Server]seogoLinkCacheEntry{}}
+
+type seogoLinkCacheEntry struct {
+	rows map[int64]seogoLinkRow
+	at   time.Time
+}
+
+// seogoLinkIndex is seogoLinkCounts by post ID, cached.
+func (s *Server) seogoLinkIndex(ctx context.Context) map[int64]seogoLinkRow {
+	seogoLinkCache.Lock()
+	if e, ok := seogoLinkCache.m[s]; ok && time.Since(e.at) < 5*time.Minute {
+		seogoLinkCache.Unlock()
+		return e.rows
 	}
-}{m: map[*Server]struct {
-	n  int
-	at time.Time
-}{}}
+	seogoLinkCache.Unlock()
+	rows := map[int64]seogoLinkRow{}
+	for _, r := range s.seogoLinkCounts(ctx) {
+		rows[r.ID] = r
+	}
+	seogoLinkCache.Lock()
+	seogoLinkCache.m[s] = seogoLinkCacheEntry{rows, time.Now()}
+	seogoLinkCache.Unlock()
+	return rows
+}
 
 func (s *Server) seogoOrphanCount(ctx context.Context) int {
-	seogoOrphanCache.Lock()
-	if e, ok := seogoOrphanCache.m[s]; ok && time.Since(e.at) < 5*time.Minute {
-		seogoOrphanCache.Unlock()
-		return e.n
-	}
-	seogoOrphanCache.Unlock()
 	n := 0
-	for _, r := range s.seogoLinkCounts(ctx) {
+	for _, r := range s.seogoLinkIndex(ctx) {
 		if r.Inbound == 0 {
 			n++
 		}
 	}
-	seogoOrphanCache.Lock()
-	seogoOrphanCache.m[s] = struct {
-		n  int
-		at time.Time
-	}{n, time.Now()}
-	seogoOrphanCache.Unlock()
 	return n
 }
 
 func (s *Server) seogoOrphanCacheDrop() {
-	seogoOrphanCache.Lock()
-	delete(seogoOrphanCache.m, s)
-	seogoOrphanCache.Unlock()
+	seogoLinkCache.Lock()
+	delete(seogoLinkCache.m, s)
+	seogoLinkCache.Unlock()
 }
 
 type seogoBulkRow struct {
@@ -708,6 +730,24 @@ func (s *Server) seogoAdminPost(c *gin.Context, page string) (string, error) {
 			o.BCSep, o.BCHome, o.BCPrefix = c.PostForm("bc_sep"), c.PostForm("bc_home"), c.PostForm("bc_prefix")
 			o.BCArchive, o.BCSearch, o.BC404 = c.PostForm("bc_archive"), c.PostForm("bc_search"), c.PostForm("bc_404")
 			o.BCBoldLast, o.BCShowBlog, o.BCHideTitle = seogoFormBool(c, "bc_bold_last"), seogoFormBool(c, "bc_show_blog"), seogoFormBool(c, "bc_hide_title")
+		case "toc":
+			o.TOCTitle = strings.TrimSpace(c.PostForm("toc_title"))
+			o.TOCLevels = nil
+			for _, v := range c.PostFormArray("toc_levels") {
+				if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 6 && !slices.Contains(o.TOCLevels, n) {
+					o.TOCLevels = append(o.TOCLevels, n)
+				}
+			}
+			slices.Sort(o.TOCLevels)
+			o.TOCNumbered, o.TOCCollapsible, o.TOCAuto = seogoFormBool(c, "toc_numbered"), seogoFormBool(c, "toc_collapsible"), seogoFormBool(c, "toc_auto")
+			o.TOCAutoTypes = nil
+			for _, v := range c.PostFormArray("toc_auto_types") {
+				if slices.Contains(s.sitemapPostTypes(c.Request.Context()), v) && !slices.Contains(o.TOCAutoTypes, v) {
+					o.TOCAutoTypes = append(o.TOCAutoTypes, v)
+				}
+			}
+			o.TOCMin, _ = strconv.Atoi(c.PostForm("toc_min"))
+			o.TOCMin = min(max(o.TOCMin, 1), 20)
 		case "rss":
 			o.RSSBefore, o.RSSAfter = c.PostForm("rss_before"), c.PostForm("rss_after")
 		case "images":
@@ -1266,34 +1306,121 @@ func (s *Server) seogoPostColumns(c *gin.Context, d *postsListData, posts []*sto
 		}
 	}
 	d.PluginHeads = append(d.PluginHeads,
-		template.HTML(`<th scope="col" id="seogo-seo" class="manage-column column-seogo-seo"><span class="seogo-col-title" title="SEO score">SEO</span></th>`),
-		template.HTML(`<th scope="col" id="seogo-readability" class="manage-column column-seogo-readability"><span class="seogo-col-title" title="Readability score">Readability</span></th>`))
-	d.ColCount += 2
-	dot := func(class, label string) string {
-		color := map[string]string{"good": "#00a32a", "ok": "#dba617", "bad": "#d63638", "na": "#a7aaad"}[class]
-		return `<span class="seogo-score-dot ` + class + `" title="` + label + `" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:` + color + `"></span><span class="screen-reader-text">` + label + `</span>`
+		template.HTML(`<th scope="col" id="seogo-details" class="manage-column column-seogo-details" style="width:220px"><span class="seogo-col-title" title="Pursae SEO">SEO Details</span></th>`))
+	d.ColCount++
+	o := s.seogoOpts()
+	var inbound map[int64]seogoLinkRow
+	if o.Modules["links"] {
+		inbound = s.seogoLinkIndex(c.Request.Context())
 	}
+	home := strings.TrimSuffix(s.links(c).HomeURL("/"), "/")
 	for i := range d.Rows {
 		if i >= len(posts) {
 			break
 		}
-		m := posts[i].Meta
-		sv, _ := seogoRaw(m, "_seogo_seo_score")
-		if sv == "" {
-			sv, _ = seogoRaw(m, "_yoast_wpseo_linkdex")
-		}
-		rv, _ := seogoRaw(m, "_seogo_read_score")
-		if rv == "" {
-			rv, _ = seogoRaw(m, "_yoast_wpseo_content_score")
-		}
-		fk, _ := seogoRaw(m, "_seogo_focus")
-		if fk == "" {
-			fk, _ = seogoRaw(m, "_yoast_wpseo_focuskw")
-		}
-		sc, sl := seogoScoreBand(sv, strings.TrimSpace(fk) == "")
-		rc, rl := seogoScoreBand(rv, false)
-		d.Rows[i].PluginCols = append(d.Rows[i].PluginCols,
-			template.HTML(`<td class="seogo-seo column-seogo-seo" data-colname="SEO">`+dot(sc, "SEO: "+sl)+`</td>`),
-			template.HTML(`<td class="seogo-readability column-seogo-readability" data-colname="Readability">`+dot(rc, "Readability: "+rl)+`</td>`))
+		p := posts[i]
+		d.Rows[i].PluginCols = append(d.Rows[i].PluginCols, template.HTML(`<td class="seogo-details column-seogo-details" data-colname="SEO Details">`+
+			s.seogoDetailsCell(p, o, home, inbound)+`</td>`))
 	}
+}
+
+// seogoDetailsCell is the SEO Details cell of one post (Rank Math's list column): the score badge,
+// the focus keyphrase, the schema type, readability and the link counts.
+func (s *Server) seogoDetailsCell(p *store.Post, o *seogoOptions, home string, inbound map[int64]seogoLinkRow) string {
+	m := p.Meta
+	sv, _ := seogoRaw(m, "_seogo_seo_score")
+	if sv == "" {
+		sv, _ = seogoRaw(m, "_yoast_wpseo_linkdex")
+	}
+	rv, _ := seogoRaw(m, "_seogo_read_score")
+	if rv == "" {
+		rv, _ = seogoRaw(m, "_yoast_wpseo_content_score")
+	}
+	fk := seogoMeta(m, "focus")
+	if fk == "" {
+		fk, _ = seogoRaw(m, "_yoast_wpseo_focuskw")
+	}
+	if list := seogoFocusList(fk); len(list) > 0 {
+		fk = list[0]
+	}
+	fk = strings.TrimSpace(fk)
+	colors := map[string]string{"good": "#00a32a", "ok": "#dba617", "bad": "#d63638", "na": "#a7aaad"}
+	sc, sl := seogoScoreBand(sv, fk == "")
+	badge := "N/A"
+	if sc != "na" {
+		badge = strings.TrimSpace(sv) + " / 100"
+	}
+	var b strings.Builder
+	b.WriteString(`<span class="seogo-score-badge ` + sc + `" title="SEO: ` + sl + `" style="display:inline-block;padding:2px 8px;border-radius:3px;font-weight:600;color:#fff;background:` + colors[sc] + `">` + badge + `</span>`)
+	b.WriteString(`<span class="screen-reader-text">SEO: ` + sl + `</span>`)
+	row := func(label, value string) {
+		b.WriteString(`<div class="seogo-detail" style="margin-top:4px"><strong>` + label + `:</strong> ` + value + `</div>`)
+	}
+	if fk != "" {
+		row("Keyword", html.EscapeString(fk))
+	} else {
+		row("Keyword", `<span style="color:#a7aaad">Not set</span>`)
+	}
+	if o.Modules["schema"] {
+		row("Schema", html.EscapeString(seogoPostSchemaLabel(p, o)))
+	}
+	if o.Modules["analysis"] {
+		rc, rl := seogoScoreBand(rv, false)
+		row("Readability", `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:`+colors[rc]+`"></span> `+rl)
+	}
+	if o.Modules["links"] {
+		in, ex := seogoCountLinks(p.Content, home)
+		inb := "–"
+		if r, ok := inbound[p.ID]; ok {
+			inb = strconv.Itoa(r.Inbound)
+		}
+		row("Links", `<span style="white-space:nowrap"><span title="Internal links">&#128279; `+strconv.Itoa(in)+`</span> <span style="color:#c3c4c7">|</span> `+
+			`<span title="External links">&#8599; `+strconv.Itoa(ex)+`</span> <span style="color:#c3c4c7">|</span> `+
+			`<span title="Incoming links">&#8601; `+inb+`</span></span>`)
+	}
+	return b.String()
+}
+
+// seogoPostSchemaLabel is the schema type a post publishes: its Article type, else a custom page
+// type, else "Off" (the WebPage node every page has is not counted, as in Rank Math).
+func seogoPostSchemaLabel(p *store.Post, o *seogoOptions) string {
+	art := o.Types[p.Type].SchemaArt
+	if v := seogoMeta(p.Meta, "schema_article"); v != "" {
+		art = v
+	}
+	var parts []string
+	if art != "" && art != "None" {
+		parts = append(parts, art)
+	} else if v := seogoMeta(p.Meta, "schema_page"); v != "" && v != "WebPage" {
+		parts = append(parts, v)
+	}
+	if strings.Contains(p.Content, "<!-- wp:seogo/faq") || strings.Contains(p.Content, "<!-- wp:yoast/faq-block") || strings.Contains(p.Content, "<!-- wp:rank-math/faq-block") {
+		parts = append(parts, "FAQ")
+	}
+	if strings.Contains(p.Content, "<!-- wp:seogo/howto") || strings.Contains(p.Content, "<!-- wp:yoast/how-to-block") || strings.Contains(p.Content, "<!-- wp:rank-math/howto-block") {
+		parts = append(parts, "HowTo")
+	}
+	if seogoMeta(p.Meta, "schema_custom") != "" {
+		parts = append(parts, "Custom")
+	}
+	if len(parts) == 0 {
+		return "Off"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// seogoCountLinks counts the internal and external links of one content (as seogoLinkCounts does).
+func seogoCountLinks(content, home string) (internal, external int) {
+	for _, m := range anchorRe.FindAllStringSubmatch(content, -1) {
+		href := strings.TrimSpace(m[1])
+		if href == "" || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "tel:") {
+			continue
+		}
+		if strings.Contains(href, "://") && !strings.HasPrefix(href, home) {
+			external++
+		} else {
+			internal++
+		}
+	}
+	return
 }

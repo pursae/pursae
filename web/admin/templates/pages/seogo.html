@@ -112,7 +112,7 @@
 {{/* ============================== General settings ============================== */}}
 {{if eq .Page "general"}}
 <nav class="nav-tab-wrapper wp-clearfix" aria-label="Secondary menu">
-{{$tab := .Tab}}{{range list "links:Links &amp; Robots" "webmaster:Webmaster Tools" "breadcrumbs:Breadcrumbs" "rss:RSS" "images:Image SEO"}}{{$p := split . ":"}}<a href="/wp-admin/seogo?page=general&amp;tab={{index $p 0}}" class="nav-tab{{if or (eq $tab (index $p 0)) (and (eq $tab "") (eq (index $p 0) "links"))}} nav-tab-active{{end}}">{{safe (index $p 1)}}</a>{{end}}
+{{$tab := .Tab}}{{range list "links:Links &amp; Robots" "webmaster:Webmaster Tools" "breadcrumbs:Breadcrumbs" "toc:Table of Contents" "rss:RSS" "images:Image SEO"}}{{$p := split . ":"}}<a href="/wp-admin/seogo?page=general&amp;tab={{index $p 0}}" class="nav-tab{{if or (eq $tab (index $p 0)) (and (eq $tab "") (eq (index $p 0) "links"))}} nav-tab-active{{end}}">{{safe (index $p 1)}}</a>{{end}}
 </nav>
 <form method="post" action="/wp-admin/seogo?page=general">
 <input type="hidden" name="_wpnonce" value="{{.Nonce}}" /><input type="hidden" name="tab" value="{{if .Tab}}{{.Tab}}{{else}}links{{end}}" />
@@ -148,6 +148,21 @@
 	<label><input type="checkbox" name="bc_show_blog" value="1"{{if .Opts.BCShowBlog}} checked{{end}} /> Show the blog page</label><br />
 	<label><input type="checkbox" name="bc_hide_title" value="1"{{if .Opts.BCHideTitle}} checked{{end}} /> Hide the title of the current page</label></fieldset></td></tr>
 <tr><th scope="row">How to add breadcrumbs</th><td><p>Insert the <strong>Breadcrumbs</strong> block (Pursae SEO category) or the <code>[seogo_breadcrumb]</code> shortcode. Yoast's <code>[wpseo_breadcrumb]</code> and Rank Math's <code>[rank_math_breadcrumb]</code> work as well.</p></td></tr>
+{{else if eq .Tab "toc"}}
+<tr><th scope="row"><label for="toc_title">Title</label></th><td><input name="toc_title" id="toc_title" type="text" class="regular-text" value="{{.Opts.TOCTitle}}" /></td></tr>
+<tr><th scope="row">Headings to list</th><td><fieldset>{{range .Data.TOCLevels}}
+	<label style="display:inline-block;padding-right:14px"><input type="checkbox" name="toc_levels" value="{{.Value}}"{{if .On}} checked{{end}} /> {{.Label}}</label>{{end}}</fieldset></td></tr>
+<tr><th scope="row">Display</th><td><fieldset>
+	<label><input type="checkbox" name="toc_numbered" value="1"{{if .Opts.TOCNumbered}} checked{{end}} /> Numbered list</label><br />
+	<label><input type="checkbox" name="toc_collapsible" value="1"{{if .Opts.TOCCollapsible}} checked{{end}} /> Visitors can collapse it</label></fieldset>
+	<p class="description">Defaults of every Table of Contents block; each block can change them in its sidebar.</p></td></tr>
+<tr><th scope="row">Automatic insert</th><td><fieldset>
+	<label><input type="checkbox" name="toc_auto" value="1"{{if .Opts.TOCAuto}} checked{{end}} /> Insert a table of contents before the first heading</label><br />
+	{{range .Data.TOCTypes}}<label style="display:inline-block;padding-right:14px"><input type="checkbox" name="toc_auto_types" value="{{.Value}}"{{if .On}} checked{{end}} /> {{.Label}}</label>{{end}}</fieldset>
+	<p class="description">Only on posts with no Table of Contents block of their own.</p></td></tr>
+<tr><th scope="row"><label for="toc_min">Minimum headings</label></th><td><input name="toc_min" id="toc_min" type="number" min="1" max="20" class="small-text" value="{{.Opts.TOCMin}}" />
+	<p class="description">The automatic insert skips posts with fewer listed headings.</p></td></tr>
+<tr><th scope="row">Module</th><td>{{if index .Opts.Modules "toc"}}<p>Insert the <strong>Table of Contents</strong> block (Pursae SEO category) where the list should appear.</p>{{else}}<p>The Table of Contents module is inactive. Activate it on the <a href="/wp-admin/seogo">Dashboard</a>.</p>{{end}}</td></tr>
 {{else if eq .Tab "rss"}}
 <tr><th scope="row"><label for="rss_before">Content to put before each post in the feed</label></th><td><textarea name="rss_before" id="rss_before" rows="3" class="large-text code">{{.Opts.RSSBefore}}</textarea></td></tr>
 <tr><th scope="row"><label for="rss_after">Content to put after each post in the feed</label></th><td><textarea name="rss_after" id="rss_after" rows="3" class="large-text code">{{.Opts.RSSAfter}}</textarea>

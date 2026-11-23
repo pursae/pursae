@@ -1,6 +1,6 @@
-/* Pursae SEO blocks for Pursae Editor: FAQ, How-to and Breadcrumbs (category "Pursae SEO").
+/* Pursae SEO blocks for Pursae Editor: FAQ, How-to, Breadcrumbs and Table of Contents (category "Pursae SEO").
    FAQ and How-to save plain HTML (the site looks the same with the plugin off); their attributes
-   feed the schema graph. Breadcrumbs are rendered on the server. */
+   feed the schema graph. Breadcrumbs and the Table of Contents are rendered on the server. */
 ( function ( wp ) {
 	'use strict';
 	if ( ! wp || ! wp.blocks || ! wp.element ) { return; }
@@ -100,6 +100,83 @@
 		attributes: {},
 		edit: function () {
 			return el( 'nav', useBlockProps( { className: 'seogo-breadcrumb' } ), el( 'p', null, 'Home » Category » This page' ) );
+		},
+		save: function () { return null; }
+	} );
+	// Table of Contents: the editor previews the headings of the post; the site renders the list with
+	// jump links on the server (empty attributes take the defaults of SEO › General › Table of Contents).
+	function headingsOf( list, out ) {
+		( list || [] ).forEach( function ( b ) {
+			if ( b.name === 'core/heading' ) {
+				var d = document.createElement( 'div' );
+				d.innerHTML = String( b.attributes.content || '' );
+				var t = ( d.textContent || '' ).trim();
+				if ( t ) { out.push( { level: b.attributes.level || 2, text: t } ); }
+			}
+			headingsOf( b.innerBlocks, out );
+		} );
+		return out;
+	}
+	// nest turns the flat heading list into a tree by level (deeper headings go under the last shallower one).
+	function nest( items, base ) {
+		var root = { level: base - 1, children: [] }, stack = [ root ];
+		items.forEach( function ( h ) {
+			var lvl = Math.max( h.level, base );
+			while ( stack.length > 1 && stack[ stack.length - 1 ].level >= lvl ) { stack.pop(); }
+			var node = { level: lvl, text: h.text, children: [] };
+			stack[ stack.length - 1 ].children.push( node );
+			stack.push( node );
+		} );
+		return root.children;
+	}
+	wp.blocks.registerBlockType( 'seogo/toc', {
+		apiVersion: 3,
+		title: 'Table of Contents',
+		description: 'Lists the headings of this post with jump links.',
+		category: 'seogo',
+		icon: 'list-view',
+		keywords: [ 'toc', 'table of contents', 'contents', 'headings', 'seo' ],
+		supports: { multiple: false, html: false },
+		attributes: {
+			title: { type: 'string', default: '' },
+			levels: { type: 'array', default: [] },
+			listStyle: { type: 'string', default: '' },
+			collapsible: { type: 'boolean' },
+			collapsed: { type: 'boolean', default: false }
+		},
+		edit: function ( props ) {
+			var a = props.attributes;
+			var all = wp.data.useSelect( function ( sel ) { return headingsOf( sel( 'core/block-editor' ).getBlocks(), [] ); }, [] );
+			var levels = a.levels && a.levels.length ? a.levels : [ 2, 3, 4 ];
+			var items = all.filter( function ( h ) { return levels.indexOf( h.level ) >= 0; } );
+			var tag = a.listStyle === 'ul' ? 'ul' : 'ol';
+			var base = items.reduce( function ( m, h ) { return Math.min( m, h.level ); }, 6 );
+			var inspector = el( be.InspectorControls, null,
+				el( c.PanelBody, { title: 'Settings' },
+					el( c.TextControl, { label: 'Title', value: a.title, placeholder: 'Table of Contents', onChange: function ( v ) { props.setAttributes( { title: v } ); } } ),
+					el( 'p', null, el( 'strong', null, 'Headings to list' ) ),
+					[ 1, 2, 3, 4, 5, 6 ].map( function ( n ) {
+						return el( c.CheckboxControl, { key: n, label: 'H' + n, checked: levels.indexOf( n ) >= 0, onChange: function ( on ) {
+							var next = levels.filter( function ( x ) { return x !== n; } );
+							if ( on ) { next.push( n ); }
+							next.sort();
+							props.setAttributes( { levels: next } );
+						} } );
+					} ),
+					el( c.SelectControl, { label: 'List style', value: a.listStyle, options: [
+						{ label: 'Default', value: '' }, { label: 'Numbered', value: 'ol' }, { label: 'Bullets', value: 'ul' } ],
+						onChange: function ( v ) { props.setAttributes( { listStyle: v } ); } } ),
+					el( c.ToggleControl, { label: 'Visitors can collapse it', checked: !! a.collapsible, onChange: function ( v ) { props.setAttributes( { collapsible: v } ); } } ),
+					a.collapsible ? el( c.ToggleControl, { label: 'Start collapsed', checked: !! a.collapsed, onChange: function ( v ) { props.setAttributes( { collapsed: v } ); } } ) : null ) );
+			return el( wp.element.Fragment, null, inspector,
+				el( 'nav', useBlockProps( { className: 'seogo-toc' } ),
+					el( 'p', { className: 'seogo-toc-title' }, el( 'strong', null, a.title || 'Table of Contents' ) ),
+					items.length ? renderList( nest( items, base ) ) : el( 'p', { style: { opacity: 0.7 } }, 'Add headings to the post; they are listed here.' ) ) );
+			function renderList( nodes, sub ) {
+				return el( tag, sub ? { key: 'sub' } : { className: 'seogo-toc-list' }, nodes.map( function ( n, i ) {
+					return el( 'li', { key: i }, n.text, n.children.length ? renderList( n.children, true ) : null );
+				} ) );
+			}
 		},
 		save: function () { return null; }
 	} );

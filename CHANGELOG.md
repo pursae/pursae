@@ -10,6 +10,15 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Added
+
+- **Pursae SEO: SEO Details column and Table of Contents.** The posts and pages lists show one SEO Details
+  column: the score as "84 / 100", the focus keyword, the schema type, readability and internal, external and
+  incoming link counts. A new Table of Contents block (Pursae SEO category) lists the post's headings with
+  jump links and gives headings without an id one; SEO › General Settings › Table of Contents sets its
+  defaults (title, heading levels, numbered, collapsible) and can insert it automatically before the first
+  heading of chosen post types.
+
 ### Changed
 
 - **Translations completed.** The 567 admin strings added since the language packs were last updated (Pursae
