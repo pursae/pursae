@@ -159,6 +159,7 @@ func blockLayoutType(b *blocks.Block, inherit bool) string {
 
 func registerCoreBlocks(s *Server) {
 	registerGooBlocks(s)
+	registerGooCartBlocks(s) // woocommerce/cart, woocommerce/checkout (goo_blocks_cart.go)
 	blocks.RegisterDynamic("core/heading", func(_ context.Context, _ *blocks.Block, content string) string {
 		return blocks.AddClass(content, "wp-block-heading", "h1", "h2", "h3", "h4", "h5", "h6")
 	})

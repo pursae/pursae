@@ -156,8 +156,6 @@ stock or allow backorders are not reserved.
   refund those by hand and record it on the order. Bookings do not support refunds either.
 - Geolocate uses the country from the request headers when available (CDN or proxy header) and falls
   back to the store base country; there is no GeoIP database lookup.
-- Cart and Checkout have no block editor blocks yet; use the `[goocommerce_cart]` and
-  `[goocommerce_checkout]` shortcodes (the pages are created for you).
 
 ## Blocks
 
@@ -168,6 +166,30 @@ rendered while the store is off): `goocommerce/products` (attributes `columns`, 
 `goocommerce/product-search` (`title`). They render on the front end from block markup such as
 `<!-- wp:goocommerce/products {"columns":3,"limit":6} /-->`; the editor inserter entries are not
 registered yet (insert them with the code editor or a Custom HTML block holding the comment).
+
+### Cart and Checkout blocks
+
+`woocommerce/cart` and `woocommerce/checkout` (aliases `goocommerce/cart`, `goocommerce/checkout`) are in the
+block editor's inserter. They are hybrid: the editor sets their attributes, and the front end renders the
+cart and checkout pages of `[goocommerce_cart]` / `[goocommerce_checkout]` on the server (no Store API
+React app, the same forms, scripts and validation). Attributes:
+
+- Cart: `showCrossSells`, `showCouponForm` (booleans, default on), `emptyCartMessage`.
+- Checkout: `showLoginReminder`, `showCouponForm`, `showOrderNotes`, `showReturnToCart` (booleans, default on),
+  `billingTitle`, `additionalTitle`, `orderTitle` (headings, empty for the default ones), and the fields
+  `showCompanyField` / `requireCompanyField`, `showApartmentField` / `requireApartmentField`,
+  `showPhoneField` / `requirePhoneField`. The field attributes of the block on the store's checkout page
+  replace the `checkout_*_field` options for the form and its validation (My account's address forms too);
+  a field without attributes keeps its option.
+
+Pages imported from WordPress keep WooCommerce's block markup and its inner blocks. The inner blocks are
+read as settings: without `woocommerce/cart-cross-sells-block`, `woocommerce/cart-order-summary-coupon-form-block`,
+`woocommerce/checkout-order-note-block` or `woocommerce/checkout-order-summary-coupon-form-block` the
+section is not shown; the `title` of `woocommerce/checkout-billing-address-block` and
+`woocommerce/checkout-additional-information-block` and `showReturnToCart` of
+`woocommerce/checkout-actions-block` are used; the Empty cart block's own blocks show while the cart is
+empty. Inner blocks Pursae does not render are ignored. The block's own attributes win over its inner
+blocks. The Web Builder has the same cart and checkout as its Cart page and Checkout page widgets.
 
 ### Bookings: calendar and overnight blocks
 

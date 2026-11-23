@@ -28,6 +28,10 @@ func (s *Server) registerPursaeOps(guard func(string, restHandler) restHandler) 
 		http.MethodGet:  guard("manage_options", s.pursaeBackupsList),
 		http.MethodPost: guard("manage_options", s.pursaeBackupCreate),
 	}, nil)
+	api.register(pursaeNS, "/pursae/v1/backups/remote", map[string]restHandler{
+		http.MethodGet:  guard("manage_options", s.pursaeBackupRemoteList),
+		http.MethodPost: guard("manage_options", s.pursaeBackupRemoteUpload),
+	}, nil)
 }
 
 // pursaeThemeDelete is DELETE /pursae/v1/themes/{slug}: an inactive theme goes (deleteTheme).
@@ -188,7 +192,8 @@ func (s *Server) pursaeBackupsList(c *gin.Context, _ *restRequest) {
 			restErr(c, http.StatusNotFound, "rest_backup_job_not_found", "Unknown backup job.")
 			return
 		}
-		restJSON(c, http.StatusOK, map[string]any{"job": j.ID, "state": j.State, "phase": j.Phase, "percent": j.Percent, "error": j.Error, "file": j.File})
+		restJSON(c, http.StatusOK, map[string]any{"job": j.ID, "kind": j.Kind, "state": j.State, "phase": j.Phase, "percent": j.Percent, "error": j.Error,
+			"file": j.File, "remote": j.Remote, "remote_error": j.RemoteError})
 		return
 	}
 	out := []map[string]any{}
@@ -242,6 +247,60 @@ func (s *Server) pursaeBackupCreate(c *gin.Context, r *restRequest) {
 	go func() {
 		name, err := s.bmgrRunBackup(context.Background(), j, sel)
 		s.bmgrUpdate(j, func(j *bmgrJob) { j.File = name })
+		s.bmgrFinish(j, err)
+	}()
+	restJSON(c, http.StatusAccepted, map[string]any{"job": j.ID, "state": "running"})
+}
+
+// pursaeBackupRemoteList is GET /pursae/v1/backups/remote: the remote storage settings without their
+// secrets (only whether they are set) and the encrypted backups in the bucket.
+func (s *Server) pursaeBackupRemoteList(c *gin.Context, _ *restRequest) {
+	st := s.bmgrRemote()
+	out := map[string]any{"configured": st.configured(), "endpoint": st.Endpoint, "region": st.Region, "bucket": st.Bucket,
+		"prefix": st.Prefix, "path_style": st.PathStyle, "auto": st.Auto, "keep": st.Keep, "access_key_set": st.AccessKey != "",
+		"secret_key_set": st.SecretKey != "", "passphrase_set": st.Passphrase != "", "backups": []bmgrRemoteObject{}}
+	if !st.configured() {
+		restJSON(c, http.StatusOK, out)
+		return
+	}
+	if err := st.problem(); err != nil {
+		out["error"] = err.Error()
+		restJSON(c, http.StatusOK, out)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	list, err := bmgrRemoteList(ctx, bmgrRemoteClient(st), st)
+	if err != nil {
+		out["error"] = err.Error()
+	} else if len(list) > 0 {
+		out["backups"] = list
+	}
+	restJSON(c, http.StatusOK, out)
+}
+
+// pursaeBackupRemoteUpload is POST /pursae/v1/backups/remote {"file": "<archive>"}: encrypts and
+// uploads a stored archive in the background; poll GET /pursae/v1/backups?job=<id>.
+func (s *Server) pursaeBackupRemoteUpload(c *gin.Context, r *restRequest) {
+	file, _ := r.Body["file"].(string)
+	if err := s.bmgrRemote().problem(); err != nil {
+		restErr(c, http.StatusBadRequest, "rest_backup_remote_not_configured", err.Error())
+		return
+	}
+	if s.bmgrPath(file) == "" {
+		restErr(c, http.StatusNotFound, "rest_backup_not_found", "Backup not found.")
+		return
+	}
+	j, err := s.bmgrStart("upload")
+	if err != nil {
+		restErr(c, http.StatusConflict, "rest_backup_busy", err.Error())
+		return
+	}
+	go func() {
+		s.bmgrUpdate(j, func(j *bmgrJob) { j.File = file })
+		key, err := s.bmgrRemoteUpload(s.bmgrCancelable(j), file, func(f string, a ...any) { s.bmgrLog(j, f, a...) },
+			func(p int) { s.bmgrProgress(j, "Uploading to remote storage", p) })
+		s.bmgrUpdate(j, func(j *bmgrJob) { j.Remote = key })
 		s.bmgrFinish(j, err)
 	}()
 	restJSON(c, http.StatusAccepted, map[string]any{"job": j.ID, "state": "running"})

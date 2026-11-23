@@ -89,6 +89,10 @@ for login in $(jq -r '.users | keys[]' "$EXP"); do
 done
 check "the Pursae administrator is untouched" "$(sql "SELECT email FROM users WHERE login = 'admin'")" "admin@pursae.test"
 
+# The import leaves Pursae Commerce off ("activate it in Plugins to open the store"); the shop owner's next
+# step is to switch it on, after which the imported Cart page must show the cart.
+if "$PURSAE" plugin activate goocommerce >"$WORK/activate.log" 2>&1; then ok "Pursae Commerce activates on the imported site"; else bad "Pursae Commerce activation: $(cat "$WORK/activate.log")"; fi
+
 if curl -fs "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
 	echo "Something already listens on port $PORT: stop it or set WP2P_PURSAE_PORT." >&2
 	exit 1
@@ -119,7 +123,19 @@ check "featured image" "$(sql "SELECT count(*) FROM posts p JOIN media m ON m.id
 check "menu items" "$(sql "SELECT string_agg(i.label, ',' ORDER BY i.sort_order) FROM menu_items i JOIN menus m ON m.id = i.menu_id WHERE m.name = 'Main menu'")" "About,Pursae"
 check "menu item points at the page" "$(sql "SELECT p.slug FROM menu_items i JOIN posts p ON p.id = i.target_id WHERE i.label = 'About'")" "about"
 check "site title" "$(sql "SELECT value #>> '{}' FROM settings WHERE key = 'blogname'")" "WP2P Shop"
-check "the cart page shows Pursae Commerce's cart" "$(sql "SELECT count(*) FROM posts WHERE id = (SELECT (value #>> '{}')::bigint FROM settings WHERE key = 'goocommerce_cart_page_id') AND content LIKE '%[goocommerce_cart]%'")" "1"
+# The Cart page keeps WooCommerce's Cart block (or gets [goocommerce_cart] for the classic shortcode),
+# rendered on the server: no block markup reaches the page.
+check "the cart page holds the Cart block or Pursae Commerce's cart" "$(sql "SELECT count(*) FROM posts WHERE id = (SELECT (value #>> '{}')::bigint FROM settings WHERE key = 'goocommerce_cart_page_id') AND (content LIKE '%wp:woocommerce/cart%' OR content LIKE '%[goocommerce_cart]%')")" "1"
+cart_slug=$(sql "SELECT slug FROM posts WHERE id = (SELECT (value #>> '{}')::bigint FROM settings WHERE key = 'goocommerce_cart_page_id')")
+cart_code=$(curl -sL -o "$WORK/cart.html" -w '%{http_code}' "http://127.0.0.1:$PORT/$cart_slug/")
+check "the cart page answers" "$cart_code" "200"
+# gooCartPageView's wrapper: the block was rendered by Pursae Commerce, not dropped.
+check "the cart page shows Pursae Commerce's cart" "$(grep -q '<div class="woocommerce">' "$WORK/cart.html" && echo yes || echo no)" "yes"
+if ! grep -q '<div class="woocommerce">' "$WORK/cart.html"; then
+	echo "--- cart page ($cart_slug) content:"; sql "SELECT left(content, 2500) FROM posts WHERE slug = '$cart_slug' AND type = 'page'"
+	echo "--- cart page HTML (main):"; tr '\n' ' ' <"$WORK/cart.html" | grep -o '<main.*' | head -c 5000; echo
+fi
+check "no block comment reaches the cart page" "$(grep -q 'wp:woocommerce' "$WORK/cart.html" && echo yes || echo no)" "no"
 check "store currency" "$(sql "SELECT value #>> '{}' FROM settings WHERE key = 'goocommerce_currency'")" "EUR"
 
 # Products.

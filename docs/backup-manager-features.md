@@ -6,7 +6,7 @@ dump: rows are exported as JSON lines straight from PostgreSQL and restored thro
 `jsonb_populate_recordset`, so `pg_dump`/`psql` are not needed.
 
 Menu: **Backup Manager** (administrators, `manage_options`). Tabs: Create backup, Backups, Schedule,
-Import / Migrate, plus a restore screen per archive.
+Remote storage, Import / Migrate, plus a restore screen per archive.
 
 ## What can be selected
 
@@ -83,6 +83,51 @@ The **Schedule** tab turns on automatic local backups:
   backup* (`backup_manager_schedule_last`).
 * A restore keeps this site's schedule options.
 
+## Remote storage
+
+The **Remote storage** tab copies backups to an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2,
+Wasabi, MinIO …), encrypted on the server first. Off while no bucket is set.
+
+| Setting | Option field | Environment |
+|---------|--------------|-------------|
+| Endpoint (https, public address) | `endpoint` | `PURSAE_BACKUP_S3_ENDPOINT` |
+| Region (empty: us-east-1) | `region` | `PURSAE_BACKUP_S3_REGION` |
+| Bucket | `bucket` | `PURSAE_BACKUP_S3_BUCKET` |
+| Folder (key prefix) | `prefix` | `PURSAE_BACKUP_S3_PREFIX` |
+| Path-style requests | `path_style` | `PURSAE_BACKUP_S3_PATH_STYLE` |
+| Access key ID / secret access key | `access_key` / `secret_key` (sealed) | `PURSAE_BACKUP_S3_ACCESS_KEY` / `PURSAE_BACKUP_S3_SECRET_KEY` |
+| Encryption passphrase (12+ characters) | `passphrase` (sealed) | `PURSAE_BACKUP_PASSPHRASE` |
+| Automatic upload of new manual and scheduled backups | `auto` | |
+| Keep in the bucket (0–1000, 0 = all) | `keep` | |
+
+All in the `backup_manager_remote` option, which a restore keeps from this site. Secret fields are sealed
+(AES-GCM, key from the site secret, prefix `bkr:v1:`), never rendered back (an empty field keeps the saved
+value; *Forget secrets* deletes them) and absent from REST and CLI output; an environment variable wins over
+the option and is shown read-only.
+
+* **Encryption** (`internal/backupcrypt`): header `PSBK`, version, scrypt cost, 16-byte salt and 7-byte nonce
+  prefix; then AES-256-GCM chunks of 64 KiB, nonce = prefix ‖ chunk counter ‖ last-chunk flag, header as
+  additional data (the STREAM construction): chunks cannot be reordered, dropped or cut off unnoticed. Key:
+  scrypt(passphrase, salt, N=2^16, r=8, p=1).
+* **Upload** streams file → encryption → 16 MB parts (`CreateMultipartUpload` / `UploadPart` /
+  `CompleteMultipartUpload`; one `PUT` below a part), each part retried twice, the upload aborted on failure.
+  Objects are named `<prefix><archive>.zip.enc`. After each upload the oldest `*.zip.enc` directly under the
+  prefix beyond *Keep* are deleted.
+* **Automatic upload** runs inside the backup job (phase *Uploading to remote storage*) for manual and
+  scheduled archives only. A failure is a warning (`remote_error` on the job, the local archive kept) and, for
+  scheduled runs, the error of `backup_manager_schedule_last`.
+* **Restore** (*Download and restore*, `backup remote pull`): the object is decrypted while it downloads into
+  `<name>.zip.part`, checked like an upload, renamed, and the restore screen opens. An archive of the same name
+  already in the folder is used as it is.
+* **Test connection**: PUT, LIST, GET (decrypted and compared) and DELETE of `.pursae-connection-test-<random>`.
+* **SSRF**: the endpoint is validated (http(s), no credentials, query or fragment; https only), and every
+  connection's address is checked after DNS resolution; no proxy, no redirects. Private and loopback addresses
+  (and plain http) need `PURSAE_BACKUP_S3_ALLOW_PRIVATE=1`; link-local and metadata addresses
+  (169.254.0.0/16, fe80::/10, 100.100.100.200, fd00:ec2::254) are always refused.
+* Credentials and the passphrase are removed from every error message shown or logged.
+* CLI: `backup remote status|set|test|list|push|pull|delete`, `backup decrypt`. REST: `GET` / `POST
+  /pursae/v1/backups/remote`.
+
 ## Storage and security
 
 * Archives live in `PURSAE_BACKUPS_DIR` (default `<data>/backups`, next to uploads, never inside the public
@@ -106,6 +151,6 @@ The **Schedule** tab turns on automatic local backups:
 
 ## Not included (yet)
 
-Archive encryption with a password, bundling the CDN bucket's files into the archive, remote storage
-(S3, FTP, cloud drives) for scheduled or manual backups, restoring on a site that is not
-installed yet, merge (non-destructive) restore.
+Encrypting local archives with a password (only the remote copies are encrypted), bundling the CDN
+bucket's files into the archive, FTP/SFTP and cloud drives as remote storage, restoring from the admin on a
+site that is not installed yet (the CLI can), merge (non-destructive) restore.

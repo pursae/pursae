@@ -22,6 +22,8 @@ func TestOpsCLIRegistered(t *testing.T) {
 		"db migrate", "db size", "db tables", "db check", "db query",
 		"core version", "core check-update",
 		"backup list", "backup create", "backup restore", "backup delete",
+		"backup remote status", "backup remote set", "backup remote test", "backup remote list", "backup remote push",
+		"backup remote pull", "backup remote delete", "backup decrypt",
 		"language core list", "language core install", "language core activate", "language core uninstall",
 		"mail test", "site health", "site info",
 	} {

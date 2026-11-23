@@ -164,6 +164,15 @@ func bmgrExportTable(ctx context.Context, tx pgx.Tx, table, where string, ids []
 		q += ` WHERE ` + where
 		args = append(args, ids)
 	}
+	if table == "settings" {
+		if where == "" {
+			q += ` WHERE `
+		} else {
+			q += ` AND `
+		}
+		args = append(args, bmgrNoExportSettings)
+		q += fmt.Sprintf(`t.key <> ALL($%d)`, len(args))
+	}
 	rows, err := tx.Query(ctx, q, args...)
 	if err != nil {
 		return 0, err

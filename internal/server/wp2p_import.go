@@ -899,11 +899,12 @@ func (r *wp2pRun) importOptions(ctx context.Context) error {
 	return nil
 }
 
-// wp2pStorePageMarkers are what WooCommerce's cart, checkout and account pages hold (the blocks of
-// WooCommerce 8.3+ or the classic shortcodes), which Pursae Commerce does not render.
+// wp2pStorePageMarkers are what WooCommerce's cart, checkout and account pages hold (the classic
+// shortcodes), replaced with Pursae Commerce's own. The Cart and Checkout blocks of WooCommerce
+// 8.3+ stay: Pursae Commerce renders them (goo_blocks_cart.go) with their settings.
 var wp2pStorePageMarkers = map[string][]string{
-	"cart":      {"wp:woocommerce/cart", "[woocommerce_cart"},
-	"checkout":  {"wp:woocommerce/checkout", "[woocommerce_checkout"},
+	"cart":      {"[woocommerce_cart"},
+	"checkout":  {"[woocommerce_checkout"},
 	"myaccount": {"[woocommerce_my_account", "wp:woocommerce/customer-account"},
 }
 

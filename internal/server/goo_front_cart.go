@@ -32,13 +32,26 @@ func (s *Server) gooCartActionURL(c *gin.Context, arg, value string) string {
 
 // gooCartPageHTML is the [goocommerce_cart] shortcode.
 func (s *Server) gooCartPageHTML(c *gin.Context) string {
+	return s.gooCartPageView(c, gooDefaultCartView())
+}
+
+// gooCartPageView is the cart page with the sections v shows (the Cart block's settings).
+func (s *Server) gooCartPageView(c *gin.Context, v gooCartView) string {
 	ctx := c.Request.Context()
 	cart := s.gooCartFor(c)
 	var b strings.Builder
 	b.WriteString(`<div class="woocommerce">`)
 	b.WriteString(s.gooNoticesHTML(c))
 	if cart.IsEmpty() {
-		b.WriteString(`<div class="wc-empty-cart-message"><div class="cart-empty woocommerce-info" role="status">Your cart is currently empty.</div></div>`)
+		if v.EmptyHTML != "" { // the Empty cart block's own content
+			b.WriteString(s.gooKeep(c, v.EmptyHTML) + `</div>`)
+			return b.String()
+		}
+		msg := "Your cart is currently empty."
+		if v.EmptyMessage != "" {
+			msg = s.gooKeep(c, gooEsc(v.EmptyMessage))
+		}
+		b.WriteString(`<div class="wc-empty-cart-message"><div class="cart-empty woocommerce-info" role="status">` + msg + `</div></div>`)
 		if s.gooPageID("shop") > 0 {
 			b.WriteString(`<p class="return-to-shop"><a class="button wc-backward" href="` + gooEsc(s.gooShopURL(ctx)) + `">Return to shop</a></p>`)
 		}
@@ -75,7 +88,7 @@ func (s *Server) gooCartPageHTML(c *gin.Context) string {
 		b.WriteString(`</tr>`)
 	}
 	b.WriteString(`<tr><td colspan="6" class="actions">`)
-	if s.gooCouponsEnabled() {
+	if s.gooCouponsEnabled() && v.Coupon {
 		b.WriteString(`<div class="coupon"><label for="coupon_code" class="screen-reader-text">Coupon:</label> <input type="text" name="coupon_code" class="input-text" id="coupon_code" value="" placeholder="Coupon code" /> ` +
 			`<button type="submit" class="button" name="apply_coupon" value="Apply coupon">Apply coupon</button></div>`)
 	}
@@ -83,7 +96,9 @@ func (s *Server) gooCartPageHTML(c *gin.Context) string {
 	b.WriteString(`<input type="hidden" name="woocommerce-cart-nonce" value="` + s.gooCartNonce(c) + `" />`)
 	b.WriteString(`</td></tr></tbody></table></form>`)
 	b.WriteString(`<div class="cart-collaterals">`)
-	b.WriteString(s.gooCrossSellsHTML(c, cart))
+	if v.CrossSells {
+		b.WriteString(s.gooCrossSellsHTML(c, cart))
+	}
 	b.WriteString(s.gooCartTotalsHTML(c, cart))
 	b.WriteString(`</div>`)
 	b.WriteString(string(s.gooPageHTML(c, "cart_after")))

@@ -127,6 +127,7 @@ Everything is configured with environment variables.
 | `PURSAE_SECRET` | generated | Signing secret; generated and stored on first start if unset |
 | `PURSAE_WEB_DIR` | embedded | Read templates/CSS/JS from disk instead of the embedded copy (development) |
 | `PURSAE_BACKUPS_DIR` | `backups/` next to uploads | Backup Manager archives (keep it outside the public uploads) |
+| `PURSAE_BACKUP_S3_*`, `PURSAE_BACKUP_PASSPHRASE` | unset | Backup Manager remote storage (S3-compatible bucket, encrypted uploads); see the backups docs |
 | `PURSAE_LANG_DIR` | `languages/` next to uploads | Installed language packs |
 | `PURSAE_TRANSLATIONS_API` | `https://api.wordpress.org/translations` | Where language packs are downloaded from |
 | `PURSAE_BIN_DIR` | `/data/bin` in the image | Where `pursae launch` keeps the (self-updated) binary |

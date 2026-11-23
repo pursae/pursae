@@ -35,9 +35,14 @@ type gooCheckoutField struct {
 }
 
 // gooAddressFields is WC_Countries::get_address_fields() for a type (billing / shipping).
-func (s *Server) gooAddressFields(typ string) []gooCheckoutField {
+func (s *Server) gooAddressFields(ctx context.Context, typ string) []gooCheckoutField {
+	modes := s.gooCheckoutBlockFieldModes(ctx) // the Checkout block's field settings win over the options
 	opt := func(key string) (show, req bool) {
-		switch s.gooOptString(key) {
+		mode, ok := modes[key]
+		if !ok {
+			mode = s.gooOptString(key)
+		}
+		switch mode {
 		case "hidden":
 			return false, false
 		case "required":
@@ -166,7 +171,7 @@ func (s *Server) gooValidateCheckout(c *gin.Context, cart *gooCart, d *gooChecko
 	check := func(typ string) {
 		prefix := map[string]string{"billing": "Billing", "shipping": "Shipping"}[typ]
 		country := d.Fields[typ+"_country"]
-		for _, f := range s.gooAddressFields(typ) {
+		for _, f := range s.gooAddressFields(c.Request.Context(), typ) {
 			v := d.Fields[f.Key]
 			required := f.Required
 			if strings.HasSuffix(f.Key, "_state") {

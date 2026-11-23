@@ -60,6 +60,8 @@ type bmgrAdminData struct {
 	SiteURL     string
 	Restore     *bmgrRestoreView
 	Schedule    *bmgrScheduleView
+	Remote      *bmgrRemoteView
+	RemoteReady bool // the Backups tab offers "Upload to remote storage"
 	CanDownload bool
 }
 
@@ -144,6 +146,8 @@ func (s *Server) bmgrAdmin(c *gin.Context) {
 			s.bmgrPostRestore(c)
 		case "schedule":
 			s.bmgrPostSchedule(c)
+		case "remote-save", "remote-test", "remote-object", "remote-upload":
+			s.bmgrPostRemote(c, c.PostForm("do"))
 		default:
 			c.Redirect(http.StatusFound, s.bmgrBack(""))
 		}
@@ -282,7 +286,7 @@ func (s *Server) bmgrPostRestore(c *gin.Context) {
 func (s *Server) bmgrScreen(c *gin.Context) {
 	tab := c.DefaultQuery("tab", "create")
 	switch tab {
-	case "create", "backups", "schedule", "import", "restore":
+	case "create", "backups", "schedule", "remote", "import", "restore":
 	default:
 		tab = "create"
 	}
@@ -293,6 +297,12 @@ func (s *Server) bmgrScreen(c *gin.Context) {
 		notices = append(notices, notice{Type: "success", Message: "Backup deleted.", Dismissible: true})
 	case "scheduled":
 		notices = append(notices, notice{Type: "success", Message: "Schedule saved.", Dismissible: true})
+	case "remote-saved":
+		notices = append(notices, notice{Type: "success", Message: "Remote storage settings saved.", Dismissible: true})
+	case "remote-ok":
+		notices = append(notices, notice{Type: "success", Message: "Connection works: a test file was encrypted, written, listed, read back and deleted.", Dismissible: true})
+	case "remote-deleted":
+		notices = append(notices, notice{Type: "success", Message: "Remote backup deleted.", Dismissible: true})
 	}
 	if e := c.Query("bmgr-error"); e != "" {
 		notices = append(notices, notice{Type: "error", Message: template.HTML(template.HTMLEscapeString(e))})
@@ -318,11 +328,14 @@ func (s *Server) bmgrScreen(c *gin.Context) {
 		}
 	case "backups":
 		d.UsedText = bmgrHuman(s.bmgrUsage())
+		d.RemoteReady = s.bmgrRemote().problem() == nil
 		for _, e := range s.bmgrList() {
 			d.Entries = append(d.Entries, s.bmgrEntryView(c, e))
 		}
 	case "schedule":
 		d.Schedule = s.bmgrScheduleView(c)
+	case "remote":
+		d.Remote = s.bmgrRemoteView(ctx)
 	case "restore":
 		file := c.Query("file")
 		p := s.bmgrPath(file)

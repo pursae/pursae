@@ -195,7 +195,10 @@ func (s *Server) gooSystemStatus(c *gin.Context) []gooStatusSection {
 		h := template.HTMLEscapeString(v)
 		plain := v
 		if pg.Short != "" {
-			if strings.Contains(p.Content, pg.Short) {
+			if blk := "woocommerce/" + pg.Key; (pg.Key == "cart" || pg.Key == "checkout") && gooPageHasStoreBlock(pg.Key, p.Content) {
+				h += ` <mark class="yes">` + template.HTMLEscapeString(blk) + ` &#10004;</mark>`
+				plain += " ✔ " + blk
+			} else if strings.Contains(p.Content, pg.Short) {
 				h += ` <mark class="yes">` + template.HTMLEscapeString(pg.Short) + ` &#10004;</mark>`
 				plain += " ✔ " + pg.Short
 			} else {

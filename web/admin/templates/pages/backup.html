@@ -31,6 +31,7 @@
 	<a href="/wp-admin/admin?page=backup-manager&amp;tab=create" class="nav-tab{{if eq .Tab "create"}} nav-tab-active{{end}}">Create backup</a>
 	<a href="/wp-admin/admin?page=backup-manager&amp;tab=backups" class="nav-tab{{if eq .Tab "backups"}} nav-tab-active{{end}}">Backups</a>
 	<a href="/wp-admin/admin?page=backup-manager&amp;tab=schedule" class="nav-tab{{if eq .Tab "schedule"}} nav-tab-active{{end}}">Schedule</a>
+	<a href="/wp-admin/admin?page=backup-manager&amp;tab=remote" class="nav-tab{{if eq .Tab "remote"}} nav-tab-active{{end}}">Remote storage</a>
 	<a href="/wp-admin/admin?page=backup-manager&amp;tab=import" class="nav-tab{{if eq .Tab "import"}} nav-tab-active{{end}}">Import / Migrate</a>
 </nav>
 
@@ -41,6 +42,7 @@
 	<div id="bmgr-result"></div>
 	<p id="bmgr-cancel-wrap"><button type="button" class="button" id="bmgr-cancel" data-nonce="{{.Nonce}}">Cancel</button></p>
 	<pre class="bmgr-log" id="bmgr-log"></pre>
+	<span hidden id="bmgr-t-fetched">Downloaded and decrypted.</span><span hidden id="bmgr-t-continue">Continue to restore</span><span hidden id="bmgr-t-uploaded">Uploaded to remote storage.</span><span hidden id="bmgr-t-upfail">The backup was created on this server, but the upload to remote storage failed:</span>
 </div>
 {{end}}
 
@@ -92,6 +94,7 @@
 	<td>
 		<a class="button button-small" href="{{.DownloadURL}}">Download</a>
 		{{if .RestoreURL}}<a class="button button-small button-primary" href="{{.RestoreURL}}">Restore</a>{{end}}
+		{{if and $.Data.RemoteReady .RestoreURL}}<form method="post" action="/wp-admin/admin?page=backup-manager" style="display:inline"><input type="hidden" name="_wpnonce" value="{{$.Data.Nonce}}"><input type="hidden" name="do" value="remote-upload"><input type="hidden" name="file" value="{{.Name}}"><button type="submit" class="button button-small">Upload</button></form>{{end}}
 		<a class="button button-small" style="color:#b32d2e;border-color:#b32d2e" href="{{.DeleteURL}}" data-confirm="Delete this backup permanently?">Delete</a>
 	</td>
 </tr>
@@ -127,9 +130,92 @@
 <tr><th scope="row">Last scheduled backup</th>
 <td>{{if .LastWhen}}{{.LastWhen}}{{if .LastErr}} <span style="color:#b32d2e">Failed: {{.LastErr}}</span>{{else if .LastFile}} · <code>{{.LastFile}}</code>{{end}}{{else}}None yet{{end}}</td></tr>
 </tbody></table>
-<p class="description">Storing backups on a remote service (S3, FTP) is not included.</p>
+<p class="description">To keep a copy off this server as well, set up <a href="/wp-admin/admin?page=backup-manager&amp;tab=remote">Remote storage</a> with automatic upload.</p>
 <p class="submit"><button type="submit" class="button button-primary">Save Changes</button></p>
 </form>
+{{end}}{{end}}
+
+{{if and (eq .Tab "remote") .Remote}}{{with .Remote}}
+<p class="description" style="max-width:900px">Copy backups to an S3-compatible bucket (Amazon S3, Cloudflare R2, Backblaze B2, Wasabi, MinIO …). Every backup is encrypted on this server with your passphrase before it is uploaded, so the storage provider only ever sees unreadable data. Leave the bucket empty to keep backups on this server only.</p>
+{{if .Problem}}<div class="notice notice-warning inline bmgr-warn"><p>{{.Problem}}</p></div>{{end}}
+<form method="post" action="/wp-admin/admin?page=backup-manager" autocomplete="off">
+<input type="hidden" name="_wpnonce" value="{{$.Data.Nonce}}"><input type="hidden" name="do" value="remote-save">
+<table class="form-table" role="presentation"><tbody>
+<tr><th scope="row"><label for="bmgr-endpoint">Endpoint</label></th>
+<td><input type="url" class="regular-text code" name="endpoint" id="bmgr-endpoint" value="{{.Endpoint}}" placeholder="https://s3.eu-central-1.amazonaws.com"{{if index .Locked "endpoint"}} readonly{{end}}>
+{{with index .Locked "endpoint"}}<p class="description">Set by <code translate="no">{{.}}</code>.</p>{{end}}
+<p class="description">The S3 API address of the provider, for example <code>https://&lt;ACCOUNT_ID&gt;.r2.cloudflarestorage.com</code> or <code>https://s3.us-west-004.backblazeb2.com</code>. It must use https and a public address.</p>
+{{if .AllowPrivate}}<p class="description">Private addresses and plain http are allowed on this server.</p>{{end}}</td></tr>
+<tr><th scope="row"><label for="bmgr-region">Region</label></th>
+<td><input type="text" class="regular-text code" name="region" id="bmgr-region" value="{{.Region}}" placeholder="us-east-1"{{if index .Locked "region"}} readonly{{end}}>
+{{with index .Locked "region"}}<p class="description">Set by <code translate="no">{{.}}</code>.</p>{{end}}
+<p class="description">Empty means <code>us-east-1</code>. Cloudflare R2: <code>auto</code>.</p></td></tr>
+<tr><th scope="row"><label for="bmgr-bucket">Bucket</label></th>
+<td><input type="text" class="regular-text code" name="bucket" id="bmgr-bucket" value="{{.Bucket}}"{{if index .Locked "bucket"}} readonly{{end}}>
+{{with index .Locked "bucket"}}<p class="description">Set by <code translate="no">{{.}}</code>.</p>{{end}}</td></tr>
+<tr><th scope="row"><label for="bmgr-prefix">Folder</label></th>
+<td><input type="text" class="regular-text code" name="prefix" id="bmgr-prefix" value="{{.Prefix}}" placeholder="pursae-backups/"{{if index .Locked "prefix"}} readonly{{end}}>
+{{with index .Locked "prefix"}}<p class="description">Set by <code translate="no">{{.}}</code>.</p>{{end}}
+<p class="description">Key prefix of the backups in the bucket. Use one folder per site.</p></td></tr>
+<tr><th scope="row">Addressing</th>
+<td><label><input type="checkbox" name="path_style" value="1"{{if .PathStyle}} checked{{end}}{{if index .Locked "path_style"}} disabled{{end}}> Path-style requests (MinIO and most self-hosted servers)</label></td></tr>
+<tr><th scope="row"><label for="bmgr-access">Access key ID</label></th>
+<td><input type="text" class="regular-text code" name="access_key" id="bmgr-access" value="{{.AccessKey}}" spellcheck="false"{{if index .Locked "access_key"}} readonly{{end}}>
+{{with index .Locked "access_key"}}<p class="description">Set by <code translate="no">{{.}}</code>.</p>{{end}}</td></tr>
+<tr><th scope="row"><label for="bmgr-secret">Secret access key</label></th>
+<td>{{with index .Locked "secret_key"}}<p class="description">Set by <code translate="no">{{.}}</code>.</p>{{else}}<input type="password" class="regular-text code" name="secret_key" id="bmgr-secret" value="" autocomplete="new-password"{{if $.Data.Remote.SecretSet}} placeholder="••••••••"{{end}}>
+<p class="description">{{if $.Data.Remote.SecretSet}}Saved (encrypted). Leave empty to keep it.{{else}}Stored encrypted; it is never shown again.{{end}}</p>{{end}}</td></tr>
+<tr><th scope="row"><label for="bmgr-pass">Encryption passphrase</label></th>
+<td>{{with index .Locked "passphrase"}}<p class="description">Set by <code translate="no">{{.}}</code>.</p>{{else}}<input type="password" class="regular-text" name="passphrase" id="bmgr-pass" value="" autocomplete="new-password"{{if $.Data.Remote.PassSet}} placeholder="••••••••"{{end}}>
+<input type="password" class="regular-text" name="passphrase2" id="bmgr-pass2" value="" autocomplete="new-password" aria-label="Repeat the passphrase" placeholder="Repeat the passphrase">
+<p class="description">{{if $.Data.Remote.PassSet}}Saved (encrypted). Leave empty to keep it.{{else}}At least 12 characters.{{end}}</p>{{end}}
+<p class="description"><strong>Write the passphrase down somewhere safe, away from this server.</strong> Without it the uploaded backups cannot be opened, not even by Pursae. Backups uploaded before a change of passphrase still need the old one.</p></td></tr>
+<tr><th scope="row">Automatic upload</th>
+<td><label><input type="checkbox" name="auto" value="1"{{if .Auto}} checked{{end}}> Upload every new backup (manual and scheduled) right after it is made</label>
+<p class="description">Safety snapshots and pre-update backups stay on this server.</p></td></tr>
+<tr><th scope="row"><label for="bmgr-rkeep">Keep in the bucket</label></th>
+<td><input type="number" name="keep" id="bmgr-rkeep" class="small-text" min="0" max="1000" step="1" value="{{.Keep}}"> newest backups
+<p class="description">After each upload the oldest backups in the folder beyond this number are deleted from the bucket. 0 keeps all of them.</p></td></tr>
+{{if or .SecretSet .PassSet}}<tr><th scope="row">Forget secrets</th>
+<td><label><input type="checkbox" name="clear" value="1"> Delete the saved secret key and passphrase</label></td></tr>{{end}}
+</tbody></table>
+<p class="submit"><button type="submit" class="button button-primary">Save Changes</button></p>
+</form>
+{{if .Configured}}
+<form method="post" action="/wp-admin/admin?page=backup-manager">
+<input type="hidden" name="_wpnonce" value="{{$.Data.Nonce}}"><input type="hidden" name="do" value="remote-test">
+<p><button type="submit" class="button">Test connection</button></p>
+<p class="description">Writes, lists, reads back and deletes a small encrypted test file.</p>
+</form>
+<h2>Backups in the bucket</h2>
+{{if .ListErr}}<div class="notice notice-error inline bmgr-warn"><p>The bucket cannot be listed: <span translate="no">{{.ListErr}}</span></p></div>
+{{else if .Objects}}
+<form method="post" action="/wp-admin/admin?page=backup-manager" id="bmgr-objects">
+<input type="hidden" name="_wpnonce" value="{{$.Data.Nonce}}"><input type="hidden" name="do" value="remote-object">
+<table class="wp-list-table widefat fixed striped" style="max-width:1100px;margin-top:12px">
+<thead><tr><th>Backup</th><th style="width:150px">Uploaded</th><th style="width:90px">Size</th><th style="width:260px">Actions</th></tr></thead>
+<tbody>
+{{range .Objects}}
+<tr>
+	<td><strong>{{.Name}}</strong>{{if .Local}}<br><span class="description">Also in the backups folder on this server</span>{{end}}</td>
+	<td>{{.When}}</td>
+	<td>{{.SizeText}}</td>
+	<td>
+		<button type="submit" class="button button-small button-primary" name="fetch" value="{{.Name}}">Download and restore</button>
+		<button type="submit" class="button button-small bmgr-rdel" style="color:#b32d2e;border-color:#b32d2e" name="delete" value="{{.Name}}">Delete</button>
+	</td>
+</tr>
+{{end}}
+</tbody></table>
+<p><label for="bmgr-oldpass">Passphrase for this backup</label> <input type="password" name="passphrase" id="bmgr-oldpass" class="regular-text" autocomplete="off"></p>
+<p class="description">Only for backups uploaded with an earlier passphrase; leave empty to use the saved one.</p>
+</form>
+<p class="description">Download and restore decrypts the backup into the backups folder on this server; you then choose what to restore, as with any other backup.</p>
+<span hidden id="bmgr-t-rdel">Delete this backup from the bucket permanently?</span>
+{{else}}
+<p>No backups in the bucket yet.</p>
+{{end}}
+{{end}}
 {{end}}{{end}}
 
 {{if eq .Tab "import"}}
@@ -188,6 +274,7 @@ if(up){up.addEventListener('submit',function(e){
  x.onload=function(){if(x.responseURL){window.location=x.responseURL}else{location.reload()}};
  x.onerror=function(){$('#bmgr-upmsg').textContent='The upload failed. Check the connection and the server upload limit.';$('#bmgr-up-btn').disabled=false};
  var fd=new FormData();fd.append('archive',f);x.send(fd);});}
+document.querySelectorAll('.bmgr-rdel').forEach(function(b){b.addEventListener('click',function(e){if(!confirm($('#bmgr-t-rdel').textContent))e.preventDefault()})});
 var job=$('#bmgr-job');
 if(job){
  var id=job.getAttribute('data-job'),fill=$('#bmgr-fill'),log=$('#bmgr-log'),res=$('#bmgr-result');
@@ -196,9 +283,12 @@ if(job){
   fetch('/wp-admin/admin?page=backup-manager&action=status&job='+encodeURIComponent(id),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
    $('#bmgr-phase').textContent=j.phase;$('#bmgr-pct').textContent=j.percent+'%';fill.style.width=j.percent+'%';
    log.textContent=(j.log||[]).join('\n');log.scrollTop=log.scrollHeight;
-   if(j.state==='running'){$('#bmgr-cancel').style.display=j.kind==='backup'?'':'none';setTimeout(tick,1000);return}
+   if(j.state==='running'){$('#bmgr-cancel').style.display=j.kind==='restore'?'none':'';setTimeout(tick,1000);return}
    $('#bmgr-cancel-wrap').style.display='none';
    if(j.state==='error'){fill.style.background='#d63638';res.innerHTML='<p style="color:#b32d2e"><strong>Failed:</strong> '+esc(j.error)+'</p>';return}
+   if(j.kind==='fetch'){res.innerHTML='<p><strong>'+esc($('#bmgr-t-fetched').textContent)+'</strong> <a class="button button-primary" href="/wp-admin/admin?page=backup-manager&tab=restore&file='+encodeURIComponent(j.file)+'">'+esc($('#bmgr-t-continue').textContent)+'</a></p>';return}
+   if(j.kind==='upload'){res.innerHTML='<p><strong>'+esc($('#bmgr-t-uploaded').textContent)+'</strong></p>';return}
+   if(j.kind==='backup'&&j.remote_error){res.innerHTML='<p style="color:#b32d2e"><strong>'+esc($('#bmgr-t-upfail').textContent)+'</strong> '+esc(j.remote_error)+'</p>';return}
    if(j.kind==='backup'){res.innerHTML='<p><strong>Backup created'+(j.warnings?' with '+j.warnings+' warning(s): see the log':'')+'.</strong> <a class="button button-primary" href="/wp-admin/admin?page=backup-manager&tab=backups">Go to Backups</a></p>'}
    else{res.innerHTML='<p><strong>Restore finished.</strong> If you restored users or settings, <a href="/wp-login">log in again</a>. Restart Pursae if you restored plugins.</p>'}
   }).catch(function(){setTimeout(tick,2000)});};

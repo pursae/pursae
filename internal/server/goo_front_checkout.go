@@ -141,7 +141,7 @@ func (s *Server) gooCheckoutValue(c *gin.Context, key string) string {
 func (s *Server) gooAddressFieldsHTML(c *gin.Context, typ string, value func(string) string) string {
 	var b strings.Builder
 	country := value(typ + "_country")
-	for _, f := range s.gooAddressFields(typ) {
+	for _, f := range s.gooAddressFields(c.Request.Context(), typ) {
 		b.WriteString(s.gooFormField(f, value(f.Key), country))
 	}
 	return b.String()
@@ -151,6 +151,12 @@ func (s *Server) gooAddressFieldsHTML(c *gin.Context, typ string, value func(str
 
 // gooCheckoutPageHTML is the [goocommerce_checkout] shortcode.
 func (s *Server) gooCheckoutPageHTML(c *gin.Context) string {
+	return s.gooCheckoutPageView(c, gooDefaultCheckoutView())
+}
+
+// gooCheckoutPageView is the checkout page with the sections and headings v sets (the Checkout
+// block's settings).
+func (s *Server) gooCheckoutPageView(c *gin.Context, v gooCheckoutView) string {
 	fv := gooViewFrom(c)
 	if fv != nil && fv.Kind == "checkout" {
 		switch fv.Endpoint {
@@ -172,11 +178,11 @@ func (s *Server) gooCheckoutPageHTML(c *gin.Context) string {
 		return b.String()
 	}
 	checkoutURL := s.gooPageURL(ctx, "checkout")
-	if u == nil && s.gooOptBool("enable_checkout_login_reminder") {
+	if u == nil && s.gooOptBool("enable_checkout_login_reminder") && v.LoginReminder {
 		b.WriteString(`<div class="woocommerce-form-login-toggle"><div class="woocommerce-info" role="status">Returning customer? <a href="#" class="showlogin">Click here to login</a></div></div>`)
 		b.WriteString(s.gooLoginFormHTML(c, checkoutURL, true))
 	}
-	if s.gooCouponsEnabled() {
+	if s.gooCouponsEnabled() && v.Coupon {
 		b.WriteString(`<div class="woocommerce-form-coupon-toggle"><div class="woocommerce-info" role="status">Have a coupon? <a href="#" class="showcoupon">Click here to enter your code</a></div></div>`)
 		b.WriteString(`<form class="checkout_coupon woocommerce-form-coupon" method="post" action="` + gooEsc(checkoutURL) + `" style="display:none" id="woocommerce-checkout-form-coupon"><p class="form-row-coupon-text">If you have a coupon code, please apply it below.</p>` +
 			`<p class="form-row form-row-first"><label for="coupon_code" class="screen-reader-text">Coupon:</label><input type="text" name="coupon_code" class="input-text" placeholder="Coupon code" id="coupon_code" value="" /></p>` +
@@ -190,9 +196,12 @@ func (s *Server) gooCheckoutPageHTML(c *gin.Context) string {
 	value := func(k string) string { return s.gooCheckoutValue(c, k) }
 	b.WriteString(`<form name="checkout" method="post" class="checkout woocommerce-checkout" action="` + gooEsc(checkoutURL) + `" enctype="multipart/form-data" novalidate="novalidate">`)
 	b.WriteString(`<div class="col2-set" id="customer_details"><div class="col-1"><div class="woocommerce-billing-fields">`)
-	if !cart.NeedsShipping() || s.gooOptString("ship_to_destination") == "billing_only" {
+	switch {
+	case v.BillingTitle != "":
+		b.WriteString(`<h3>` + s.gooKeep(c, gooEsc(v.BillingTitle)) + `</h3>`)
+	case !cart.NeedsShipping() || s.gooOptString("ship_to_destination") == "billing_only":
 		b.WriteString(`<h3>Billing &amp; Shipping</h3>`)
-	} else {
+	default:
 		b.WriteString(`<h3>Billing details</h3>`)
 	}
 	b.WriteString(`<div class="woocommerce-billing-fields__field-wrapper">` + s.gooAddressFieldsHTML(c, "billing", value) + `</div></div>`)
@@ -228,17 +237,30 @@ func (s *Server) gooCheckoutPageHTML(c *gin.Context) string {
 		b.WriteString(`<div class="shipping_address"><div class="woocommerce-shipping-fields__field-wrapper">` + s.gooAddressFieldsHTML(c, "shipping", value) + `</div></div>`)
 	}
 	b.WriteString(`</div><div class="woocommerce-additional-fields">`)
-	if !cart.NeedsShipping() || s.gooOptString("ship_to_destination") == "billing_only" {
-		b.WriteString(`<h3>Additional information</h3>`)
+	if v.OrderNotes {
+		switch {
+		case v.AdditionalTitle != "":
+			b.WriteString(`<h3>` + s.gooKeep(c, gooEsc(v.AdditionalTitle)) + `</h3>`)
+		case !cart.NeedsShipping() || s.gooOptString("ship_to_destination") == "billing_only":
+			b.WriteString(`<h3>Additional information</h3>`)
+		}
+		b.WriteString(`<div class="woocommerce-additional-fields__field-wrapper">` + s.gooFormField(gooCheckoutField{Key: "order_comments", Label: "Order notes", Type: "textarea", Class: []string{"notes"},
+			Placeholder: "Notes about your order, e.g. special notes for delivery."}, c.PostForm("order_comments"), "") + `</div>`)
 	}
-	b.WriteString(`<div class="woocommerce-additional-fields__field-wrapper">` + s.gooFormField(gooCheckoutField{Key: "order_comments", Label: "Order notes", Type: "textarea", Class: []string{"notes"},
-		Placeholder: "Notes about your order, e.g. special notes for delivery."}, c.PostForm("order_comments"), "") + `</div></div>`)
+	b.WriteString(`</div>`)
 	b.WriteString(`</div></div>`)
-	b.WriteString(`<h3 id="order_review_heading">Your order</h3>`)
+	if v.OrderTitle != "" {
+		b.WriteString(`<h3 id="order_review_heading">` + s.gooKeep(c, gooEsc(v.OrderTitle)) + `</h3>`)
+	} else {
+		b.WriteString(`<h3 id="order_review_heading">Your order</h3>`)
+	}
 	b.WriteString(`<div id="order_review" class="woocommerce-checkout-review-order">`)
 	b.WriteString(s.gooReviewOrderHTML(c, cart))
 	b.WriteString(s.gooPaymentHTML(c, cart))
 	b.WriteString(`</div>`)
+	if v.ReturnToCart {
+		b.WriteString(`<p class="goo-return-to-cart"><a class="wc-backward" href="` + gooEsc(s.gooPageURL(ctx, "cart")) + `">Return to cart</a></p>`)
+	}
 	b.WriteString(string(s.gooPageHTML(c, "checkout_after_order_review")))
 	b.WriteString(`</form></div>`)
 	s.gooSaveSession(c)

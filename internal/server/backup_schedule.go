@@ -23,7 +23,8 @@ import (
 // whose action, bmgrScheduleJob, the scheduler dispatches through the core hook registry. Each run
 // backs up the chosen parts with every user into a "scheduled" archive in the backups folder, then
 // deletes the oldest scheduled archives beyond the retention count; manual backups and safety
-// snapshots are never pruned. Remote storage (S3, FTP) is not part of this. A failed run is e-mailed to the admin address.
+// snapshots are never pruned. With remote storage set to upload automatically (backup_remote.go)
+// the archive is then encrypted and copied to the bucket. A failed run is e-mailed to the admin address.
 
 const (
 	bmgrScheduleJob  = "wpgo_backup_scheduled"
@@ -159,11 +160,17 @@ func (s *Server) bmgrScheduledRun(ctx context.Context) error {
 		Note: "Scheduled " + o.Freq + " backup"})
 	s.bmgrUpdate(j, func(j *bmgrJob) { j.File = name })
 	s.bmgrFinish(j, err)
-	if rerr := s.bmgrRecordRun(ctx, name, err); rerr != nil || err != nil {
+	recErr := err
+	if cp := s.bmgrJobByID(j.ID); err == nil && cp != nil && cp.RemoteError != "" {
+		// The archive is safe locally; the failed upload is still reported (and e-mailed).
+		recErr = fmt.Errorf("the backup %s was written, but the upload to remote storage failed: %s", name, cp.RemoteError)
+	}
+	rerr := s.bmgrRecordRun(ctx, name, recErr)
+	if err != nil {
 		return errors.Join(err, rerr)
 	}
 	s.bmgrPrune(o.Keep)
-	return nil
+	return rerr
 }
 
 func (s *Server) bmgrRecordRun(ctx context.Context, file string, runErr error) error {

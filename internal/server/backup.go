@@ -90,7 +90,13 @@ var bmgrNever = map[string]bool{"schema_migrations": true, "schema_meta": true, 
 
 // bmgrKeepSettings are the options this site keeps when a backup is restored over it: its own secret
 // (so cookies and nonces stay valid), its address (rewritten from the archive's) and this plugin's state.
-var bmgrKeepSettings = []string{"auth_secret", "siteurl", "home", bmgrSetting, bmgrOptSchedule, bmgrOptKeep, bmgrOptCats, bmgrOptLast}
+var bmgrKeepSettings = []string{"auth_secret", "siteurl", "home", bmgrSetting, bmgrOptSchedule, bmgrOptKeep, bmgrOptCats, bmgrOptLast,
+	bmgrOptRemote}
+
+// bmgrNoExportSettings are options never written into an archive: the remote storage settings hold
+// the bucket credentials and the encryption passphrase (sealed with the site secret, which the
+// archive also carries), and a restore keeps this site's own values anyway (bmgrKeepSettings).
+var bmgrNoExportSettings = []string{bmgrOptRemote}
 
 // bmgrCategoryOf returns the category key a table belongs to.
 func bmgrCategoryOf(table string) string {
@@ -121,7 +127,7 @@ func bmgrCategoryByKey(key string) *bmgrCategory {
 // bmgrJob is one backup or restore run, polled by the screen.
 type bmgrJob struct {
 	ID       string    `json:"id"`
-	Kind     string    `json:"kind"`  // backup | restore
+	Kind     string    `json:"kind"`  // backup | restore | upload | fetch
 	State    string    `json:"state"` // running | done | error
 	Phase    string    `json:"phase"`
 	Percent  int       `json:"percent"`
@@ -131,6 +137,10 @@ type bmgrJob struct {
 	Warnings int       `json:"warnings,omitempty"` // files skipped etc.: the job is done, but not perfectly
 	Started  time.Time `json:"started"`
 	Finished time.Time `json:"finished,omitempty"`
+	// Remote is the bucket key a backup was uploaded to; RemoteError why the upload failed (the
+	// local archive is kept either way).
+	Remote      string `json:"remote,omitempty"`
+	RemoteError string `json:"remote_error,omitempty"`
 }
 
 // bmgrRuntime is the plugin's in-memory state: one job runs at a time.

@@ -1354,12 +1354,17 @@ func (s *Server) gooV3SystemStatus(c *gin.Context, req *restRequest) {
 	for _, p := range []struct{ Key, Name, Short string }{{"shop", "Shop base", ""}, {"cart", "Cart", "[goocommerce_cart]"},
 		{"checkout", "Checkout", "[goocommerce_checkout]"}, {"myaccount", "My account", "[goocommerce_my_account]"}, {"terms", "Terms and conditions", ""}} {
 		id := s.gooPageID(p.Key)
-		set, exists, visible := id > 0, false, false
+		set, exists, visible, block, blockPresent := id > 0, false, false, "", false
+		if p.Key == "cart" || p.Key == "checkout" {
+			block = "woocommerce/" + p.Key
+		}
 		if post, err := s.store.GetPost(ctx, id); err == nil {
 			exists, visible = true, post.Status == "publish"
+			blockPresent = block != "" && gooPageHasStoreBlock(p.Key, post.Content)
 		}
 		pages = append(pages, map[string]any{"page_name": p.Name, "page_id": itoa64(id), "page_set": set, "page_exists": exists, "page_visible": visible,
-			"shortcode": p.Short, "block": "", "shortcode_required": p.Short != "", "shortcode_present": p.Short != "" && exists, "block_present": false, "block_required": false})
+			"shortcode": p.Short, "block": block, "shortcode_required": p.Short != "" && !blockPresent, "shortcode_present": p.Short != "" && exists && !blockPresent,
+			"block_present": blockPresent, "block_required": false})
 	}
 	var active []any
 	if s.gooOn() {

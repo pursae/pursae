@@ -456,6 +456,7 @@ func (s *Server) bmgrRunBackup(ctx context.Context, j *bmgrJob, sel bmgrSelectio
 		return "", err
 	}
 	ok = true
+	s.bmgrRemoteAfterBackup(ctx, j, name, sel.Kind)
 	return name, nil
 }
 

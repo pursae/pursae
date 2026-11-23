@@ -27,6 +27,7 @@ var backupListFields = []string{"name", "size", "kind", "created", "parts", "not
 
 func registerOpsBackupCLI(r *cli.Registry, e *cliEnv) {
 	r.Noun("backup", "Create, list, restore and delete site backups (Pursae Backup Manager archives).")
+	registerBackupRemoteCLI(r, e)
 
 	r.Add(cli.Command{
 		Path:  "backup list",

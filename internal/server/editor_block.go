@@ -353,6 +353,7 @@ func (s *Server) renderBlockEditor(c *gin.Context, p *store.Post, isNew bool) {
 	s.golylangBlockEditor(c, p) // Golylang: the Languages panel
 	s.enqueueMedia(c, p.ID)
 	s.gontactEditorAssets(c, a)  // Gontact Form's contact form block
+	s.gooCartBlocksEditor(c)     // Pursae Commerce's Cart and Checkout blocks (goo_blocks_cart_editor.go)
 	s.pluginBlockEditorScript(c) // Wasm plugin blocks (plugins_ui.go)
 
 	lab := labelsFor(p.Type)

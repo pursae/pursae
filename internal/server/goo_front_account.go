@@ -482,7 +482,7 @@ func (s *Server) gooSaveAddressPost(c *gin.Context) {
 	var errs []string
 	vals := map[string]string{}
 	country := strings.TrimSpace(c.PostForm(typ + "_country"))
-	for _, f := range s.gooAddressFields(typ) {
+	for _, f := range s.gooAddressFields(ctx, typ) {
 		v := strings.TrimSpace(c.PostForm(f.Key))
 		req := f.Required
 		if strings.HasSuffix(f.Key, "_state") {
