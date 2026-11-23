@@ -536,7 +536,8 @@ func (s *Server) gooDaily(ctx context.Context) error {
 	return nil
 }
 
-// gooHourly cancels unpaid orders whose held stock expired (wc_cancel_unpaid_orders).
+// gooHourly cancels unpaid orders whose held stock expired (wc_cancel_unpaid_orders) and deletes
+// expired stock reservations.
 func (s *Server) gooHourly(ctx context.Context) error {
 	if !s.gooOn() {
 		return nil
@@ -561,6 +562,7 @@ func (s *Server) gooHourly(ctx context.Context) error {
 			}
 		}
 	}
+	s.gooCleanupReservedStock(ctx)
 	s.gooFire(ctx, "hourly", nil)
 	return nil
 }

@@ -754,6 +754,13 @@ func (s *Server) gooPayPost(c *gin.Context) {
 		s.gooRedirect(c, back)
 		return
 	}
+	// The order's stock is held (again) while it is paid: a failed or expired hold must not let the
+	// payment take units another checkout holds (WC_Form_Handler::pay_action()).
+	if err := s.gooReserveStock(ctx, o); err != nil {
+		s.gooAddNotice(c, "error", err.Error())
+		s.gooRedirect(c, back)
+		return
+	}
 	o.PaymentMethod, o.PaymentMethodTitle = gw.ID(), gw.Title()
 	_ = s.gooSaveOrder(ctx, o, false)
 	res, err := gw.ProcessPayment(s, c, o)

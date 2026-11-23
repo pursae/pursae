@@ -864,7 +864,7 @@ func (s *Server) gooUpdateStock(ctx context.Context, p *gooProduct, delta int, s
 		v := *owner.StockQuantity
 		old = &v
 	}
-	qty, err := s.gooStockDelta(ctx, owner, delta, set, false)
+	qty, err := s.gooStockDelta(ctx, owner, delta, set, false, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -888,19 +888,39 @@ var errGooNoStock = errors.New("not enough stock")
 
 // gooStockDelta changes (or, with set, sets) the stock owner's quantity in one UPDATE that also writes
 // the matching stock status, so concurrent changes cannot leave a status that does not fit the
-// quantity. strict refuses a change that would take the quantity below zero unless the product allows
-// backorders (errGooNoStock): two orders cannot both take the last unit.
-func (s *Server) gooStockDelta(ctx context.Context, owner *gooProduct, delta int, set, strict bool) (int, error) {
+// quantity. strict refuses a change that would take the quantity below what other orders than holder
+// have reserved (goo_reserved_stock; below zero without reservations) unless the product allows
+// backorders (errGooNoStock): two orders cannot both take the last unit, and a payment cannot take a
+// unit another checkout holds.
+func (s *Server) gooStockDelta(ctx context.Context, owner *gooProduct, delta int, set, strict bool, holder int64) (int, error) {
 	newQty := `coalesce(stock_quantity, 0) + $2`
 	if set {
 		newQty = `$2`
 	}
 	var qty int
-	err := s.store.Pool.QueryRow(ctx, `UPDATE goo_products SET stock_quantity = `+newQty+`,
+	update := func(q interface {
+		QueryRow(context.Context, string, ...any) pgx.Row
+	}) error {
+		return q.QueryRow(ctx, `UPDATE goo_products SET stock_quantity = `+newQty+`,
 		stock_status = CASE WHEN NOT $3 THEN stock_status WHEN `+newQty+` > $4 THEN 'instock'
 			WHEN backorders <> 'no' THEN 'onbackorder' ELSE 'outofstock' END, updated_at = now()
-		WHERE post_id = $1 AND (NOT $5 OR backorders <> 'no' OR `+newQty+` >= 0) RETURNING stock_quantity`,
-		owner.ID, delta, !gooSubsVariableLike(owner.Type), s.gooOptInt("notify_no_stock_amount"), strict).Scan(&qty)
+		WHERE post_id = $1 AND (NOT $5 OR backorders <> 'no' OR `+newQty+` >= (SELECT coalesce(sum(r.stock_quantity), 0)
+			FROM goo_reserved_stock r WHERE r.product_id = $1 AND r.order_id <> $6 AND r.expires_at > now())) RETURNING stock_quantity`,
+			owner.ID, delta, !gooSubsVariableLike(owner.Type), s.gooOptInt("notify_no_stock_amount"), strict, holder).Scan(&qty)
+	}
+	var err error
+	if strict {
+		// The row is locked first so that the UPDATE, a later statement, sees every reservation
+		// committed before the lock was granted (gooReserveStock holds the same lock).
+		err = pgx.BeginFunc(ctx, s.store.Pool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `SELECT 1 FROM goo_products WHERE post_id = $1 FOR UPDATE`, owner.ID); err != nil {
+				return err
+			}
+			return update(tx)
+		})
+	} else {
+		err = update(s.store.Pool)
+	}
 	if errors.Is(err, pgx.ErrNoRows) && strict {
 		return 0, errGooNoStock
 	}

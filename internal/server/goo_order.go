@@ -612,6 +612,11 @@ func (s *Server) gooSetStatusLocked(ctx context.Context, o *gooOrder, from []str
 		o.Status = prev
 		return err
 	}
+	if to != "pending" && to != "checkout-draft" {
+		// wc_release_stock_for_order(): paid or on hold, the stock is reduced instead; cancelled or
+		// failed, it goes back to the shop.
+		s.gooReleaseStock(ctx, o.ID)
+	}
 	_ = s.gooAddOrderNote(ctx, o, join(note, held, fmt.Sprintf("Order status changed from %s to %s.", gooStatusLabel(prev), gooStatusLabel(to))), false, by)
 	s.gooStatusTransition(ctx, o, prev, to)
 	s.gooFire(ctx, "order_status_changed", &gooStatusChange{Order: o, From: prev, To: to})
@@ -688,10 +693,10 @@ func (s *Server) gooReduceStock(ctx context.Context, o *gooOrder, strict bool) e
 			continue
 		}
 		owner := s.gooStockWriteOwner(ctx, p)
-		n, err := s.gooStockDelta(ctx, owner, -it.Qty(), false, strict)
+		n, err := s.gooStockDelta(ctx, owner, -it.Qty(), false, strict, o.ID)
 		if errors.Is(err, errGooNoStock) {
 			for _, d := range done {
-				_, _ = s.gooStockDelta(ctx, d.owner, d.it.Qty(), false, false)
+				_, _ = s.gooStockDelta(ctx, d.owner, d.it.Qty(), false, false, 0)
 			}
 			_, _ = s.gooClaimOrderFlag(ctx, o, "stock_reduced", false)
 			avail := 0

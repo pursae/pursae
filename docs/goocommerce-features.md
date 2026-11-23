@@ -133,7 +133,14 @@ goes on hold or is paid: when another order got the last unit or the coupon's la
 payment puts the order on hold with a note ("Not enough units of … are available", "Usage limit for
 coupon … has been reached") instead of overselling; products that allow backorders go below zero as
 before, and a status set by a person in the admin or through `wc/v3` is applied like WooCommerce does.
-Checkout still validates stock but does not reserve it (WooCommerce's `wc_reserved_stock`).
+Placing an order reserves its stock while the customer pays (WooCommerce's `wc_reserve_stock_for_order`
+and `wc_reserved_stock`, table `goo_reserved_stock`) for **Hold stock (minutes)** (Settings › Products ›
+Inventory; 0 turns it off): the product rows are locked while the reservation is checked and written, so
+of two checkouts for the last unit only one reaches the payment page and the other is told it is out of
+stock. A payment cannot take units another unpaid order holds. The hold ends when the order is paid or
+put on hold (the stock is reduced instead), cancelled or failed, or when the time runs out (expired holds
+count for nothing; the hourly job deletes them and cancels the unpaid order). Products that do not manage
+stock or allow backorders are not reserved.
 
 ## Known limits
 
