@@ -91,6 +91,9 @@ type hubItem struct {
 	// and whether a new site installs the theme right after its installer.
 	Manifest   json.RawMessage `json:"manifest,omitempty"`
 	Preinstall bool            `json:"preinstall,omitempty"`
+	// Position is the theme's place in the Manager's library order (1 is first; 0 when it has
+	// none, or from a Manager that does not send it).
+	Position int `json:"position,omitempty"`
 }
 
 type hubList struct {

@@ -105,7 +105,8 @@ type libraryState struct {
 	installMu sync.Mutex // preinstall runs one at a time
 }
 
-// libraryThemes lists the valid library themes, sorted by name (empty when there is no library).
+// libraryThemes lists the valid library themes in library order (libraryLess; empty when there is
+// no library).
 func (s *Server) libraryThemes(ctx context.Context) []libraryTheme {
 	out, _ := s.libraryThemesErr(ctx)
 	return out
@@ -126,10 +127,34 @@ func (s *Server) libraryThemesErr(ctx context.Context) ([]libraryTheme, error) {
 			return nil, err
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i].Manifest.Name) < strings.ToLower(out[j].Manifest.Name)
-	})
+	sort.SliceStable(out, func(i, j int) bool { return libraryLess(out[i], out[j]) })
 	return out, nil
+}
+
+// position is the theme's place in the Manager's library order (0: none).
+func (lt libraryTheme) position() int {
+	if lt.Item == nil || lt.Item.Position < 0 {
+		return 0
+	}
+	return lt.Item.Position
+}
+
+// libraryLess is the library order: the themes the Manager placed (Themes › Library order) first, by
+// place, then the others by name. A Manager that sends no positions, and the directory source,
+// give plain name order. Add Themes › Library keeps this order within a category and in search
+// results, as everything else that lists the library does.
+func libraryLess(a, b libraryTheme) bool {
+	pa, pb := a.position(), b.position()
+	switch {
+	case pa > 0 && pb > 0 && pa != pb:
+		return pa < pb
+	case (pa > 0) != (pb > 0):
+		return pa > 0
+	}
+	if na, nb := strings.ToLower(a.Manifest.Name), strings.ToLower(b.Manifest.Name); na != nb {
+		return na < nb
+	}
+	return a.Manifest.Slug < b.Manifest.Slug
 }
 
 // dirLibraryThemes reads the directory source. A directory whose theme.json does not validate,

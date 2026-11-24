@@ -39,7 +39,7 @@ func gooIsStoreManifest(m *themeManifest) bool {
 	return v
 }
 
-// gooStoreThemes lists the store themes of the library, the active one first, then by name.
+// gooStoreThemes lists the store themes of the library, the active one first, then in library order.
 // Installed package themes that declare store support but are not in the library (an uploaded zip,
 // say) are listed too. The error is why the library part may be empty (errLibraryOff or the
 // Manager's failure).

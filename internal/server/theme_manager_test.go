@@ -37,6 +37,7 @@ type fakeTheme struct {
 	slug, latest string
 	access       string // public | pro
 	preinstall   bool
+	position     int               // place in the library order (0: none, not sent)
 	zips         map[string][]byte // by version
 	manifests    map[string][]byte
 }
@@ -86,6 +87,15 @@ func (m *fakeManager) setPreinstall(slug string, on bool) {
 	}
 }
 
+// setPositions sets the library order (slug → place; the others get none).
+func (m *fakeManager) setPositions(pos map[string]int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, th := range m.themeLib.list {
+		th.position = pos[th.slug]
+	}
+}
+
 func (m *fakeManager) screenshotRequests() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -104,10 +114,14 @@ func (m *fakeManager) serveThemes(w http.ResponseWriter, r *http.Request) {
 		if m.themeLib.badSHA {
 			sha = strings.Repeat("0", 64)
 		}
-		return map[string]any{"slug": th.slug, "name": th.slug, "version": th.latest, "author": "Pursae", "sha256": sha, "size": len(zip),
+		it := map[string]any{"slug": th.slug, "name": th.slug, "version": th.latest, "author": "Pursae", "sha256": sha, "size": len(zip),
 			"download_url":   m.URL + "/api/v1/themes/" + th.slug + "/download/" + th.latest,
 			"screenshot_url": m.URL + "/api/v1/themes/" + th.slug + "/screenshot",
 			"access":         th.access, "channel": "stable", "preinstall": th.preinstall, "manifest": json.RawMessage(th.manifests[th.latest])}
+		if th.position > 0 {
+			it["position"] = th.position
+		}
+		return it
 	}
 	find := func(slug string) *fakeTheme {
 		for _, th := range m.themeLib.list {
