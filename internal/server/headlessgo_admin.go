@@ -1216,7 +1216,7 @@ func (s *Server) hgAdminEntryPost(c *gin.Context, sc *hgSchema, do string) {
 		if wantPublish {
 			publish = false // the draft is saved first; it goes live only when it is approved
 		}
-		e, events, err := s.hgSaveEntry(c, sc, doc, data, hgSaveOpts{Locale: loc, Publish: publish, UserID: u.ID})
+		e, events, err := s.hgSaveEntry(c, sc, doc, data, hgSaveOpts{Locale: loc, Publish: publish, UserID: u.ID, User: u})
 		if err != nil {
 			var ve hgValidationError
 			if errors.As(err, &ve) {
@@ -1552,7 +1552,8 @@ func (s *Server) hgAdminCaps(c *gin.Context, u *store.User, sc *hgSchema, do, do
 		if !own && !u.Can("edit_others_posts", nil) {
 			return deny
 		}
-		if c.PostForm("publish") == "1" && !sc.ReviewWorkflow && !u.Can("publish_posts", nil) {
+		// A reviewed type's Publish button still publishes (an approved draft): the same right as publish_entry.
+		if c.PostForm("publish") == "1" && !u.Can("publish_posts", nil) {
 			return deny
 		}
 	default: // discard_entry, restore_version

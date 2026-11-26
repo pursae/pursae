@@ -59,6 +59,7 @@ func hgGQLRequestError(err error) map[string]any {
 
 type hgGQLValidator struct {
 	g        *hgGQLSchema
+	vis      *hgGQLSchema // what the caller is shown: "Did you mean" names only come from it
 	doc      *hgGQLDoc
 	op       *hgGQLOp
 	vars     map[string]any // the request's variable values (defaults applied)
@@ -83,7 +84,7 @@ func (ex *hgGQLExec) validateOp(doc *hgGQLDoc, op *hgGQLOp) []hgGQLProblem {
 	if root == "" || g.types[root] == nil {
 		return []hgGQLProblem{{fmt.Sprintf("This schema has no %s type.", op.kind), -1}}
 	}
-	v := &hgGQLValidator{g: g, doc: doc, op: op, vars: ex.vars, seen: map[hgGQLProblem]bool{}, visiting: map[string]bool{}}
+	v := &hgGQLValidator{g: g, vis: ex.callerSchema(), doc: doc, op: op, vars: ex.vars, seen: map[hgGQLProblem]bool{}, visiting: map[string]bool{}}
 	v.sel(root, op.sel, true)
 	return v.errs
 }
@@ -210,9 +211,11 @@ func (v *hgGQLValidator) sel(parent string, sel []*hgGQLField, root bool) {
 		if fd == nil {
 			msg := fmt.Sprintf("Cannot query field %q on type %q.", f.name, parent)
 			if t.kind == "OBJECT" {
-				names := make([]string, len(t.fields))
-				for i, x := range t.fields {
-					names[i] = x.name
+				var names []string
+				if vt := v.vis.types[parent]; vt != nil {
+					for _, x := range vt.fields {
+						names = append(names, x.name)
+					}
 				}
 				if s := hgGQLSuggest(f.name, names); s != "" {
 					msg += fmt.Sprintf(" Did you mean %q?", s)
@@ -257,9 +260,15 @@ func (v *hgGQLValidator) arguments(f *hgGQLField, fd *hgGQLFieldDef, parent stri
 		a := known[k]
 		if a == nil {
 			msg := fmt.Sprintf("Unknown argument %q on field \"%s.%s\".", k, parent, f.name)
-			argNames := make([]string, len(fd.args))
-			for i, x := range fd.args {
-				argNames[i] = x.name
+			var argNames []string
+			if vt := v.vis.types[parent]; vt != nil {
+				for _, x := range vt.fields {
+					if x.name == f.name {
+						for _, a := range x.args {
+							argNames = append(argNames, a.name)
+						}
+					}
+				}
 			}
 			if s := hgGQLSuggest(k, argNames); s != "" {
 				msg += fmt.Sprintf(" Did you mean %q?", s)
@@ -358,9 +367,11 @@ func (v *hgGQLValidator) value(typ *hgGQLRef, val any, pos int, prefix string) {
 			}
 			if in == nil {
 				msg := fmt.Sprintf("%sField %q is not defined by type %q.", prefix, k, t.name)
-				names := make([]string, len(t.inputs))
-				for i, x := range t.inputs {
-					names[i] = x.name
+				var names []string
+				if vt := v.vis.types[t.name]; vt != nil {
+					for _, x := range vt.inputs {
+						names = append(names, x.name)
+					}
 				}
 				if s := hgGQLSuggest(k, names); s != "" {
 					msg += fmt.Sprintf(" Did you mean %q?", s)

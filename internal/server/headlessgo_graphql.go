@@ -966,6 +966,8 @@ type hgGQLExec struct {
 	st   hgSettings
 	vars map[string]any
 	sch  *hgGQLSchema // built on first use
+	// visSch is the schema the caller is shown (callerSchema), built on first use.
+	visSch *hgGQLSchema
 	// nodes counts the selections expand produced (hgGQLMaxNodes).
 	nodes int
 	// budget is what the operation (or one subscription event) may still spend on queries.
@@ -1044,10 +1046,10 @@ func (ex *hgGQLExec) root(f *hgGQLField) (any, error) {
 	case "__typename":
 		return "Query", nil
 	case "__schema":
-		return ex.intro(ex.schema().schemaObj(), f.sel), nil
+		return ex.intro(ex.callerSchema().schemaObj(), f.sel), nil
 	case "__type":
 		name := hgGQLString(ex.resolve(f.args["name"]))
-		return ex.intro(ex.schema().typeObj(name), f.sel), nil
+		return ex.intro(ex.callerSchema().typeObj(name), f.sel), nil
 	}
 	if strings.HasPrefix(f.name, "__") {
 		return nil, fmt.Errorf("Cannot query field %q on type \"Query\"", f.name)

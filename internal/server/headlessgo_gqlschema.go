@@ -102,12 +102,36 @@ func hgGQLScalar(f *hgField) string {
 	return ""
 }
 
-// schema builds the GraphQL schema of the current content model.
+// schema is the GraphQL schema of the whole content model: operations are validated against it, so
+// a field the caller may not use is refused as forbidden, not as unknown.
 func (ex *hgGQLExec) schema() *hgGQLSchema {
-	if ex.sch != nil {
-		return ex.sch
+	if ex.sch == nil {
+		ex.sch = ex.buildSchema(nil)
 	}
+	return ex.sch
+}
+
+// callerSchema is the schema the caller is shown (introspection, suggestions in validation errors):
+// the types it may use and what they reach (components, relation targets), as in its OpenAPI
+// document. The admin's playground (no caller) sees the whole model.
+func (ex *hgGQLExec) callerSchema() *hgGQLSchema {
+	if ex.a == nil {
+		return ex.schema()
+	}
+	if ex.visSch == nil {
+		ex.visSch = ex.buildSchema(ex.a)
+	}
+	return ex.visSch
+}
+
+// buildSchema builds the GraphQL schema of the current content model as a sees it (nil: all of it).
+func (ex *hgGQLExec) buildSchema(a *hgAuth) *hgGQLSchema {
 	reg := ex.s.hgReg(ex.c)
+	can := func(sc *hgSchema, act string) bool { return a == nil || a.can(sc.UID, act) }
+	var reach map[string]bool
+	if a != nil {
+		reach = hgReachable(reg, ex.s.hgVisibleTypes(ex.c, a))
+	}
 	g := &hgGQLSchema{types: map[string]*hgGQLTypeDef{}, query: "Query", mutation: "Mutation", subscription: "Subscription"}
 	for _, sc := range hgGQLScalars {
 		g.add(&hgGQLTypeDef{kind: "SCALAR", name: sc[0], desc: sc[1]})
@@ -190,6 +214,9 @@ func (ex *hgGQLExec) schema() *hgGQLSchema {
 	// Object, filter and input types of the content types and components.
 	all := append(reg.Components(), reg.Types()...)
 	for _, sc := range all {
+		if reach != nil && !reach[sc.UID] {
+			continue
+		}
 		obj := &hgGQLTypeDef{kind: "OBJECT", name: hgPascal(sc), desc: sc.Description}
 		filt := &hgGQLTypeDef{kind: "INPUT_OBJECT", name: hgPascal(sc) + "FiltersInput"}
 		in := &hgGQLTypeDef{kind: "INPUT_OBJECT", name: hgPascal(sc) + "Input"}
@@ -280,13 +307,18 @@ func (ex *hgGQLExec) schema() *hgGQLSchema {
 	status := gqlNamed("PublicationStatus")
 	sub := &hgGQLTypeDef{kind: "OBJECT", name: "Subscription", desc: "Live changes of entries, delivered as server-sent events or over a WebSocket (graphql-transport-ws)"}
 	for _, sc := range reg.Types() {
+		if reach != nil && !reach[sc.UID] {
+			continue
+		}
 		p := hgPascal(sc)
 		subArgs := []*hgGQLInput{{name: "locale", typ: str}}
 		if sc.IsCollection() {
 			subArgs = append([]*hgGQLInput{{name: "documentId", typ: gqlNamed("ID")}}, subArgs...)
 		}
+		// The rights hgGQLSubscribe asks for.
+		subOK := a == nil || (a.Kind != "preview" && can(sc, map[bool]string{true: "find", false: "findOne"}[sc.IsSingle()]))
 		for _, ev := range hgSubEvents {
-			if ev.dp && !sc.DraftAndPublish {
+			if !subOK || (ev.dp && !sc.DraftAndPublish) {
 				continue
 			}
 			typ := gqlNamed(p)
@@ -297,30 +329,38 @@ func (ex *hgGQLExec) schema() *hgGQLSchema {
 		}
 		read := []*hgGQLInput{{name: "locale", typ: str}, {name: "status", typ: status}}
 		write := []*hgGQLInput{{name: "data", typ: gqlNonNull(gqlNamed(p + "Input"))}, {name: "locale", typ: str}, {name: "status", typ: status}}
-		docArg := &hgGQLInput{name: "documentId", typ: gqlNonNull(gqlNamed("ID"))}
+		var docArgs []*hgGQLInput // the documentId argument of a collection's entry
+		if sc.IsCollection() {
+			docArgs = []*hgGQLInput{{name: "documentId", typ: gqlNonNull(gqlNamed("ID"))}}
+		}
+		locArg := append(append([]*hgGQLInput(nil), docArgs...), &hgGQLInput{name: "locale", typ: str})
 		if sc.IsCollection() {
 			list := append([]*hgGQLInput{{name: "filters", typ: gqlNamed(p + "FiltersInput")}, {name: "sort", typ: gqlList(str)},
 				{name: "pagination", typ: gqlNamed("PaginationArg")}}, read...)
-			conn := g.add(&hgGQLTypeDef{kind: "OBJECT", name: p + "EntityResponseCollection", fields: []*hgGQLFieldDef{
-				{name: "nodes", typ: gqlNonNull(gqlList(gqlNonNull(gqlNamed(p))))}, {name: "pageInfo", typ: gqlNonNull(gqlNamed("Pagination"))}}})
-			q.fields = append(q.fields, &hgGQLFieldDef{name: hgCamel(sc.PluralName), desc: "Entries of " + sc.DisplayName, args: list, typ: gqlNonNull(gqlList(gqlNamed(p)))},
-				&hgGQLFieldDef{name: hgCamel(sc.PluralName) + "_connection", args: list, typ: gqlNamed(conn.name)},
-				&hgGQLFieldDef{name: hgCamel(sc.SingularName), desc: "One entry of " + sc.DisplayName, args: append([]*hgGQLInput{docArg}, read...), typ: gqlNamed(p)})
-			m.fields = append(m.fields, &hgGQLFieldDef{name: "create" + p, args: write, typ: gqlNamed(p)},
-				&hgGQLFieldDef{name: "update" + p, args: append([]*hgGQLInput{docArg}, write...), typ: gqlNamed(p)},
-				&hgGQLFieldDef{name: "delete" + p, args: []*hgGQLInput{docArg, {name: "locale", typ: str}}, typ: gqlNamed("DeleteMutationResponse")})
-			if sc.DraftAndPublish {
-				m.fields = append(m.fields, &hgGQLFieldDef{name: "publish" + p, args: []*hgGQLInput{docArg, {name: "locale", typ: str}}, typ: gqlNamed(p)},
-					&hgGQLFieldDef{name: "unpublish" + p, args: []*hgGQLInput{docArg, {name: "locale", typ: str}}, typ: gqlNamed(p)})
+			if can(sc, "find") {
+				conn := g.add(&hgGQLTypeDef{kind: "OBJECT", name: p + "EntityResponseCollection", fields: []*hgGQLFieldDef{
+					{name: "nodes", typ: gqlNonNull(gqlList(gqlNonNull(gqlNamed(p))))}, {name: "pageInfo", typ: gqlNonNull(gqlNamed("Pagination"))}}})
+				q.fields = append(q.fields, &hgGQLFieldDef{name: hgCamel(sc.PluralName), desc: "Entries of " + sc.DisplayName, args: list, typ: gqlNonNull(gqlList(gqlNamed(p)))},
+					&hgGQLFieldDef{name: hgCamel(sc.PluralName) + "_connection", args: list, typ: gqlNamed(conn.name)})
 			}
-			continue
+			if can(sc, "findOne") {
+				q.fields = append(q.fields, &hgGQLFieldDef{name: hgCamel(sc.SingularName), desc: "One entry of " + sc.DisplayName, args: append(append([]*hgGQLInput(nil), docArgs...), read...), typ: gqlNamed(p)})
+			}
+			if can(sc, "create") {
+				m.fields = append(m.fields, &hgGQLFieldDef{name: "create" + p, args: write, typ: gqlNamed(p)})
+			}
+		} else if can(sc, "find") {
+			q.fields = append(q.fields, &hgGQLFieldDef{name: hgCamel(sc.SingularName), desc: sc.DisplayName, args: read, typ: gqlNamed(p)})
 		}
-		q.fields = append(q.fields, &hgGQLFieldDef{name: hgCamel(sc.SingularName), desc: sc.DisplayName, args: read, typ: gqlNamed(p)})
-		m.fields = append(m.fields, &hgGQLFieldDef{name: "update" + p, args: write, typ: gqlNamed(p)},
-			&hgGQLFieldDef{name: "delete" + p, args: []*hgGQLInput{{name: "locale", typ: str}}, typ: gqlNamed("DeleteMutationResponse")})
-		if sc.DraftAndPublish {
-			m.fields = append(m.fields, &hgGQLFieldDef{name: "publish" + p, args: []*hgGQLInput{{name: "locale", typ: str}}, typ: gqlNamed(p)},
-				&hgGQLFieldDef{name: "unpublish" + p, args: []*hgGQLInput{{name: "locale", typ: str}}, typ: gqlNamed(p)})
+		if can(sc, "update") {
+			m.fields = append(m.fields, &hgGQLFieldDef{name: "update" + p, args: append(append([]*hgGQLInput(nil), docArgs...), write...), typ: gqlNamed(p)})
+		}
+		if can(sc, "delete") {
+			m.fields = append(m.fields, &hgGQLFieldDef{name: "delete" + p, args: locArg, typ: gqlNamed("DeleteMutationResponse")})
+		}
+		if sc.DraftAndPublish && can(sc, "update") {
+			m.fields = append(m.fields, &hgGQLFieldDef{name: "publish" + p, args: locArg, typ: gqlNamed(p)},
+				&hgGQLFieldDef{name: "unpublish" + p, args: locArg, typ: gqlNamed(p)})
 		}
 	}
 	q.fields = append(q.fields, g.wpQueryFields()...)
@@ -338,8 +378,36 @@ func (ex *hgGQLExec) schema() *hgGQLSchema {
 	} else {
 		g.subscription = ""
 	}
-	ex.sch = g
 	return g
+}
+
+// hgReachable is the set of type and component uids the given types reach through components,
+// dynamic zones and relations (the types themselves included).
+func hgReachable(reg *hgRegistry, roots []*hgSchema) map[string]bool {
+	out := map[string]bool{}
+	var walk func(sc *hgSchema)
+	walk = func(sc *hgSchema) {
+		if sc == nil || out[sc.UID] {
+			return
+		}
+		out[sc.UID] = true
+		for _, f := range sc.Fields {
+			switch f.Type {
+			case "component":
+				walk(reg.Get(f.Component))
+			case "dynamiczone":
+				for _, uid := range f.Components {
+					walk(reg.Get(uid))
+				}
+			case "relation":
+				walk(reg.Get(f.Target))
+			}
+		}
+	}
+	for _, sc := range roots {
+		walk(sc)
+	}
+	return out
 }
 
 func hgGQLMaybeList(f *hgField, r *hgGQLRef) *hgGQLRef {
@@ -725,7 +793,12 @@ func (ex *hgGQLExec) mutation(f *hgGQLField) (any, error) {
 			return nil, err
 		}
 		rp := &hgReadParams{Auth: ex.a, Status: status, Locale: loc, Populate: pop, Budget: ex.readBudget()}
-		obj, err := ex.s.hgSerializer(ex.c, ex.a, rp).entry(sc, e, rp.Populate, nil)
+		var fields []string
+		if status == "draft" && (op == "unpublish" || (op == "update" && doc != "")) {
+			written, _ := args["data"].(map[string]any)
+			fields, rp.Populate = hgWriteView(ex.a, sc, written, rp.Populate)
+		}
+		obj, err := ex.s.hgSerializer(ex.c, ex.a, rp).entry(sc, e, rp.Populate, fields)
 		if err != nil {
 			return nil, err
 		}

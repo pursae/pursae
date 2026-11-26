@@ -184,6 +184,20 @@ type hgCoercer struct {
 	// read (hgMediaReadable) cannot be linked.
 	auth *hgAuth
 	user *store.User // auth's WordPress user, when it is a signed-in front-end user
+	// admin is the signed-in user of an admin-screen write (auth nil): it links media as core
+	// /wp/v2/media lets it read them.
+	admin *store.User
+}
+
+// mediaAllowed reports whether the writer may link an attachment (internal writes may link any).
+func (h *hgCoercer) mediaAllowed(a *store.Attachment) bool {
+	switch {
+	case h.auth != nil:
+		return h.s.hgMediaReadable(h.ctx, h.auth, h.user, a)
+	case h.admin != nil:
+		return mediaLibraryReader(h.admin) || h.s.attachmentPublic(h.ctx, a)
+	}
+	return true
 }
 
 func (h *hgCoercer) fail(path []string, format string, a ...any) {
@@ -763,7 +777,7 @@ func (h *hgCoercer) media(f *hgField, v any, path []string) (any, bool) {
 			h.fail(path, "The media %d does not exist", id)
 			return nil, false
 		}
-		if h.auth != nil && !h.s.hgMediaReadable(h.ctx, h.auth, h.user, a) {
+		if !h.mediaAllowed(a) {
 			h.fail(path, "The media %d does not exist", id) // as if missing: its existence is not public either
 			return nil, false
 		}
@@ -973,6 +987,9 @@ type hgSaveOpts struct {
 	// Auth is the API caller (nil: the admin). Writing an inverse relation edits the owning
 	// entries, so it needs update access to the owning type too.
 	Auth *hgAuth
+	// User is the signed-in user of an admin-screen write (with Auth nil): the owning entries an
+	// inverse relation edits must be theirs unless they may edit others' posts.
+	User *store.User
 }
 
 var errHGNotFound = errors.New("not found")
@@ -1018,6 +1035,8 @@ func (s *Server) hgSaveEntryOnce(ctx context.Context, sc *hgSchema, doc string, 
 	h := &hgCoercer{s: s, ctx: ctx, reg: reg, required: publish, create: existing == nil, auth: o.Auth}
 	if o.Auth != nil {
 		h.user = s.hgWPUser(ctx, o.Auth)
+	} else {
+		h.admin = o.User
 	}
 	var old map[string]any
 	if existing != nil {
@@ -1029,6 +1048,15 @@ func (s *Server) hgSaveEntryOnce(ctx context.Context, sc *hgSchema, doc string, 
 		for _, ch := range invChanges {
 			if !o.Auth.can(ch.owner.UID, "update") || o.Auth.ownerOnly(ch.owner.UID, "update") {
 				h.fail([]string{ch.inverse}, "Changing this relation edits %s entries: it needs update access to %s", ch.owner.DisplayName, ch.owner.DisplayName)
+			}
+		}
+	} else if u := o.User; u != nil && !u.Can("edit_others_posts", nil) {
+		for _, ch := range invChanges {
+			for _, d := range append(append([]string(nil), ch.add...), ch.remove...) {
+				if !s.hgOwnsDoc(ctx, u, ch.owner, d, ch.locale, false) {
+					h.fail([]string{ch.inverse}, "Changing this relation edits %s entries of other users", ch.owner.DisplayName)
+					break
+				}
 			}
 		}
 	}
@@ -1103,7 +1131,14 @@ func (s *Server) hgSaveEntryOnce(ctx context.Context, sc *hgSchema, doc string, 
 
 // hgPublishEntry publishes the draft of a document's locale version (validating required fields).
 func (s *Server) hgPublishEntry(ctx context.Context, sc *hgSchema, doc, locale string, userID int64) (*hgEntry, error) {
-	e, err := s.hgGetEntry(ctx, sc.UID, doc, locale)
+	// The row stays locked from the review and validation checks to the copy, so a save landing in
+	// between cannot put a draft live that was never approved or validated.
+	tx, err := s.store.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	e, err := hgScanEntry(tx.QueryRow(ctx, `SELECT `+hgEntryCols+` FROM hg_entries WHERE type_uid = $1 AND document_id = $2 AND locale = $3 FOR UPDATE`, sc.UID, doc, locale))
 	if err != nil {
 		return nil, errHGNotFound
 	}
@@ -1117,12 +1152,16 @@ func (s *Server) hgPublishEntry(ctx context.Context, sc *hgSchema, doc, locale s
 	}
 	// A manual publication replaces a pending scheduled one: the scheduler would otherwise put
 	// whatever draft exists at that time live.
-	pe, err := hgScanEntry(s.store.Pool.QueryRow(ctx, `UPDATE hg_entries SET published_data = data, published_at = now(), publish_at = NULL, updated_by = $2, schedule_error = ''
+	pe, err := hgScanEntry(tx.QueryRow(ctx, `UPDATE hg_entries SET published_data = data, published_at = now(), publish_at = NULL, updated_by = $2, schedule_error = ''
 		WHERE id = $1 RETURNING `+hgEntryCols, e.ID, userID))
 	if err == nil {
-		s.hgRecordVersion(ctx, pe, "publish", userID)
+		err = tx.Commit(ctx)
 	}
-	return pe, err
+	if err != nil {
+		return nil, err
+	}
+	s.hgRecordVersion(ctx, pe, "publish", userID)
+	return pe, nil
 }
 
 // hgUnpublishEntry keeps only the draft.

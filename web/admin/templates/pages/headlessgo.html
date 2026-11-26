@@ -391,7 +391,7 @@
 <p class="description">Front-end users with a WordPress account. They sign in with <code>POST {{.APIBase}}/auth/local</code> (<code>identifier</code> and <code>password</code>) and send the returned token as a Bearer token. Their access is this matrix plus the public role; their WordPress role gives them nothing here.</p>
 <table class="form-table" role="presentation">
 <tr><th scope="row">Accounts</th><td><label><input type="checkbox" name="user_auth" value="1"{{if .Settings.UserAuth}} checked{{end}}> <span>Let users sign in to the API</span></label><br>
-	<label><input type="checkbox" name="user_register" value="1"{{if .Settings.UserRegister}} checked{{end}}> <span>Let visitors register (<code>POST {{.APIBase}}/auth/local/register</code>)</span></label></td></tr>
+	<label><input type="checkbox" name="user_register" value="1"{{if .Settings.UserRegister}} checked{{end}}> <span>Let visitors register (<code>POST {{.APIBase}}/auth/local/register</code>), even when Settings › General › Membership is closed</span></label></td></tr>
 <tr><th scope="row"><label for="hg-utl">Token lifetime</label></th><td><input type="number" id="hg-utl" name="user_token_ttl" min="1" max="10080" value="{{.Settings.UserTokenTTL}}" class="small-text"> minutes</td></tr>
 </table>
 <table class="widefat striped hg-matrix"><thead><tr><th>Content type</th>{{range .Actions}}<th>{{.}}</th>{{end}}<th>update and delete: own entries only</th></tr></thead><tbody>
