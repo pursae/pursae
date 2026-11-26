@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 // More option groups of /pursae/v1/options/{group}: Pursae Multi Language, Pursae Pixel, Pursae Cookie
@@ -29,12 +31,21 @@ func (s *Server) gontactSaveOptions(ctx context.Context, o gontactOptions) error
 	return err
 }
 
+// pllCheckMTKeyTarget refuses an update that sends the saved machine translation key to another
+// provider or endpoint host without a new key (or an empty one to remove it), as the settings form does.
+func pllCheckMTKeyTarget(_ *Server, _ *gin.Context, old, v pllOptions) []string {
+	if old.MTKey != "" && v.MTKey == old.MTKey && pllMTKeyTarget(v.MTProvider, v.MTEndpoint) != pllMTKeyTarget(old.MTProvider, old.MTEndpoint) {
+		return []string{"Send mt_key again (or an empty mt_key to remove it): the saved key is not sent to another provider or endpoint."}
+	}
+	return nil
+}
+
 func init() {
 	optionGroups["multilang"] = groupOf(golylangSlug, "Pursae Multi Language", (*Server).pllOpts,
 		func(s *Server, ctx context.Context, v pllOptions) error {
 			v.MTKey = s.pllSealMTKey(v.MTKey) // a plain key sent in the patch is stored encrypted, a sealed one is kept
 			return s.pllSaveOpts(ctx, v)
-		})
+		}, pllCheckMTKeyTarget)
 	optionGroups["pixel"] = groupOf(pixelSlug, "Pursae Pixel", (*Server).pixelLoad,
 		func(s *Server, ctx context.Context, v pixelSettings) error { return s.pixelSave(ctx, v) })
 	optionGroups["analytics"] = groupOf(analyticsSlug, "Pursae Analytics", (*Server).analyticsLoad,
