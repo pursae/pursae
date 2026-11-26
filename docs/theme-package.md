@@ -175,7 +175,7 @@ The data is the same `siteView` the bundled themes receive: `.DocumentTitle`, `.
 `.AdminBar`, `.SiteName`, `.Description`, `.HomeURL`, `.CustomLogo`, `.TitleIsH1`,
 `.Template`, `.Q` (the main query), `.Posts` / `.Post` (each with `.ID`, `.Title`,
 `.Permalink`, `.Content`, `.Excerpt`, `.ShowExcerpt`, `.Class` (`post_class`), `.Thumbnail`,
-`.AuthorName`, `.AuthorURL`, `.DateText`, `.DateISO`, `.Categories`, `.Tags`,
+`.AuthorName`, `.AuthorURL`, `.AuthorAvatar` (avatar URL), `.DateText`, `.DateISO`, `.Categories`, `.Tags`,
 `.CommentCount`, `.CommentsURL`, `.EntryMeta`, `.EditLink`, `.Biography`, …),
 `.Pagination`, `.PostNav`, `.Comments` (`.Title`, `.List`, `.Count`, `.Open`, `.Form`),
 `.ArchiveTitle`, `.ArchiveDesc`, `.SearchQuery`, `.TotalPosts`, `.PrivacyLink`,
@@ -216,6 +216,12 @@ so **install and activate only themes you trust**. What the core does limit:
 
 - the template functions `setting`, `settingStr`, … return only public settings: never secrets,
   keys, licenses, the admin e-mail or plugin settings;
+- the users and posts a template reaches (`.Q.Author`, `.Q.Post`, `.Post.Post`) are public copies: an
+  author has only its ID, login, nicename, display name, website, registration date and the public
+  profile fields (`description`, `first_name`, `last_name`, `nickname`); no e-mail, password hash, meta,
+  roles or capabilities. A post's `.Password` is empty (`.HasPassword` says whether it has one), and
+  `.AuthorEmail` is always empty: use `.AuthorAvatar`. With ACF-Go, `get_field` on a user or comment
+  returns only registered fields, never sign-in or security meta;
 - `scripts[]` must be files of the package (no remote URLs), so what runs is what was installed;
 - the file types are limited (below) and templates cannot read files or run commands;
 - Live Preview shows the theme in a sandboxed frame (see [Live Preview](#live-preview-with-demo-content)), so

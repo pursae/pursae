@@ -30,6 +30,8 @@ import (
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
+
+	"wpgo/internal/auth"
 )
 
 // The image CAPTCHA of Gontact Form: Contact Form 7's [captchac] / [captchar] form-tags with the
@@ -220,13 +222,77 @@ func (s *Server) gontactCaptchaHash(prefix, answer string) string {
 }
 
 // gontactCaptchaMaxRows bounds the open challenges (each holds a PNG); they expire after an hour.
+// A full table makes room (expired rows first, then the oldest) instead of refusing, so page loads
+// alone cannot lock every CAPTCHA form until the hourly cleanup.
 var gontactCaptchaMaxRows = 5000
+
+// Challenges one client network may create per window: enough for any visitor reloading a form,
+// too few for one network to rotate everyone else's challenges out of the capped table.
+var (
+	gontactCaptchaNetLimit  = 60
+	gontactCaptchaNetWindow = 10 * time.Minute
+	gontactCaptchaNetMaxKey = 20000 // bound of the in-memory counter map
+)
+
+type gontactCaptchaNetHits struct {
+	start time.Time
+	n     int
+}
+
+var gontactCaptchaNets = struct {
+	sync.Mutex
+	hits  map[string]*gontactCaptchaNetHits
+	swept time.Time
+}{hits: map[string]*gontactCaptchaNetHits{}}
+
+// gontactCaptchaNetAllow counts one challenge for the client network net ("" when unknown: not limited).
+func gontactCaptchaNetAllow(net string, now time.Time) bool {
+	if net == "" {
+		return true
+	}
+	l := &gontactCaptchaNets
+	l.Lock()
+	defer l.Unlock()
+	if len(l.hits) >= gontactCaptchaNetMaxKey || now.Sub(l.swept) > gontactCaptchaNetWindow {
+		for k, h := range l.hits {
+			if now.Sub(h.start) >= gontactCaptchaNetWindow {
+				delete(l.hits, k)
+			}
+		}
+		l.swept = now
+		if len(l.hits) >= gontactCaptchaNetMaxKey { // still full: forget rather than grow without bound
+			l.hits = map[string]*gontactCaptchaNetHits{}
+		}
+	}
+	h := l.hits[net]
+	if h == nil || now.Sub(h.start) >= gontactCaptchaNetWindow {
+		h = &gontactCaptchaNetHits{start: now}
+		l.hits[net] = h
+	}
+	h.n++
+	return h.n <= gontactCaptchaNetLimit
+}
+
+// gontactCaptchaClientNet is the client network of the request behind ctx ("" outside a request).
+func gontactCaptchaClientNet(ctx context.Context) string {
+	if gc, ok := ctx.(*gin.Context); ok && gc.Request != nil {
+		return auth.ClientNet(clientIP(gc))
+	}
+	return ""
+}
 
 // gontactCaptchaNew creates a challenge and returns its prefix (wpcf7_generate_captcha()).
 func (s *Server) gontactCaptchaNew(ctx context.Context, o gfCaptchaOpts) (string, error) {
+	if !gontactCaptchaNetAllow(gontactCaptchaClientNet(ctx), time.Now()) {
+		return "", errors.New("too many CAPTCHA challenges from this network")
+	}
+	// Only live challenges count; make room by dropping expired ones, then the oldest.
 	var n int
-	if _ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM gontact_captcha`).Scan(&n); n >= gontactCaptchaMaxRows {
-		return "", errors.New("too many open CAPTCHA challenges")
+	_ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM gontact_captcha WHERE created_at > now() - $1::interval`, gfCaptchaInterval()).Scan(&n)
+	if n >= gontactCaptchaMaxRows {
+		_, _ = s.store.Pool.Exec(ctx, `DELETE FROM gontact_captcha WHERE created_at <= now() - $1::interval`, gfCaptchaInterval())
+		_, _ = s.store.Pool.Exec(ctx, `DELETE FROM gontact_captcha WHERE prefix IN
+			(SELECT prefix FROM gontact_captcha ORDER BY created_at ASC, prefix LIMIT $1)`, n-gontactCaptchaMaxRows+1)
 	}
 	word := gfCaptchaWord()
 	png, err := gfCaptchaRender(word, o)
@@ -318,7 +384,11 @@ func (s *Server) gontactCaptchaRefill(ctx context.Context, tags []*gfTag) map[st
 // image and the answer field in one <label>, and a real <button> would become the labelled control.
 func (r *gfRender) captchacHTML(t *gfTag) string {
 	o := gfCaptchaOptions(t)
-	prefix, err := r.s.gontactCaptchaNew(r.ctx, o)
+	ctx := r.ctx
+	if r.c != nil {
+		ctx = r.c // carries the client network for the per-network limit
+	}
+	prefix, err := r.s.gontactCaptchaNew(ctx, o)
 	if err != nil {
 		slog.Error("gontact captcha", "err", err)
 		return ""

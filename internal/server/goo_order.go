@@ -573,7 +573,19 @@ func (s *Server) gooSetStatusLocked(ctx context.Context, o *gooOrder, from []str
 		if err := s.gooRecordCouponUsage(ctx, o, true, strict); err != nil {
 			problems = append(problems, err.Error())
 		}
-		if len(problems) > 0 {
+		// Points and gift card balances that a cancellation or refund returned are taken back: the
+		// order keeps their discount. What can no longer be taken back holds the order like a stock
+		// shortage, so a late payment cannot spend the same value twice. A person's change keeps its
+		// status, with the note.
+		var short []string
+		if err := s.gptsRedebit(ctx, o); err != nil {
+			short = append(short, err.Error())
+		}
+		if err := s.gcRedebit(ctx, o); err != nil {
+			short = append(short, err.Error())
+		}
+		problems = append(problems, short...)
+		if len(problems) > 0 && (strict || len(problems) > len(short)) {
 			to = "on-hold"
 		}
 	}

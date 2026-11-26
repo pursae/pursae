@@ -200,6 +200,14 @@ func (s *Server) hgLogin(c *gin.Context, st hgSettings) {
 		hgErr(c, http.StatusTooManyRequests, "TooManyRequestsError", "Too many failed attempts. Try again later.", nil)
 		return
 	}
+	// The same CAPTCHA the login forms ask for (always, or for an account under attack); a missing
+	// answer is no guess and is not counted.
+	token, _ := body["captchaToken"].(string)
+	if p, asked, good := s.apiLoginCaptcha(c, ident, token); asked && !good {
+		hgErr(c, http.StatusForbidden, "ForbiddenError", "A valid CAPTCHA token (captchaToken) is required",
+			map[string]any{"code": "captcha_required", "provider": p.kind, "siteKey": p.site})
+		return
+	}
 	attemptID, refused := s.restBeginAttempt(c, ident)
 	if refused {
 		hgErr(c, http.StatusTooManyRequests, "TooManyRequestsError", "Too many failed attempts. Try again later.", nil)

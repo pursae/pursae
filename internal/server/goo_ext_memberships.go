@@ -703,6 +703,30 @@ func gmemStripShortcodes(text string) string {
 	return gmemDiscountRe.ReplaceAllString(text, "")
 }
 
+// gmemShortcodesFor resolves the members shortcodes of raw text for viewer u without rendering them:
+// a members-only body stays only for its members (and managers), a non-members body only for
+// non-members, and the discount table is dropped.
+func (s *Server) gmemShortcodesFor(ctx context.Context, u *store.User, text string) string {
+	if !strings.Contains(text, "[goocommerce_") {
+		return text
+	}
+	text = gmemMembersOnlyRe.ReplaceAllStringFunc(text, func(m string) string {
+		sm := gmemMembersOnlyRe.FindStringSubmatch(m)
+		if gmemIsManager(u) || s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, sm[1])) {
+			return sm[2]
+		}
+		return ""
+	})
+	text = gmemNonMembersRe.ReplaceAllStringFunc(text, func(m string) string {
+		sm := gmemNonMembersRe.FindStringSubmatch(m)
+		if s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, sm[1])) {
+			return ""
+		}
+		return sm[2]
+	})
+	return gmemDiscountRe.ReplaceAllString(text, "")
+}
+
 // gooRESTRestrict is Memberships for the REST API: content.rendered is the_content in WordPress, so a
 // restricted post shows a non-member the same restriction message as its page, and the excerpt only
 // when the plan shows excerpts. The members-only shortcodes are applied too.

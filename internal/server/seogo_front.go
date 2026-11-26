@@ -244,6 +244,9 @@ func (s *Server) seogoPostImages(ctx context.Context, p *store.Post, media map[i
 		out = append(out, u)
 		seen[u] = true
 	}
+	// The sitemap is public: content images of a members-only post (or inside members-only shortcodes)
+	// are left out like the content itself.
+	p = s.seogoMembersPost(ctx, nil, p)
 	for _, m := range seogoAllImgRe.FindAllStringSubmatch(p.Content, -1) {
 		u := html.UnescapeString(m[1])
 		if strings.HasPrefix(u, "/") {
@@ -704,6 +707,9 @@ func (s *Server) seogoVideoSitemap(c *gin.Context) {
 	var sb strings.Builder
 	sb.WriteString(s.seogoXMLHead(ctx) + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">` + "\n")
 	for _, p := range posts {
+		// The sitemap is public: a members-only post loses its content (and with it its videos), and
+		// members-only shortcode bodies stay out of the descriptions.
+		p = s.seogoMembersPost(ctx, nil, p)
 		if !strings.Contains(p.Content, "youtu") && !strings.Contains(p.Content, "vimeo.com") && !strings.Contains(strings.ToLower(p.Content), "<video") {
 			continue
 		}

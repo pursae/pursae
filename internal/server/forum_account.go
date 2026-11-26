@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"html"
+	"html/template"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -194,8 +195,12 @@ func (s *Server) forumLoginPost(c *gin.Context) {
 	remember := c.PostForm("rememberme") != ""
 	redirect := c.PostForm("redirect")
 	target := s.forumTarget(c, redirect)
+	var pressure string // the "account under attack" CAPTCHA widget, once asked
 	fail := func(status int, msg string) {
 		p := s.forumAuthPage(c, forumViewLogin, redirect)
+		if pressure != "" && p.Captcha == "" {
+			p.Captcha = template.HTML(pressure)
+		}
 		p.Form["log"] = login
 		if remember {
 			p.Form["rememberme"] = "1"
@@ -223,6 +228,14 @@ func (s *Server) forumLoginPost(c *gin.Context) {
 	if secOn {
 		if msg := s.adminsecPreLogin(c, login); msg != "" {
 			fail(http.StatusForbidden, forumPlain(string(msg)))
+			return
+		}
+	}
+	// An account under attack asks for the CAPTCHA here as on wp-login; a missing answer is not counted.
+	if widget, msg := s.loginPressureCaptcha(c, login); widget != "" {
+		pressure = string(widget)
+		if msg != "" {
+			fail(http.StatusUnprocessableEntity, forumPlain(string(msg)))
 			return
 		}
 	}

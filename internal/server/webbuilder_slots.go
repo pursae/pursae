@@ -865,7 +865,7 @@ func (e *wbSlotEnv) comments() string {
 		return ""
 	}
 	var b bytes.Buffer
-	if err := set.ExecuteTemplate(&b, "comments", v); err != nil {
+	if err := set.ExecuteTemplate(&b, "comments", v.templateView()); err != nil { // public copy (site_view.go)
 		log.Printf("web builder: comments template: %v", err)
 		return ""
 	}

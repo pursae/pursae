@@ -594,19 +594,19 @@ func maintImportFile(t *testing.T, c *http.Client, base, nonce, content string) 
 func TestMaintAlwaysOpenWholeSegments(t *testing.T) {
 	for _, p := range []string{"/wp-admin", "/wp-admin/", "/wp-admin/edit", "/wp-login", "/wp-login.php",
 		"/wp-content/uploads/a.png", "/wp-includes/css/x.css", "/robots.txt"} {
-		if !maintAlwaysOpen(p) {
+		if !maintAlwaysOpen(http.MethodGet, p) {
 			t.Errorf("%s should stay open", p)
 		}
 	}
 	// /xmlrpc and /wp-cron must not skip the gate: the site router serves ?p= on any path.
 	for _, p := range []string{"/xmlrpc", "/xmlrpc.php", "/xmlrpc.php/", "/wp-cron", "/wp-cron.php"} {
-		if maintAlwaysOpen(p) || !maintRPCOrCron(p) {
+		if maintAlwaysOpen(http.MethodGet, p) || !maintRPCOrCron(p) {
 			t.Errorf("%s must be answered by the maintenance gate", p)
 		}
 	}
 	// The site router serves ?p= / ?page_id= on any unknown path: these must stay behind the gate.
 	for _, p := range []string{"/wp-login-x", "/wp-loginx", "/xmlrpcs", "/wp-cron-job", "/wp-admin-page", "/"} {
-		if maintAlwaysOpen(p) {
+		if maintAlwaysOpen(http.MethodGet, p) {
 			t.Errorf("%s must not bypass maintenance", p)
 		}
 	}

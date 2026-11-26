@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"wpgo/internal/store"
+	"wpgo/internal/webbuilder"
 )
 
 // Goocommerce's REST APIs: the Store API (wc/store/v1, WooCommerce Blocks' public cart / checkout /
@@ -496,7 +497,7 @@ func gooApplyMeta(meta map[string]any, list any) {
 	for _, x := range gooList(list) {
 		m := gooObj(x)
 		k := gooStr(m["key"])
-		if k == "" {
+		if k == "" || gooProtectedPostMetaKey(k) {
 			continue
 		}
 		if v, ok := m["value"]; !ok || v == nil {
@@ -505,6 +506,22 @@ func gooApplyMeta(meta map[string]any, list any) {
 			meta[k] = v
 		}
 	}
+}
+
+// gooProtectedPostMetaKey reports whether k is core-internal post meta that REST meta_data may not
+// write: Web Builder keys (the "_wb_html_" values are printed as trusted HTML), builder documents and
+// the page template. Ordinary "_" integration meta stays writable.
+func gooProtectedPostMetaKey(k string) bool {
+	k = strings.ToLower(strings.TrimSpace(k))
+	if strings.HasPrefix(k, webbuilder.TrustedHTMLField) {
+		return true
+	}
+	for _, p := range []string{"_wb_", "_web_builder", "_elementor_", "_wp_page_template"} {
+		if strings.HasPrefix(k, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // gooAddressJSON is a billing / shipping address with every WooCommerce key present.

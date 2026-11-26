@@ -52,7 +52,44 @@ const gooStripeTolerance = 5 * time.Minute
 
 type gooStripeGateway struct{}
 
-func init() { gooRegisterGateway(gooStripeGateway{}) }
+func init() {
+	gooRegisterGateway(gooStripeGateway{})
+	gooOn("order_status_changed", 10, func(s *Server, ctx context.Context, arg any) {
+		if ch, ok := arg.(*gooStatusChange); ok && ch.To == "cancelled" {
+			s.gooStripeExpireSession(ctx, ch.Order)
+		}
+	})
+}
+
+// gooStripeSessionTTL is how long a hosted Checkout page stays open: the store's hold-stock time,
+// clamped to what Stripe accepts (30 minutes to 24 hours, with a margin for clock skew).
+func (s *Server) gooStripeSessionTTL() time.Duration {
+	mins := s.gooOptInt("hold_stock_minutes")
+	if mins <= 0 {
+		mins = 60
+	}
+	return time.Duration(min(max(mins, 31), 24*60-5)) * time.Minute
+}
+
+// gooStripeExpireSession closes the open Checkout page of a cancelled order, so it can no longer be
+// paid there. Best effort and in the background: the cancellation never waits on or fails with Stripe.
+func (s *Server) gooStripeExpireSession(ctx context.Context, o *gooOrder) {
+	if o == nil || o.PaymentMethod != gooStripeID || s.gooStripeSecret() == "" {
+		return
+	}
+	sid := gxaStr(o.Meta, "_stripe_session_id")
+	if sid == "" || strings.ContainsAny(sid, "/?#") {
+		return
+	}
+	bg := context.WithoutCancel(ctx)
+	safeGo("stripe-expire-session", func() {
+		ctx, cancel := context.WithTimeout(bg, 10*time.Second)
+		defer cancel()
+		if _, err := s.gooStripeCall(ctx, http.MethodPost, "/v1/checkout/sessions/"+sid+"/expire", url.Values{}, ""); err != nil {
+			log.Printf("stripe: expiring the checkout session of cancelled order %d: %q", o.ID, err.Error()) //nolint:gosec // G706: a numeric order id and Stripe's error, quoted by %q (no raw newlines)
+		}
+	})
+}
 
 func (gooStripeGateway) ID() string          { return gooStripeID }
 func (gooStripeGateway) MethodTitle() string { return "Stripe" }
@@ -432,6 +469,9 @@ func (g gooStripeGateway) ProcessPayment(s *Server, c *gin.Context, o *gooOrder)
 	form.Set("line_items[0][price_data][unit_amount]", amount)
 	form.Set("line_items[0][price_data][product_data][name]", desc)
 	form.Set("payment_intent_data[description]", desc)
+	// The page closes when the unpaid order would be cancelled (the hold-stock time, within Stripe's
+	// 30 minutes to 24 hours), so it cannot pay an order that is long gone.
+	form.Set("expires_at", strconv.FormatInt(time.Now().Add(s.gooStripeSessionTTL()).Unix(), 10))
 	gooStripeOrderMeta(form, "metadata", s, ctx, o)
 	gooStripeOrderMeta(form, "payment_intent_data[metadata]", s, ctx, o)
 	if customer != "" {

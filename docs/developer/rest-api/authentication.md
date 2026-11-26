@@ -90,7 +90,12 @@ Builder html and code sections and custom CSS (a `content`-only password publish
 them, or keeps the stored ones), code imports (`web_builder_import_html` method `code`; method `exact`
 works with `content`), site imports, design kits and their class and variable overrides. The contact
 form routes (`/contact-form-7/v1`, which set a form's mail recipients and headers) belong to no scope:
-they need full access.
+they need full access. The `settings` scope reads every `/pursae/v1/options` group but changes only
+some: writing `gocdn` (the asset URL every page loads scripts from), `smtp` (where all site mail,
+password resets included, is sent), `security` (two-step login, lockouts, the login page) or
+`headless` (public permissions, front-end sign-up, CORS) needs full access (403 `rest_scope_forbidden`).
+Changing the maintenance page's custom CSS or custom HTML needs `unfiltered_html`, so the `themes`
+scope as well.
 
 **`themes`, `plugins` and `users` are equivalent to full access** on an administrator's account, and
 the scope picker says so: `themes` edits theme files and writes scripts that run on every page,
@@ -103,7 +108,13 @@ Every scoped password may also read the REST index, `/wp/v2/users/me` and use th
 each inner request. On `/wp/v2/users/me` a scoped password may edit the profile fields (name, URL,
 description, …) but changing the account's own `email` or `password` needs the `users` scope, and
 roles (the account's own or another user's) or another user's `email` or `password` need full access:
-`403 rest_scope_forbidden` with `data.required_scope` (`users` or `full_access`) otherwise. No scope
+`403 rest_scope_forbidden` with `data.required_scope` (`users` or `full_access`) otherwise.
+`wc/v3/customers` (single and batch) is narrower for shop integrations: with the `users` scope, a
+credential may change the `email` or `password` of, or delete, accounts without a staff role (customers,
+subscribers); any other account needs full access. Customer `meta_data` never writes or shows sign-in and
+security state (password-reset keys, Pursae Security, sessions, capabilities, forum verification), and
+product, coupon and order `meta_data` ignores core-internal keys such as Web Builder (`_wb_…`) meta and
+`_wp_page_template`, whatever the credential. No scope
 keeps `promote_users`, so a scoped password that creates a user with a `roles` value gets
 `403 rest_cannot_edit_roles`; without `roles` the new user gets the site's default role. A password
 whose stored scopes are all unknown (for example a scope removed in a later release) is refused

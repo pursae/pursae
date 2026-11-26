@@ -10,6 +10,22 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Security
+
+More fixes from the internal review. Upgrade every site; sites that run Pursae Commerce should upgrade right away.
+
+- **Pursae Commerce:** a cancelled order's Stripe Checkout page is closed, and points and gift card balances
+  returned by a cancellation are taken back if the order is paid after all. Booking person counts are limited.
+  REST `meta_data` no longer writes account, security or Web Builder keys.
+- **Scoped Application Passwords and OAuth tokens:** writing the CDN, SMTP, Security and Headless option groups
+  needs full access; `wc/v3/customers` follows the same rules as `wp/v2/users` for other accounts.
+- **Themes:** theme templates get public copies of authors and posts, without e-mail addresses, password data
+  or user meta.
+- **Pursae SEO:** head tags and sitemaps follow Memberships restrictions.
+- **Hardening:** the "account under attack" CAPTCHA covers the Commerce, Forum and Headless sign-ins; the contact
+  form CAPTCHA table cannot be filled; the firewall rate limit counts dynamic requests with a file extension;
+  the maintenance gate stays closed on unrouted paths; maintenance custom CSS is escaped.
+
 ## [0.5.9] - 2026-11-26
 
 ### Security

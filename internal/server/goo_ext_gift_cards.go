@@ -634,8 +634,11 @@ func (s *Server) gcOrderStatus(ctx context.Context, ch *gooStatusChange) {
 		return
 	}
 	o := ch.Order
-	if !containsStr([]string{"cancelled", "refunded", "trash"}, ch.To) {
-		s.gcRedebit(ctx, o)
+	// Paid and on-hold orders were debited again in gooSetStatusLocked, before the status was saved.
+	if !containsStr([]string{"cancelled", "refunded", "trash", "processing", "completed", "on-hold"}, ch.To) {
+		if err := s.gcRedebit(ctx, o); err != nil {
+			_ = s.gooAddOrderNote(ctx, o, err.Error(), false, "")
+		}
 	}
 	switch ch.To {
 	case "processing", "completed":
@@ -700,12 +703,13 @@ func (s *Server) gcSetStatusCredit(ctx context.Context, o *gooOrder, m map[strin
 // gcRedebit takes back what a cancellation or refund credited to the cards when the order comes back
 // (paid late, reactivated by the admin): the order keeps its gift card discount, so without this one
 // balance would pay twice. Each debit is a conditional UPDATE like gcReserve; a card that no longer
-// covers it is left as it is with an order note for the merchant.
-func (s *Server) gcRedebit(ctx context.Context, o *gooOrder) {
+// covers it keeps its credit entry (retried later) and is reported in the returned error.
+func (s *Server) gcRedebit(ctx context.Context, o *gooOrder) error {
 	credited := gcStatusCredit(o)
 	if len(credited) == 0 {
-		return
+		return nil
 	}
+	var short []string
 	dp := s.gooDecimals()
 	for key, v := range credited {
 		id, _ := strconv.ParseInt(key, 10, 64)
@@ -722,8 +726,8 @@ func (s *Server) gcRedebit(ctx context.Context, o *gooOrder) {
 			if g, gerr := s.gcGet(ctx, id); gerr == nil {
 				code = g.Code
 			}
-			_ = s.gooAddOrderNote(ctx, o, fmt.Sprintf("Gift card %s could not be debited again (%s): its balance no longer covers it. Please review the order.",
-				code, s.gooPricePlain(amt, o.Currency)), false, "")
+			short = append(short, fmt.Sprintf("Gift card %s could not be debited again (%s): its balance no longer covers it. Please review the order.",
+				code, s.gooPricePlain(amt, o.Currency)))
 			continue
 		}
 		_ = s.gcLog(ctx, id, "used", amt, o.ID, o.CustomerID, "Order reactivated")
@@ -731,6 +735,10 @@ func (s *Server) gcRedebit(ctx context.Context, o *gooOrder) {
 		delete(credited, key)
 	}
 	s.gcSetStatusCredit(ctx, o, credited)
+	if len(short) > 0 {
+		return errors.New(strings.Join(short, " "))
+	}
+	return nil
 }
 
 // gcIssue creates the order's gift cards (once per unit) and sends those due today.

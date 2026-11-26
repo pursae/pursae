@@ -304,6 +304,39 @@ func (s *Server) gptsReverse(ctx context.Context, o *gooOrder, refundRedeemed bo
 	}
 }
 
+// gptsRedebit takes back the redeemed points that cancelling or refunding the order returned, when the
+// order comes back (paid late, reactivated): it keeps its points discount, so the same points would
+// otherwise pay twice. The balance check and the debit run under gptsReserve's per-customer lock. It
+// returns an error when the balance no longer covers them; the flag then stays for a later retry.
+func (s *Server) gptsRedebit(ctx context.Context, o *gooOrder) error {
+	red := gxaInt(o.Meta, "_wc_points_redeemed")
+	if o.CustomerID == 0 || red <= 0 || o.Meta["_wc_points_redeem_refunded"] == nil {
+		return nil
+	}
+	conn, err := s.store.Pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	key := "goo_points:" + itoa64(o.CustomerID)
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, key); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, key)
+	}()
+	if s.gptsBalance(ctx, o.CustomerID) < red {
+		return fmt.Errorf("The customer's %s balance no longer covers the %d %s this order redeemed.", strings.ToLower(s.gptsLabel(2)), red, s.gptsLabel(red))
+	}
+	if err := s.gptsLog(ctx, o.CustomerID, -red, "order-redeem", o.ID, "Order reactivated"); err != nil {
+		return err
+	}
+	delete(o.Meta, "_wc_points_redeem_refunded")
+	_, _ = s.store.Pool.Exec(ctx, `UPDATE goo_orders SET meta = meta - '_wc_points_redeem_refunded' WHERE id = $1`, o.ID)
+	_ = s.gooAddOrderNote(ctx, o, fmt.Sprintf("%d %s debited again.", red, s.gptsLabel(red)), false, "")
+	return nil
+}
+
 // Redemption ----------------------------------------------------------------------------------------------
 
 // gptsReserve debits the points a checkout redeems before the order is saved. The balance check and the

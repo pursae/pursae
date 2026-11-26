@@ -175,7 +175,8 @@ func (s *Server) maintCheckRaw(c *gin.Context, old, st maintSettings) []string {
 		return nil
 	}
 	raw := func(cur, prev string) bool { return cur != prev && wp.KsesPost(cur) != cur }
-	if st.CustomHTML != old.CustomHTML || raw(st.Content, old.Content) || raw(st.FooterText, old.FooterText) {
+	// Custom CSS is raw code like the custom HTML (the WordPress rule for Additional CSS).
+	if st.CustomHTML != old.CustomHTML || st.CustomCSS != old.CustomCSS || raw(st.Content, old.Content) || raw(st.FooterText, old.FooterText) {
 		return []string{errNeedsUnfiltered}
 	}
 	return nil

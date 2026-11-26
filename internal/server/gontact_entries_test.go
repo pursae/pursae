@@ -190,10 +190,17 @@ func TestGontactRateLimitsAndCaptchaCap(t *testing.T) {
 		t.Fatal("refill is not rate limited")
 	}
 	old := gontactCaptchaMaxRows
-	gontactCaptchaMaxRows = 0
+	gontactCaptchaMaxRows = 1
 	defer func() { gontactCaptchaMaxRows = old }()
-	if _, err := srv.gontactCaptchaNew(context.Background(), gfCaptchaOpts{}); err == nil {
-		t.Fatal("CAPTCHA challenges are not capped")
+	for i := 0; i < 3; i++ {
+		if _, err := srv.gontactCaptchaNew(context.Background(), gfCaptchaOptions(nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rows int
+	_ = srv.store.Pool.QueryRow(context.Background(), `SELECT count(*) FROM gontact_captcha`).Scan(&rows)
+	if rows > 1 {
+		t.Fatalf("CAPTCHA challenges are not capped: %d rows", rows)
 	}
 }
 

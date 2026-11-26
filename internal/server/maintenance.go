@@ -347,7 +347,7 @@ func (s *Server) maintenanceServe(w http.ResponseWriter, r *http.Request) bool {
 		}
 		return false
 	}
-	if maintAlwaysOpen(p) { // before the settings are read: static files and wp-admin cost nothing here
+	if maintAlwaysOpen(r.Method, p) { // before the settings are read: static files and wp-admin cost nothing here
 		return false
 	}
 	_, preview := r.URL.Query()[maintPreviewParam]
@@ -437,22 +437,22 @@ func maintRESTCredentials(r *http.Request) bool {
 // maintAlwaysOpen are the paths the gate never closes: wp-admin, the login screen, uploads and
 // the static assets the maintenance page and wp-login use, robots.txt and the favicon.
 // Each entry is a whole path segment (or its .php form): "/wp-login-x?p=5" or "/xmlrpcs?page_id=2"
-// would otherwise pass the gate and reach the site router, which serves ?p= on any unknown path.
-func maintAlwaysOpen(p string) bool {
+// would otherwise pass the gate and reach the site router, which serves ?p= and ?s= on any unknown
+// path. The login screen and the CSP report endpoint have no sub-routes and no GET page of their
+// own, so only their exact paths (and POST for the report) skip the gate.
+func maintAlwaysOpen(method, p string) bool {
 	if p == cspReportPath { // browsers' CSP reports, the maintenance page's own included
-		return true
+		return method == http.MethodPost
 	}
 	for _, pre := range []string{"/wp-content/", "/wp-includes/"} {
 		if strings.HasPrefix(p, pre) {
 			return true
 		}
 	}
-	for _, seg := range []string{"/wp-admin", "/wp-login"} {
-		if p == seg || p == seg+".php" || strings.HasPrefix(p, seg+"/") {
-			return true
-		}
+	if p == "/wp-admin" || p == "/wp-admin.php" || strings.HasPrefix(p, "/wp-admin/") {
+		return true
 	}
-	return p == "/robots.txt" || p == "/favicon.ico"
+	return p == "/wp-login" || p == "/wp-login.php" || p == "/robots.txt" || p == "/favicon.ico"
 }
 
 // maintRPCOrCron reports paths that must not reach the site resolver while maintenance is on.

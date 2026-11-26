@@ -2,6 +2,7 @@ package server
 
 import (
 	"html/template"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,12 +49,10 @@ func (s *Server) loginCaptchaFailed(c *gin.Context) template.HTML {
 // already. It returns the widget to show ("" when nothing is asked) and the error when the answer is
 // missing or wrong ("" when it is valid). Guesses from many networks then each need a solved CAPTCHA,
 // while the owner signs in as usual after solving one.
+// Every password sign-in form (/wp-login, Commerce, Forum) calls it before the password is checked.
 func (s *Server) loginPressureCaptcha(c *gin.Context, login string) (widget, msg template.HTML) {
-	if _, always := s.loginCaptchaCfg(); always {
-		return "", "" // asked and checked on every sign-in (loginCaptchaFailed)
-	}
-	p, ok := s.captchaProvider()
-	if !ok || !s.accountUnderAttack(c, login) {
+	p, ok := s.loginPressureProvider(c, login)
+	if !ok {
 		return "", ""
 	}
 	widget = captchaWidget(c, p, "login")
@@ -61,6 +60,38 @@ func (s *Server) loginPressureCaptcha(c *gin.Context, login string) (widget, msg
 		return widget, template.HTML("<strong>Error:</strong> There were many failed sign-ins to this account. " + template.HTMLEscapeString(m))
 	}
 	return widget, ""
+}
+
+// loginPressureProvider returns the CAPTCHA a form sign-in for login must pass because the account is
+// under attack (ok=false when nothing is asked beyond loginCaptchaFailed).
+func (s *Server) loginPressureProvider(c *gin.Context, login string) (captchaProvider, bool) {
+	if _, always := s.loginCaptchaCfg(); always {
+		return captchaProvider{}, false // asked and checked on every sign-in (loginCaptchaFailed)
+	}
+	p, ok := s.captchaProvider()
+	if !ok || !s.accountUnderAttack(c, login) {
+		return captchaProvider{}, false
+	}
+	return p, true
+}
+
+// apiLoginCaptcha is the CAPTCHA gate of a password sign-in through a JSON API, which has no form to
+// show a widget in: with CAPTCHA keys configured, the client must send a solved token when the login
+// forms always ask for one or the account is under attack. It returns the provider asked for and
+// whether the token passes (asked=false: nothing is required).
+func (s *Server) apiLoginCaptcha(c *gin.Context, login, token string) (p captchaProvider, asked, good bool) {
+	p, always := s.loginCaptchaCfg()
+	if !always {
+		if p, asked = s.loginPressureProvider(c, login); !asked {
+			return captchaProvider{}, false, true
+		}
+	}
+	token = strings.TrimSpace(token)
+	if token == "" || len(token) > 4096 {
+		return p, true, false
+	}
+	score, ok := s.verifyCaptcha(c.Request.Context(), p.endpoint, p.secret, token, clientIP(c))
+	return p, true, ok && score >= 0.5
 }
 
 // accountUnderAttack reports whether the account login names has as many recent failed sign-ins from

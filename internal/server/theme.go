@@ -358,7 +358,9 @@ func (s *Server) fillPostView(ctx context.Context, pv *postView, p *store.Post, 
 	pv.CommentsURL = pv.Permalink + "#comments"
 	pv.HasPassword = p.Password != ""
 	if author != nil {
-		pv.AuthorName, pv.AuthorURL, pv.AuthorEmail = author.DisplayName, lb.AuthorLink(author.ID, author.Nicename), author.Email
+		// Templates get the avatar URL, never the author's e-mail (AuthorEmail stays empty).
+		pv.AuthorName, pv.AuthorURL = author.DisplayName, lb.AuthorLink(author.ID, author.Nicename)
+		pv.AuthorAvatar = s.avatarFor(ctx, author.Email, 96)
 		pv.AuthorBio = author.Profile["description"]
 	}
 	for _, t := range cats {

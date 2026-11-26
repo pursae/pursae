@@ -351,7 +351,45 @@ func (s *Server) seogoHead(c *gin.Context, q *siteQuery, lb *links.Builder) stri
 		cp.Content, cp.Excerpt = "", ""
 		sc.Post, sc.Pages = &cp, 1
 	}
+	s.seogoMembersCtx(sc, currentUser(c))
 	return s.seogoHeadFor(sc, q.Preview)
+}
+
+// seogoMembersCtx keeps Memberships-restricted content out of a context's head (description, schema,
+// image, reading time), the way the_content hides it from the same viewer.
+func (s *Server) seogoMembersCtx(sc *seogoCtx, u *store.User) {
+	if sc.Post == nil {
+		return
+	}
+	if p := s.seogoMembersPost(sc.ctx, u, sc.Post); p != sc.Post {
+		sc.Post = p
+		sc.Pages = len(splitPages(p.Content))
+	}
+}
+
+// seogoMembersPost is the post as viewer u may read it while Commerce Memberships is on: a restricted
+// post loses its content (and its excerpt unless the plan shows excerpts), and members-only shortcode
+// bodies the viewer may not see are dropped. Anything else returns p itself.
+func (s *Server) seogoMembersPost(ctx context.Context, u *store.User, p *store.Post) *store.Post {
+	if p == nil || !s.gooOn() || !s.gooExtOn(gmemKey) {
+		return p
+	}
+	if ok, _ := s.gmemPostAccess(ctx, u, p.ID, s.gmemPostPlans(ctx, p.ID)); !ok {
+		cp := *p
+		cp.Content = ""
+		if s.gooExtBool(gmemKey, "show_excerpts") {
+			cp.Excerpt = s.gmemShortcodesFor(ctx, u, cp.Excerpt)
+		} else {
+			cp.Excerpt = ""
+		}
+		return &cp
+	}
+	if !strings.Contains(p.Content, "[goocommerce_") && !strings.Contains(p.Excerpt, "[goocommerce_") {
+		return p
+	}
+	cp := *p
+	cp.Content, cp.Excerpt = s.gmemShortcodesFor(ctx, u, cp.Content), s.gmemShortcodesFor(ctx, u, cp.Excerpt)
+	return &cp
 }
 
 // seogoRobotsLimitOK accepts the values the robots limits can have: a number of characters / seconds

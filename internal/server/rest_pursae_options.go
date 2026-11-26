@@ -145,8 +145,11 @@ func (s *Server) pursaeCacheSettings(c *gin.Context, r *restRequest) {
 // value (a struct); save stores a value of the same type.
 type optionGroup struct {
 	Plugin, Label string
-	load          func(s *Server) any
-	save          func(s *Server, c *gin.Context, v []byte) error
+	// fullAccess groups change who controls sign-in, mail or the scripts every page loads, which no
+	// scope's job covers: a scoped credential may read them but only a full-access one may write.
+	fullAccess bool
+	load       func(s *Server) any
+	save       func(s *Server, c *gin.Context, v []byte) error
 }
 
 // groupOf builds an option group. check, when given, refuses a merged value its settings screen would
@@ -222,15 +225,15 @@ func deepMerge(dst, src map[string]any) {
 var optionGroups = map[string]optionGroup{
 	"seo": groupOf(seogoSlug, "Pursae SEO", func(s *Server) *seogoOptions { return s.seogoOpts().clone() },
 		func(s *Server, ctx context.Context, v *seogoOptions) error { return s.seogoSave(ctx, v) }),
-	"gocdn": groupOf(gocdnSlug, "Pursae CDN", (*Server).gocdnLoad,
-		func(s *Server, ctx context.Context, v gocdnSettings) error { return s.gocdnSave(ctx, v) }),
-	"security": groupOf(asSlug, "Pursae Security", (*Server).asLoad,
-		func(s *Server, ctx context.Context, v asSettings) error { return s.asSave(ctx, v) }, (*Server).asCheckAPISettings),
-	"smtp": groupOf(msSlug, "Pursae SMTP", (*Server).msLoadRaw,
+	"gocdn": fullAccessOnly(groupOf(gocdnSlug, "Pursae CDN", (*Server).gocdnLoad,
+		func(s *Server, ctx context.Context, v gocdnSettings) error { return s.gocdnSave(ctx, v) })),
+	"security": fullAccessOnly(groupOf(asSlug, "Pursae Security", (*Server).asLoad,
+		func(s *Server, ctx context.Context, v asSettings) error { return s.asSave(ctx, v) }, (*Server).asCheckAPISettings)),
+	"smtp": fullAccessOnly(groupOf(msSlug, "Pursae SMTP", (*Server).msLoadRaw,
 		func(s *Server, ctx context.Context, v *msOptions) error {
 			s.msSealOptions(v)
 			return s.msSave(ctx, v)
-		}),
+		})),
 	"maintenance": groupOf(maintSlug, "Pursae Maintenance", (*Server).maintLoad,
 		func(s *Server, ctx context.Context, v maintSettings) error {
 			// A new site password is stored only as its hash, as the settings form stores it (D16).
@@ -239,8 +242,14 @@ var optionGroups = map[string]optionGroup{
 			}
 			return s.maintSave(ctx, v)
 		}, (*Server).maintCheckRaw, (*Server).maintCheckAPIPassword),
-	"headless": groupOf(hgSlug, "Pursae Headless", (*Server).hgLoad,
-		func(s *Server, ctx context.Context, v hgSettings) error { return s.hgSaveSettings(ctx, v) }),
+	"headless": fullAccessOnly(groupOf(hgSlug, "Pursae Headless", (*Server).hgLoad,
+		func(s *Server, ctx context.Context, v hgSettings) error { return s.hgSaveSettings(ctx, v) })),
+}
+
+// fullAccessOnly marks a group whose writes need a credential with full access.
+func fullAccessOnly(g optionGroup) optionGroup {
+	g.fullAccess = true
+	return g
 }
 
 func (s *Server) pursaeOptionGroups(c *gin.Context, _ *restRequest) {
@@ -272,6 +281,11 @@ func (s *Server) pursaeOptionsHandler(fixed string) restHandler {
 			return
 		}
 		if r.Method != http.MethodGet {
+			if g.fullAccess && len(restScopes(c)) > 0 {
+				restErr(c, http.StatusForbidden, "rest_scope_forbidden", "Changing the "+g.Label+" settings needs an application password with full access.",
+					map[string]any{"required_scope": appScopeFullAccess, "scopes": restScopes(c)})
+				return
+			}
 			patch := r.Body
 			if v, ok := r.Body["settings"].(map[string]any); ok && len(r.Body) == 1 {
 				patch = v

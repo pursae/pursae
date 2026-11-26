@@ -545,6 +545,7 @@ func (s *Server) seogoRESTHead(flavor string) restHandler {
 		}
 		sc := s.seogoCtxFor(c2.Request.Context(), q)
 		sc.lb = lb
+		s.seogoMembersCtx(sc, currentUser(c2))
 		title := sc.title()
 		head := "<title>" + html.EscapeString(title) + "</title>\n" + s.seogoHeadFor(sc, false)
 		if flavor == "rankmath" {

@@ -108,12 +108,19 @@ var fwStaticExt = map[string]bool{".css": true, ".js": true, ".mjs": true, ".map
 	".gif": true, ".webp": true, ".avif": true, ".svg": true, ".ico": true, ".woff": true, ".woff2": true, ".ttf": true, ".otf": true,
 	".eot": true, ".mp4": true, ".webm": true, ".mp3": true, ".ogg": true, ".wav": true, ".pdf": true}
 
-func fwStatic(p string) bool {
+// fwStaticRequest reports requests that never count toward the rate limit: GET/HEAD for the asset
+// trees, or for a static file type elsewhere only without a query string, because the site router
+// and plugin hooks answer any path (/x.css?s=term, POST /x.css?wc-ajax=...) dynamically.
+func fwStaticRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	p := r.URL.Path
 	if strings.HasPrefix(p, "/wp-includes/") || strings.HasPrefix(p, "/wp-content/") || strings.HasPrefix(p, "/wp-admin/assets/") ||
 		strings.HasPrefix(p, "/wp-admin/css/") || strings.HasPrefix(p, "/wp-admin/js/") || strings.HasPrefix(p, "/wp-admin/images/") {
 		return true
 	}
-	return fwStaticExt[strings.ToLower(path.Ext(p))]
+	return r.URL.RawQuery == "" && fwStaticExt[strings.ToLower(path.Ext(p))]
 }
 
 // fwRule is one WAF rule: a name for the log and the pattern it looks for.
@@ -205,7 +212,7 @@ func (s *Server) firewallServe(w http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 	}
-	if cfg.RateLimit > 0 && !fwStatic(r.URL.Path) && r.URL.Path != cspReportPath && !s.fwExempt(ip) { // CSP reports have their own limit
+	if cfg.RateLimit > 0 && !fwStaticRequest(r) && r.URL.Path != cspReportPath && !s.fwExempt(ip) { // CSP reports have their own limit
 		if n := s.fwLimiter().hit(ip, time.Now()); n > cfg.RateLimit {
 			s.fwLog(r, ip, "rate_limited", "More than "+strconv.Itoa(cfg.RateLimit)+" requests a minute from this IP address; answering 429 until the minute ends.")
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")

@@ -99,6 +99,7 @@ type postView struct {
 	DateISO, ModifiedISO               string
 	AuthorName, AuthorURL, AuthorEmail string
 	AuthorBio                          string
+	AuthorAvatar                       string // avatar URL (96px); AuthorEmail is kept empty for old templates
 	Categories, Tags                   []termLink
 	CommentCount                       int
 	CommentsOpen, HasPassword          bool
@@ -777,4 +778,69 @@ func renderMenu(items []*store.MenuItem, container, class, before, after string)
 	}
 	walk(items, 0)
 	return template.HTML(fmt.Sprintf(`<div class="%s"><ul id="menu-%s" class="%s">%s</ul></div>`, container, class, class, sb.String()))
+}
+
+// templateView is the copy of v that theme templates execute against. Templates (package themes are
+// admin-installed and code-free) can read every exported field, so the store objects they reach carry
+// only public data: no password hash, e-mail, raw meta, roles, capabilities or post password. Go code
+// keeps the full objects on v.
+func (v *siteView) templateView() *siteView {
+	if v == nil {
+		return nil
+	}
+	tv := *v
+	if v.Q != nil {
+		q := *v.Q
+		q.Author = publicUser(q.Author)
+		q.Post = publicPost(q.Post)
+		q.PostsPage = publicPost(q.PostsPage)
+		tv.Q = &q
+	}
+	tv.Post = v.Post.templateView()
+	if v.Posts != nil {
+		tv.Posts = make([]*postView, len(v.Posts))
+		for i, pv := range v.Posts {
+			tv.Posts[i] = pv.templateView()
+		}
+	}
+	return &tv
+}
+
+func (pv *postView) templateView() *postView {
+	if pv == nil {
+		return nil
+	}
+	c := *pv
+	c.Post = publicPost(pv.Post)
+	c.AuthorEmail = ""
+	return &c
+}
+
+// publicPost is p without its password (HasPassword / post_password_required say whether it has one).
+func publicPost(p *store.Post) *store.Post {
+	if p == nil || p.Password == "" {
+		return p
+	}
+	c := *p
+	c.Password = ""
+	return &c
+}
+
+// publicUser keeps what WordPress shows of an author on the front end: the ids and names already in
+// author URLs, the display name, website and the public profile fields.
+func publicUser(u *store.User) *store.User {
+	if u == nil {
+		return nil
+	}
+	pub := &store.User{ID: u.ID, Login: u.Login, Nicename: u.Nicename, DisplayName: u.DisplayName, URL: u.URL,
+		RegisteredAt: u.RegisteredAt}
+	for _, k := range []string{"description", "first_name", "last_name", "nickname"} {
+		if val, ok := u.Profile[k]; ok {
+			if pub.Profile == nil {
+				pub.Profile = map[string]string{}
+			}
+			pub.Profile[k] = val
+		}
+	}
+	return pub
 }

@@ -53,11 +53,11 @@ func TestFirewallLimiter(t *testing.T) {
 		t.Fatal("firstLog must be true once per minute")
 	}
 	for _, p := range []string{"/wp-includes/js/x.js", "/a/b.png", "/wp-admin/css/x.css"} {
-		if !fwStatic(p) {
+		if !fwStaticRequest(httptest.NewRequest(http.MethodGet, p, nil)) {
 			t.Errorf("%s should be static", p)
 		}
 	}
-	if fwStatic("/wp-json/wp/v2/posts") || fwStatic("/") {
+	if fwStaticRequest(httptest.NewRequest(http.MethodGet, "/wp-json/wp/v2/posts", nil)) || fwStaticRequest(httptest.NewRequest(http.MethodGet, "/", nil)) {
 		t.Error("pages must count")
 	}
 }

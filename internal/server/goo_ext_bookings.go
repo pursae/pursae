@@ -392,8 +392,8 @@ func gooBkCostWith(c *bkConf, start time.Time, blocks int, persons map[string]in
 	base, block := c.BaseCost+rb, c.BlockCost+rk
 	total := 0
 	for _, pt := range c.PersonTypes {
-		n := persons[pt.ID]
-		total += n
+		n := bkClampPersons(persons[pt.ID])
+		total = bkClampPersons(total + n)
 		base += pt.BaseCost * float64(n)
 		block += pt.BlockCost * float64(n)
 	}
@@ -506,7 +506,7 @@ func (s *Server) gooBkExistingErr(ctx context.Context, productID, resource int64
 		var persons map[string]any
 		if rows.Scan(&h.Start, &h.End, &persons) == nil {
 			for _, v := range persons {
-				h.Persons += int(gxNum(v))
+				h.Persons = bkClampPersons(h.Persons + bkClampPersons(int(min(max(gxNum(v), 0), bkMaxPersons))))
 			}
 			out = append(out, h)
 		}
@@ -954,6 +954,9 @@ func (s *Server) bkParseRequest(c *bkConf, form map[string][]string) (time.Time,
 			if n < 0 {
 				n = 0
 			}
+			if n > bkPersonsCap(c) || total+n > bkPersonsCap(c) {
+				return start, 0, nil, gooCartErr("The maximum persons per group is %d.", bkPersonsCap(c))
+			}
 			if pt.Min > 0 && n < pt.Min {
 				return start, 0, nil, gooCartErr("The minimum %s per booking is %d.", html.EscapeString(pt.Name), pt.Min)
 			}
@@ -975,10 +978,28 @@ func (s *Server) bkParseRequest(c *bkConf, form map[string][]string) (time.Time,
 	return start, blocks, persons, nil
 }
 
+// bkMaxPersons caps person counts: an unchecked huge count would wrap the int sum below the
+// max-persons and capacity checks and shrink the per-person cost multiplier.
+const bkMaxPersons = 10000
+
+// bkPersonsCap is the most persons one booking may hold: bkMaxPersons, or the product's
+// max persons per group when that is smaller.
+func bkPersonsCap(c *bkConf) int {
+	if c.MaxPersons > 0 && c.MaxPersons < bkMaxPersons {
+		return c.MaxPersons
+	}
+	return bkMaxPersons
+}
+
+// bkClampPersons keeps a person count within [0, bkMaxPersons].
+func bkClampPersons(n int) int {
+	return min(max(n, 0), bkMaxPersons)
+}
+
 func bkSumPersons(m map[string]int) int {
 	n := 0
 	for _, v := range m {
-		n += v
+		n = bkClampPersons(n + bkClampPersons(v))
 	}
 	return n
 }

@@ -94,7 +94,15 @@ func (s *Server) acfgoObject(ctx context.Context, id any, current *store.Post) *
 		}
 		return nil
 	case *store.User:
-		return &acfObject{Kind: "user", ID: t.ID, meta: t.Meta}
+		// Theme templates get a public copy of the user without Meta; read the meta from the store and let
+		// acfGetField decide which keys a template may see.
+		if t == nil {
+			return nil
+		}
+		if u := s.acfgoUserByID(ctx, t.ID); u != nil {
+			return &acfObject{Kind: "user", ID: t.ID, meta: u.Meta}
+		}
+		return nil
 	case *store.Term:
 		return &acfObject{Kind: "term", ID: t.ID, meta: orEmptyMap(t.Meta)}
 	case int, int64, float64:
@@ -1384,11 +1392,34 @@ func (s *Server) acfGetField(ctx context.Context, selector string, id any, forma
 		return s.acfgoBlockValue(ctx, o, selector, format)
 	}
 	f := s.acfgoFind(ctx, o, selector)
+	if acfgoPrivateMeta(o, selector) || (f != nil && acfgoPrivateMeta(o, acfgoStr(f["name"]))) {
+		return nil
+	}
 	if f == nil {
+		// User and comment meta holds sign-in and contact data, not only field values: theme templates
+		// get raw meta there only for keys that are registered ACF fields.
+		if o.Kind == "user" || o.Kind == "comment" {
+			return nil
+		}
 		v, _ := s.acfgoGet(o, selector)
 		return v
 	}
 	return s.acfgoLoad(ctx, o, f, "", format)
+}
+
+// acfgoPrivateMeta reports a user meta key that controls sign-in or permissions (reset keys, sessions,
+// capabilities, security settings); get_field never returns it, even when a field shares its name.
+func acfgoPrivateMeta(o *acfObject, key string) bool {
+	if o == nil || o.Kind != "user" {
+		return false
+	}
+	k := strings.ToLower(strings.TrimPrefix(key, "_"))
+	switch k {
+	case "password_reset", "new_email", "session_tokens", "sessions", "application_passwords", "forum_google_sub":
+		return true
+	}
+	return strings.HasPrefix(k, "adminsec_") || strings.HasSuffix(k, "capabilities") || strings.HasSuffix(k, "user_level") ||
+		strings.Contains(k, "password") || strings.Contains(k, "session") || strings.Contains(k, "token")
 }
 
 // acfGetFieldObject is get_field_object(): the field settings with "value".
@@ -1401,7 +1432,7 @@ func (s *Server) acfGetFieldObject(ctx context.Context, selector string, id any,
 		return nil
 	}
 	f := s.acfgoFind(ctx, o, selector)
-	if f == nil {
+	if f == nil || acfgoPrivateMeta(o, selector) || acfgoPrivateMeta(o, acfgoStr(f["name"])) {
 		return nil
 	}
 	out := map[string]any{}

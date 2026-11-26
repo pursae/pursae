@@ -69,9 +69,9 @@ section: operations
 - **Core firewall** (`internal/server/firewall.go`), on by default and without any plugin, runs before
   everything else on every request:
   - a **per-IP rate limit**: 900 requests a minute from one address; more is answered with
-    `429 Too Many Requests` and `Retry-After` until the minute ends. Static files (`/wp-includes/`,
-    `/wp-content/`, the admin's assets, and `.css`, `.js`, images, fonts, media and PDF by extension)
-    and the CSP report endpoint (which has its own limit) do not count; loopback addresses and trusted
+    `429 Too Many Requests` and `Retry-After` until the minute ends. `GET`/`HEAD` for static files
+    (`/wp-includes/`, `/wp-content/`, the admin's assets, and elsewhere `.css`, `.js`, images, fonts,
+    media and PDF by extension when the URL has no query string) and the CSP report endpoint (which has its own limit) do not count; loopback addresses and trusted
     proxies (`PURSAE_TRUSTED_PROXIES`) are never limited, since without a forwarded header they carry
     every visitor. The visitor address is the one [the proxy settings](reverse-proxy-and-tls.md) derive.
     The count is kept in each process's memory: with several instances behind a load balancer each

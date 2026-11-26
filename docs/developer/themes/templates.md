@@ -63,7 +63,7 @@ Every template receives the same **site view** (`.`):
 | Field | Type | Meaning |
 |-------|------|---------|
 | `.Template` | string | `index`, `single`, `page`, `archive`, `search`, `404` |
-| `.Q` | query | the main query: `.Q.Kind` (`home`, `front-page`, `single`, `page`, `category`, `tag`, `taxonomy`, `author`, `date`, `search`, `post-type-archive`, `404`), `.Q.Post`, `.Q.Term`, `.Q.Author`, `.Q.Year/.Month/.Day`, `.Q.Search`, `.Q.Paged`, `.Q.Preview` |
+| `.Q` | query | the main query: `.Q.Kind` (`home`, `front-page`, `single`, `page`, `category`, `tag`, `taxonomy`, `author`, `date`, `search`, `post-type-archive`, `404`), `.Q.Post`, `.Q.Term`, `.Q.Author`, `.Q.Year/.Month/.Day`, `.Q.Search`, `.Q.Paged`, `.Q.Preview`. `.Q.Author` and `.Q.Post` are public copies: the author without e-mail, password hash, meta, roles or capabilities (ID, login, nicename, display name, URL, `.Profile` description and names), the post with an empty `.Password` |
 | `.DocumentTitle` | HTML | `wp_get_document_title()` with separator and site name |
 | `.Head` | HTML | `wp_head()`: feeds, styles, scripts, Customizer CSS, plugin assets. Print it before `</head>` |
 | `.Footer` | HTML | `wp_footer()`: scripts. Print it before `</body>` |
@@ -118,7 +118,7 @@ Every template receives the same **site view** (`.`):
 | `.EditLink` | HTML | `edit_post_link()` for users who may edit |
 | `.Date`, `.Modified` | time | use `{{date .Date ""}}` |
 | `.DateText`, `.ModifiedText`, `.DateISO`, `.ModifiedISO` | string | formatted with the site's date format / ISO 8601 |
-| `.AuthorName`, `.AuthorURL`, `.AuthorBio`, `.Biography` | | the author and the author box |
+| `.AuthorName`, `.AuthorURL`, `.AuthorBio`, `.AuthorAvatar`, `.Biography` | | the author, its avatar URL and the author box (`.AuthorEmail` is always empty) |
 | `.Categories`, `.Tags` | []term | `.ID`, `.Name`, `.Slug`, `.URL` |
 | `.CommentCount`, `.CommentsOpen`, `.ShowComments`, `.HasPassword` | | |
 | `.Thumbnail`, `.ThumbnailURL`, `.ShowFeatured` | HTML, string, bool | the featured image (`post-thumbnails` support) |

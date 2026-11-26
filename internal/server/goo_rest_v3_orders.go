@@ -1296,20 +1296,53 @@ func userLevel(u *store.User) int {
 	return 0
 }
 
-// gooCustomerCredentialAllowed reports whether actor may set target's password or delete the account.
-// A scoped application password or OAuth grant needs the users scope. Changing someone else also
-// requires a role at least as high as the target's.
+// gooCustomerCredentialAllowed reports whether actor may set target's password or e-mail, or delete
+// the account. A scoped application password or OAuth grant needs the Users scope, and beyond the
+// caller's own account it reaches only level-0 accounts (customers, subscribers), which is what shop
+// integrations manage: any account with a role above that, an administrator above all, needs full
+// access, so a scoped credential cannot take over staff accounts. Changing someone else also requires
+// a role at least as high as the target's.
 func gooCustomerCredentialAllowed(actor, target *store.User, scopes []string) bool {
 	if actor == nil || target == nil {
 		return false
 	}
-	if len(scopes) > 0 && !slices.Contains(scopes, "users") {
-		return false
+	if len(scopes) > 0 {
+		if !slices.Contains(scopes, "users") {
+			return false
+		}
+		if actor.ID != target.ID && userLevel(target) > 0 {
+			return false
+		}
 	}
 	if actor.ID == target.ID {
 		return true
 	}
 	return userLevel(actor) >= userLevel(target)
+}
+
+// gooProtectedUserMetaKey reports whether k is user meta that core keeps as sign-in, security or
+// account state (reset keys, Pursae Security, sessions, capabilities, forum verification and Google
+// link, Web Builder trust). wc/v3 customers neither write nor show it.
+func gooProtectedUserMetaKey(k string) bool {
+	k = strings.ToLower(strings.TrimSpace(k))
+	if k == "" || strings.HasPrefix(k, "_") {
+		return true
+	}
+	switch k {
+	case "password_reset", forumUMetaUnverified, forumUMetaVerify, forumUMetaGoogleSub, forumUMetaGoogleEmail,
+		forumUMetaNoPassword, forumUMetaEmailVerified, "user_level", "primary_blog":
+		return true
+	}
+	if _, ok := cliUserSecurityMetaKeys[k]; ok {
+		return true
+	}
+	for _, p := range []string{"adminsec_", "session", "app_password", "application_password", "wp_"} {
+		if strings.HasPrefix(k, p) {
+			return true
+		}
+	}
+	return strings.Contains(k, "capabilit") || strings.Contains(k, "user_level") || strings.Contains(k, "password") ||
+		strings.Contains(k, "2fa") || strings.Contains(k, "totp") || strings.Contains(k, "passkey")
 }
 
 // gooCustomerStats are a customer's paid orders count and total spent.
@@ -1341,8 +1374,7 @@ func (s *Server) gooV3CustomerJSON(ctx context.Context, u *store.User) map[strin
 	}
 	meta := map[string]any{}
 	for k, v := range u.Meta {
-		if !strings.HasPrefix(k, "billing_") && !strings.HasPrefix(k, "shipping_") && !strings.HasPrefix(k, "_") && k != "password_reset" &&
-			!strings.HasPrefix(k, "session") && !strings.Contains(k, "capabilit") {
+		if !strings.HasPrefix(k, "billing_") && !strings.HasPrefix(k, "shipping_") && !gooProtectedUserMetaKey(k) {
 			meta[k] = v
 		}
 	}
@@ -1373,7 +1405,7 @@ func (s *Server) gooV3ApplyCustomer(ctx context.Context, u *store.User, b map[st
 	}
 	for _, x := range gooList(b["meta_data"]) {
 		m := gooObj(x)
-		if k := gooStr(m["key"]); k != "" && !strings.HasPrefix(k, "_") {
+		if k := gooStr(m["key"]); !gooProtectedUserMetaKey(k) { // security state is never REST meta
 			meta[k] = m["value"]
 		}
 	}

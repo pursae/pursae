@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/mail"
 	"os"
@@ -29,8 +30,25 @@ func (s *Server) gooLoginFormHTML(c *gin.Context, redirect string, toggle bool) 
 	return s.gooTpl("goo/form-login", map[string]any{
 		"Action": s.gooPageURL(c.Request.Context(), "myaccount"), "Toggle": toggle, "Username": c.PostForm("username"),
 		"Nonce": s.nonce(c, "woocommerce-login"), "Redirect": redirect, "LostURL": s.loginPath() + "?action=lostpassword",
-		"Captcha": string(s.loginCaptchaWidget(c)), // Pursae Security: CAPTCHA on the account forms
+		"Captcha": string(s.gooLoginCaptchaWidget(c)), // Pursae Security: CAPTCHA on the account forms
 	})
+}
+
+// gooLoginCaptchaKey marks a session whose last sign-in was asked for the "account under attack" CAPTCHA.
+const gooLoginCaptchaKey = "login_captcha"
+
+// gooLoginCaptchaWidget is the login form's CAPTCHA: the always-on one, or the one loginPressureCaptcha
+// asked for on this session's last attempt.
+func (s *Server) gooLoginCaptchaWidget(c *gin.Context) template.HTML {
+	if w := s.loginCaptchaWidget(c); w != "" {
+		return w
+	}
+	if asked, _ := s.gooSessionFor(c).Data.Extra[gooLoginCaptchaKey].(bool); asked {
+		if p, ok := s.captchaProvider(); ok {
+			return captchaWidget(c, p, "login")
+		}
+	}
+	return ""
 }
 
 // gooAccountPageHTML is the [goocommerce_my_account] shortcode.
@@ -350,6 +368,20 @@ func (s *Server) gooLoginPost(c *gin.Context) {
 	secOn := s.adminsecOn()
 	if secOn {
 		if msg := s.adminsecPreLogin(c, login); msg != "" {
+			fail(string(msg))
+			return
+		}
+	}
+	// An account under attack asks for the CAPTCHA here as on wp-login; the session remembers it so
+	// the login form shows the widget after the redirect.
+	if widget, msg := s.loginPressureCaptcha(c, login); widget != "" {
+		sess := s.gooSessionFor(c)
+		if sess.Data.Extra == nil {
+			sess.Data.Extra = map[string]any{}
+		}
+		sess.Data.Extra[gooLoginCaptchaKey] = true
+		sess.touch()
+		if msg != "" {
 			fail(string(msg))
 			return
 		}

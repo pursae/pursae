@@ -202,7 +202,7 @@ go to stderr.
 | Pursae Cache | `cache_status`, `cache_purge`, `cache_get_settings`, `cache_update_settings` |
 | Content Security Policy (`settings` scope, `manage_options`) | `csp_get_settings`, `csp_update_settings`: the external origins the front-end policy allows in `connect-src`, `font-src` and `style-src` ([security](security.md)); `sources` replaces the lists of the directives it names |
 | Pursae Headless (settings scope) | `headless_list_types`, `headless_save_type`, `headless_update_type`, `headless_delete_type`, `headless_find`, `headless_get_entry`, `headless_create_entry`, `headless_save_entry`, `headless_publish`, `headless_unpublish`, `headless_delete_entry` |
-| Built-in plugin settings | `list_option_groups`, `get_options`, `update_options` (`contact`, `cookie`, `gocdn`, `headless`, `maintenance`, `multilang`, `pixel`, `security`, `seo`, `smtp`; secrets masked) |
+| Built-in plugin settings | `list_option_groups`, `get_options`, `update_options` (`contact`, `cookie`, `gocdn`, `headless`, `maintenance`, `multilang`, `pixel`, `security`, `seo`, `smtp`; secrets masked; changing `gocdn`, `headless`, `security` or `smtp` needs full access, the other groups the `settings` scope) |
 | Anything else | `site_info`, `rest_request` (any REST route, same permissions) |
 
 `tools/list` shows only the tools the credential can use: its scopes must cover the tool's route, the user needs the capability, and tools of Pursae SEO, Pursae Headless or Pursae Commerce appear only while that plugin is active (the Web Builder and Forum tools stay listed and explain how to turn their plugin on). The server sends `notifications/tools/list_changed` on the GET stream when a plugin is activated or deactivated.
