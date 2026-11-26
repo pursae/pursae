@@ -1042,6 +1042,8 @@ func TestWBImportWizardUndoKeepsFilesWhenMediaDeleteFails(t *testing.T) {
 	}
 	fake := s3fake.New(gocdnTestKey, gocdnTestSecret, "auto", "media")
 	t.Cleanup(fake.Close)
+	gocdnAllowPrivate.Store(true) // the fake storage listens on 127.0.0.1
+	t.Cleanup(func() { gocdnAllowPrivate.Store(false) })
 	sub := filepath.ToSlash(filepath.Dir(a.FilePath))
 	if sub == "." {
 		sub = ""
