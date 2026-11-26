@@ -10,6 +10,12 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pursae Security:** sign-in attempts that arrive in parallel with the one that locks a network out are refused as
+  well, so a burst of guesses cannot pass the failure limit.
+- Theme installs, release notes and the Hub client: fixes from pull request #229.
+
 ## [0.6.0] - 2026-11-26
 
 ### Security

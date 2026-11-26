@@ -476,7 +476,15 @@ func (s *Server) asAttemptsOver(c *gin.Context, st asSettings, b asBucket, max i
 		append(args, s.asFailWindowStart(c, st, b))...).Scan(&n); err != nil {
 		return false
 	}
-	return n > max
+	if n > max {
+		return true
+	}
+	// A lockout created by a parallel request moves the window start past the failures that caused it,
+	// so a request that passed the lockout check before it existed would count almost nothing here. Checking
+	// the lockout after the count closes that gap: a lockout created before the window start was read is
+	// seen now, and one created after it leaves those failures in the count.
+	_, locked := s.asLockedUntil(c, b.kind, b.value)
+	return locked
 }
 
 // adminsecLoginFailed records a failed attempt (wrong user, password or code) and locks the client
