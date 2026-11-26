@@ -330,7 +330,7 @@ func TestPluginPostsAPIAndTransientsOnDatabase(t *testing.T) {
 		t.Errorf("meta/terms %+v %+v", created.Meta, created.Terms)
 	}
 	ex := "short"
-	updated, err := h.UpdatePost(ctx, "demo", created.ID, plugins.PostInput{Excerpt: &ex, Meta: map[string]any{"k": nil, "n": 2}})
+	updated, err := h.UpdatePost(withPluginElevated(ctx), "demo", created.ID, plugins.PostInput{Excerpt: &ex, Meta: map[string]any{"k": nil, "n": 2}})
 	if err != nil || updated.Excerpt != "short" || updated.Meta["k"] != nil || updated.Meta["n"] != 2.0 {
 		t.Fatalf("updated %+v %v", updated, err)
 	}

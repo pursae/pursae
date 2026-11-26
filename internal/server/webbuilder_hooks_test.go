@@ -214,7 +214,7 @@ func TestWebBuilderHooksDrift(t *testing.T) {
 	}
 
 	// Saves through a Wasm plugin (host API) are outside the builder too.
-	if _, err := (&pluginHost{s: srv}).UpdatePost(ctx, "", p.ID, wbhPluginInput(after.Content+"<p>plugin</p>")); err != nil {
+	if _, err := (&pluginHost{s: srv}).UpdatePost(withPluginElevated(ctx), "", p.ID, wbhPluginInput(after.Content+"<p>plugin</p>")); err != nil {
 		t.Fatalf("plugin update: %v", err)
 	}
 	if !wbhDoc(t, srv, p.ID).Detached {
