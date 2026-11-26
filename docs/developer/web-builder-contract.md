@@ -329,7 +329,9 @@ Body is `application/x-www-form-urlencoded` or `multipart/form-data` (no files),
 Per-IP rate limit → **429** `wb_rate_limited` with `Retry-After`. Invalid → **422**
 `wb_form_invalid`, `data.fields: {field: "required"|"invalid"|"too_long"}` (a code form's fields by the design's input names). Mail goes through the
 core mailer to the form's recipients: its own `formTo` / `formCc` section content keys, else Settings ›
-Web Builder (Form recipients, Form copies), else the admin email. Every valid submission is also stored
+Web Builder (Form recipients, Form copies), else the admin email. When the page was last published by a
+user without `manage_options` or `unfiltered_html`, the form's own addresses are used only when they are the
+admin email, a site default recipient or the address of a user who can write posts. Every valid submission is also stored
 (`web_builder_form_submissions`, listed on Settings › Web Builder unless switched off), so a message
 survives a failed mail. Texts: `formSuccess` / `formError` content keys, else the site settings, else the
 built-in English defaults, translated with the request language (Pursae Multi Language "Strings" or the

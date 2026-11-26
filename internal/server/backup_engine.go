@@ -805,6 +805,13 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		}
 	}
 
+	// What this site granted its plugins, before the archive's plugins table replaces it (backup_plugins.go).
+	restoresPlugins := plan.Tables["plugins"] || contains(plan.Groups, "plugins")
+	var pluginsBefore map[string]bmgrPluginGrant
+	if restoresPlugins {
+		pluginsBefore = s.bmgrPluginGrants(ctx)
+	}
+
 	// Database: one transaction, all or nothing.
 	if len(plan.Tables) > 0 {
 		// Secrets sealed under the archive's site secret are re-encrypted for this site (backup_secrets.go).
@@ -841,6 +848,12 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		})
 		for _, c := range open {
 			c.Close()
+		}
+		if err == nil && plan.Tables["plugins"] {
+			var n int
+			if n, err = bmgrRestrictRestoredGrants(ctx, tx, pluginsBefore); n > 0 {
+				s.bmgrLog(j, "%d restored plugins had content:html or admin:scripts granted on the other site: grant them again on the Plugins screen", n)
+			}
 		}
 		if err != nil {
 			_ = tx.Rollback(ctx)
@@ -896,7 +909,8 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		}
 		s.bmgrLog(j, "%s files restored: %d", g, n)
 	}
-	if plan.Tables["plugins"] || contains(plan.Groups, "plugins") {
+	if restoresPlugins {
+		s.bmgrVetRestoredPlugins(ctx, j, pluginsBefore)
 		s.bmgrLog(j, "restart Pursae to load the restored plugins")
 	}
 	return nil

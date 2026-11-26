@@ -639,7 +639,11 @@ func (sub *gfSubmission) result() map[string]any {
 	if q := sub.s.gontactQuizRefill(sub.tags); len(q) > 0 {
 		out["quiz"] = q
 	}
-	if cp := sub.s.gontactCaptchaRefill(sub.ctx, sub.tags); len(cp) > 0 {
+	ctx := sub.ctx
+	if sub.c != nil {
+		ctx = sub.c // carries the client network for the per-network CAPTCHA limit
+	}
+	if cp := sub.s.gontactCaptchaRefill(ctx, sub.tags); len(cp) > 0 {
 		out["captcha"] = cp
 	}
 	return out

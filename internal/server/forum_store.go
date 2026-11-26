@@ -37,6 +37,10 @@ func forumNotSpam(a string) string {
 const forumSQLLiveParent = `(p.type <> 'reply' OR EXISTS (SELECT 1 FROM posts lt WHERE lt.id = p.parent_id AND lt.type = 'topic'
 	AND lt.status = 'publish' AND coalesce(lt.meta->>'` + forumMetaSpam + `','') <> 'true'))`
 
+// forumSQLInPublishedForum keeps a topic or reply (alias p) whose forum is published.
+const forumSQLInPublishedForum = `EXISTS (SELECT 1 FROM posts ft JOIN posts ff ON ff.id = ft.parent_id AND ff.type = 'forum' AND ff.status = 'publish'
+	WHERE ft.id = CASE WHEN p.type = 'reply' THEN p.parent_id ELSE p.id END AND ft.type = 'topic')`
+
 // Meta helpers -----------------------------------------------------------------------------------
 
 func forumMetaInt(m map[string]any, k string) int {

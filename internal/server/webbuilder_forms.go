@@ -484,20 +484,59 @@ func wbFormTitleOf(p *store.Post, schema webbuilder.FormSchema) string {
 }
 
 // wbFormRecipients are the To and Cc addresses of a form: its own (section content), else the site
-// defaults of Settings › Web Builder, else admin_email.
-func (s *Server) wbFormRecipients(schema webbuilder.FormSchema) (to, cc []string) {
-	to = webbuilder.FormAddresses(schema.To)
+// defaults of Settings › Web Builder, else admin_email. The form's own addresses come from the page
+// document, which an author can write: unless the page was last published by a user who may change
+// site settings or post unfiltered HTML, they are limited to the site's own addresses
+// (wbFormSiteAddress), so a page cannot turn the form into a mail relay.
+func (s *Server) wbFormRecipients(ctx context.Context, p *store.Post, schema webbuilder.FormSchema) (to, cc []string) {
+	trusted := s.wbFormPublisherTrusted(ctx, p)
+	own := func(list string) []string {
+		out := webbuilder.FormAddresses(list)
+		if trusted {
+			return out
+		}
+		return slices.DeleteFunc(out, func(a string) bool { return !s.wbFormSiteAddress(ctx, a) })
+	}
+	to = own(schema.To)
 	if len(to) == 0 {
 		to = webbuilder.FormAddresses(s.settings.String(wbFormToOption))
 	}
 	if len(to) == 0 {
 		to = webbuilder.FormAddresses(s.settings.String("admin_email"))
 	}
-	cc = webbuilder.FormAddresses(schema.Cc)
+	cc = own(schema.Cc)
 	if schema.Cc == "" {
 		cc = webbuilder.FormAddresses(s.settings.String(wbFormCcOption))
 	}
 	return to, cc
+}
+
+// wbFormPublisherTrusted: the stored doc of p was published by a user with manage_options or
+// unfiltered_html.
+func (s *Server) wbFormPublisherTrusted(ctx context.Context, p *store.Post) bool {
+	if p == nil {
+		return false
+	}
+	row, err := s.store.WebBuilder().Doc(ctx, p.ID)
+	if err != nil || row.SnapshotUser == 0 {
+		return false
+	}
+	u, err := s.store.UserByID(ctx, row.SnapshotUser)
+	return err == nil && u != nil && (u.Can("manage_options", nil) || u.Can("unfiltered_html", nil))
+}
+
+// wbFormSiteAddress: addr is admin_email, one of the site's default form recipients or the address
+// of a user who can write posts.
+func (s *Server) wbFormSiteAddress(ctx context.Context, addr string) bool {
+	for _, opt := range []string{"admin_email", wbFormToOption, wbFormCcOption} {
+		for _, a := range webbuilder.FormAddresses(s.settings.String(opt)) {
+			if strings.EqualFold(a, addr) {
+				return true
+			}
+		}
+	}
+	u, err := s.store.UserByLoginOrEmail(ctx, addr)
+	return err == nil && u != nil && strings.EqualFold(u.Email, addr) && u.Can("edit_posts", nil)
 }
 
 // wbFormMessage is the text shown after a submit: the form's own, else the site's (Settings › Web
@@ -515,7 +554,7 @@ func (s *Server) wbFormMessage(ctx context.Context, custom, option, def string) 
 // wbFormMail queues the message to the form's recipients (the wp_mail job of the core mailer). link
 // is the page the form was sent from (wbFormPageURL). The mail text is in the site language.
 func (s *Server) wbFormMail(ctx context.Context, p *store.Post, link string, schema webbuilder.FormSchema, clean map[string]string, ip string) error {
-	to, cc := s.wbFormRecipients(schema)
+	to, cc := s.wbFormRecipients(ctx, p, schema)
 	if len(to) == 0 {
 		return errors.New("no recipient")
 	}

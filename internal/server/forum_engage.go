@@ -166,7 +166,7 @@ func (s *Server) forumLikeTarget(ctx context.Context, postID int64) (authorID, t
 	var typ string
 	var parent int64
 	err = s.store.Pool.QueryRow(ctx, `SELECT p.type, coalesce(p.author_id,0), coalesce(p.parent_id,0) FROM posts p WHERE p.id = $1
-		AND p.type IN ('topic','reply') AND p.status = 'publish' AND `+forumNotSpam("p")+` AND `+forumSQLLiveParent, postID).Scan(&typ, &authorID, &parent)
+		AND p.type IN ('topic','reply') AND p.status = 'publish' AND `+forumNotSpam("p")+` AND `+forumSQLLiveParent+` AND `+forumSQLInPublishedForum, postID).Scan(&typ, &authorID, &parent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, 0, errForumNotFound
 	}
@@ -502,7 +502,7 @@ func (s *Server) forumReport(ctx context.Context, u *store.User, postID int64, r
 	}
 	var exists bool
 	if err := s.store.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM posts p WHERE p.id = $1 AND p.type IN ('topic','reply')
-		AND p.status = 'publish' AND `+forumNotSpam("p")+`)`, postID).Scan(&exists); err != nil {
+		AND p.status = 'publish' AND `+forumNotSpam("p")+` AND `+forumSQLLiveParent+` AND `+forumSQLInPublishedForum+`)`, postID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -624,6 +624,10 @@ func (s *Server) forumNotifyReply(ctx context.Context, replyID int64) {
 	}
 	t, err := s.forumTopicByID(ctx, r.TopicID)
 	if err != nil || t.Status != "publish" || t.Spam {
+		return
+	}
+	var live bool // a forum unpublished meanwhile sends nothing (its topics are not visible)
+	if err := s.store.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM posts p WHERE p.id = $1 AND `+forumPublishedForumsSQL("p")+`)`, t.ID).Scan(&live); err != nil || !live {
 		return
 	}
 	rows, err := s.store.Pool.Query(ctx, `SELECT u.id, u.email, coalesce(nullif(btrim(u.display_name),''), u.login) FROM forum_subscriptions fs

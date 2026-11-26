@@ -89,9 +89,10 @@ var bmgrCategories = []bmgrCategory{
 var bmgrNever = map[string]bool{"schema_migrations": true, "schema_meta": true, "sessions": true, "transients": true, "jobs": true}
 
 // bmgrKeepSettings are the options this site keeps when a backup is restored over it: its own secret
-// (so cookies and nonces stay valid), its address (rewritten from the archive's) and this plugin's state.
+// (so cookies and nonces stay valid), its address (rewritten from the archive's), this plugin's state and
+// which plugin signing keys it trusts (that takes install_plugins here, a restore only manage_options).
 var bmgrKeepSettings = []string{"auth_secret", "siteurl", "home", bmgrSetting, bmgrOptSchedule, bmgrOptKeep, bmgrOptCats, bmgrOptLast,
-	bmgrOptRemote}
+	bmgrOptRemote, "plugin_trusted_keys", "plugin_allow_unsigned"}
 
 // bmgrNoExportSettings are options never written into an archive: the remote storage settings hold
 // the bucket credentials and the encryption passphrase (sealed with the site secret, which the

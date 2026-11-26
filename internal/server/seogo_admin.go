@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"wpgo/internal/store"
+	"wpgo/internal/wp"
 )
 
 // The Pursae SEO admin screens, all under /wp-admin/seogo?page=…: Dashboard (with the modules),
@@ -750,6 +751,9 @@ func (s *Server) seogoAdminPost(c *gin.Context, page string) (string, error) {
 			o.TOCMin = min(max(o.TOCMin, 1), 20)
 		case "rss":
 			o.RSSBefore, o.RSSAfter = c.PostForm("rss_before"), c.PostForm("rss_after")
+			if !currentUser(c).Can("unfiltered_html", nil) { // feed items carry them as HTML
+				o.RSSBefore, o.RSSAfter = wp.KsesPost(o.RSSBefore), wp.KsesPost(o.RSSAfter)
+			}
 		case "images":
 			o.ImgAlt, o.ImgTitle = c.PostForm("img_alt"), c.PostForm("img_title")
 		}

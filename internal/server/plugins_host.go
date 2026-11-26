@@ -119,10 +119,11 @@ func (h *pluginHost) postData(ctx context.Context, p *store.Post) *plugins.PostD
 	return out
 }
 
-// authorizePostWrite is the capability check for insert_post and update_post when the call runs
-// inside a request. Background callers may still create drafts; publishing (publish, future,
-// private) needs an elevated context or a user who can publish. before is the stored post on
-// update and nil on insert. Creating a draft needs no user; editing an existing post does.
+// authorizePostWrite is the capability check for insert_post and update_post. Scheduled events
+// (elevated) may write any post. Elsewhere the plugin acts as the request's user (admin pages,
+// widgets and meta boxes run inside the request); outside a request (init, lifecycle hooks) there
+// is no user: a draft or pending post may be created, but editing an existing post or publishing
+// needs a user allowed to do it. before is the stored post on update and nil on insert.
 func (h *pluginHost) authorizePostWrite(ctx context.Context, before, next *store.Post) error {
 	if pluginScope(ctx) == pluginScopeElevated {
 		return nil
@@ -131,6 +132,9 @@ func (h *pluginHost) authorizePostWrite(ctx context.Context, before, next *store
 	if pluginScope(ctx) != pluginScopeRequest {
 		if publishing {
 			return errors.New("publishing requires an elevated context or a user who can publish")
+		}
+		if before != nil {
+			return errors.New("editing an existing post requires a scheduled event or a user who can edit it")
 		}
 		return nil
 	}

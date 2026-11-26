@@ -294,7 +294,7 @@ func (s *Server) forumTagBySlug(ctx context.Context, slug string) (*forumTag, er
 	var name string
 	err := s.store.Pool.QueryRow(ctx, `SELECT coalesce(p.meta->'`+forumMetaTagNames+`'->>((SELECT i - 1 FROM jsonb_array_elements_text(p.meta->'`+forumMetaTags+`')
 			WITH ORDINALITY AS t(s, i) WHERE t.s = $1 LIMIT 1)::int), $1)
-		FROM posts p WHERE p.type = 'topic' AND p.status = 'publish' AND `+forumNotSpam("p")+` AND p.meta->'`+forumMetaTags+`' ? $1
+		FROM posts p WHERE p.type = 'topic' AND p.status = 'publish' AND `+forumNotSpam("p")+` AND `+forumPublishedForumsSQL("p")+` AND p.meta->'`+forumMetaTags+`' ? $1
 		ORDER BY p.id DESC LIMIT 1`, slug).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errForumNotFound

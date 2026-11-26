@@ -60,7 +60,11 @@ hold `unfiltered_html`.
 `Title` (≤1000 chars), `Content` (≤1 MiB), `Excerpt` (≤10 000), `Status`, `Type` (`post` or
 `page`), `Slug`, `Meta` (merged; a `nil` value deletes the key). Content, title and excerpt go
 through the same KSES filter as a user without `unfiltered_html`. A new post defaults to type
-`post`, status `draft`, the default category, and the current user as author (none in cron). Posts
+`post`, status `draft`, the default category, and the current user as author (none in cron).
+During a request (hooks, shortcodes, REST routes, admin pages, Dashboard widgets, meta boxes) the
+plugin acts as the signed-in user: editing a post or publishing needs that user's capabilities.
+Scheduled events may write any post. Outside both (`OnInit`, activation hooks) there is no user: a
+draft or pending post can be created, but editing an existing post or publishing is refused. Posts
 go through the same store functions as the admin, so slugs are made unique, revisions are kept and
 the page cache is purged.
 

@@ -224,7 +224,7 @@ func deepMerge(dst, src map[string]any) {
 // optionGroups is the whitelist of /pursae/v1/options/{group}.
 var optionGroups = map[string]optionGroup{
 	"seo": groupOf(seogoSlug, "Pursae SEO", func(s *Server) *seogoOptions { return s.seogoOpts().clone() },
-		func(s *Server, ctx context.Context, v *seogoOptions) error { return s.seogoSave(ctx, v) }),
+		func(s *Server, ctx context.Context, v *seogoOptions) error { return s.seogoSave(ctx, v) }, (*Server).seogoCheckRaw),
 	"gocdn": fullAccessOnly(groupOf(gocdnSlug, "Pursae CDN", (*Server).gocdnLoad,
 		func(s *Server, ctx context.Context, v gocdnSettings) error { return s.gocdnSave(ctx, v) })),
 	"security": fullAccessOnly(groupOf(asSlug, "Pursae Security", (*Server).asLoad,

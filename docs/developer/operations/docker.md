@@ -118,7 +118,9 @@ backup downloads and imports, uploads over slow links and the Pursae Headless su
 streams run for minutes. Put per-request limits in the reverse proxy if you need them. A request
 body is limited to 512 MB (PHP's `post_max_size`; the largest upload a screen accepts is a 256 MB
 WXR import), except the Backup Manager import, which takes archives of up to 16 GB; a larger body
-is answered `413`.
+is answered `413`. A request with neither a signed-in user nor an `Authorization` header is limited
+to 32 MB, except the contact form submission endpoint and product add-on uploads (bounded by their
+own file size settings) and XML-RPC.
 
 Every response carries an `X-Request-ID` (the proxy's, when it sends a sane one, else a generated
 one); the access log line ends with `id=<request id>`.

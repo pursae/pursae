@@ -147,7 +147,7 @@ Application Password and are narrowed by scopes the same way; Basic auth keeps w
 |----------|-|
 | `/.well-known/oauth-protected-resource` (also `…/wp-json/pursae/v1/mcp`) | protected-resource metadata (RFC 9728) |
 | `/.well-known/oauth-authorization-server` | authorization-server metadata (RFC 8414) |
-| `POST /oauth/register` | dynamic client registration (RFC 7591), public clients only, a JSON body of at most 64 KB; 10 per address (an IPv6 /64 counts as one address) and 100 in total per hour, and a client that gets no token within an hour is removed |
+| `POST /oauth/register` | dynamic client registration (RFC 7591), public clients only, a JSON body of at most 64 KB; 10 per address (an IPv6 /64 counts as one address), 25 per network (IPv4 /24, IPv6 /48) and 100 in total per hour, and a client that gets no token within an hour is removed |
 | `/wp-admin/oauth-authorize` | consent screen: who asks, scope checkboxes, approve or deny |
 | `POST /oauth/token` | `authorization_code` (PKCE) and `refresh_token` grants |
 | `POST /oauth/revoke` | token revocation (RFC 7009): ends the whole grant |
