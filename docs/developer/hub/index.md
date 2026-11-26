@@ -105,8 +105,9 @@ no longer lists).
 
 ## Licenses
 
-Settings › License takes the license key bought from Pursae (option `pursae_license_key`, never
-readable by plugins). The site checks it with `GET /api/v1/license` and shows the answer: valid or
+Settings › License takes the license key bought from Pursae (option `pursae_license_key`, stored
+encrypted with a key derived from the server secret, shown masked on the screen, never readable by
+plugins). The site checks it with `GET /api/v1/license` and shows the answer: valid or
 not (with the Hub's reason: unknown, revoked, expired, not valid for this domain, activation limit),
 the plan, whether it includes Pro packages and the beta channel, the expiry date and the sites it is
 active on. The answer is cached for 12 hours; saving the key and **Check now** ask again. Code that

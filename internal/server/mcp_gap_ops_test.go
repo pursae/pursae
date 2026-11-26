@@ -176,7 +176,7 @@ func TestMCPOpsAndAudit(t *testing.T) {
 	if r := call(full, "update_options", map[string]any{"group": "contact", "settings": map[string]any{"recaptcha_sitekey": "site-123", "recaptcha_secret": "sec-456"}}); r["isError"] == true {
 		t.Fatalf("update_options contact: %v", r)
 	}
-	if srv.settings.String("gontact_recaptcha_secret") != "sec-456" {
+	if srv.revealSecret(srv.settings.String("gontact_recaptcha_secret")) != "sec-456" { // stored sealed
 		t.Errorf("contact secret not stored")
 	}
 	g := call(full, "get_options", map[string]any{"group": "contact"})["structuredContent"].(map[string]any)

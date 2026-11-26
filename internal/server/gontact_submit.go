@@ -548,7 +548,7 @@ func (sub *gfSubmission) spam(nonceOK bool) bool {
 	if word := sub.s.gontactDisallowed(sub); word != "" {
 		log("disallowed_list", "Disallowed words ("+word+") are used.")
 	}
-	if secret := sub.s.settings.String("gontact_recaptcha_secret"); secret != "" && sub.s.settings.String("gontact_recaptcha_sitekey") != "" {
+	if secret := sub.s.revealSecret(sub.s.settings.String("gontact_recaptcha_secret")); secret != "" && sub.s.settings.String("gontact_recaptcha_sitekey") != "" {
 		token := sub.c.PostForm("_wpcf7_recaptcha_response")
 		if token == "" && sub.s.gooikeOn() {
 			// Pursae Cookie holds reCAPTCHA back until the visitor consents; the other checks still apply.
@@ -558,7 +558,7 @@ func (sub *gfSubmission) spam(nonceOK bool) bool {
 			log("recaptcha", "reCAPTCHA score ("+strconv.FormatFloat(score, 'f', 2, 64)+") is lower than the threshold (0.50).")
 		}
 	}
-	if secret := sub.s.settings.String("gontact_turnstile_secret"); secret != "" && sub.s.settings.String("gontact_turnstile_sitekey") != "" {
+	if secret := sub.s.revealSecret(sub.s.settings.String("gontact_turnstile_secret")); secret != "" && sub.s.settings.String("gontact_turnstile_sitekey") != "" {
 		token := sub.c.PostForm("_wpcf7_turnstile_response")
 		if token == "" {
 			log("turnstile", "Turnstile token is empty.")

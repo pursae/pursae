@@ -97,7 +97,8 @@ value, the refunded items of a partial refund). Meta, TikTok and Pinterest have 
 keep the order's revenue; a refund is not an event the browser may send. The route accepts only canonical events and the enabled custom events, from the same
 origin, rate-limited per address; parameters are whitelisted and bounded. Hosts are fixed, redirects are not
 followed, access tokens go in request headers or bodies (Google asks for the secret in the query, so that URL
-is never logged), are never shown again after saving, and never reach the page. Every delivery is logged
+is never logged), are stored encrypted with a key derived from the server secret, are never shown again after
+saving, and never reach the page. Every delivery is logged
 (platform, event, id, status, HTTP code, a short message) with a retention in days. ✓
 
 Without a `_fbc` cookie the server builds Meta's click id from the `fbclid` of the attribution cookie and the time

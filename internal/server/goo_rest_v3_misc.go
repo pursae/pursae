@@ -1235,6 +1235,9 @@ func (s *Server) gooV3GatewayJSON(ctx context.Context, g *gooGatewayHandle, orde
 		if f.Type == "bacs_accounts" {
 			field["value"] = vals[f.ID]
 		}
+		if f.Type == "password" && gooStr(vals[f.ID]) != "" {
+			field["value"] = secretMask // API keys never leave the site; sending the mask back keeps them
+		}
 		settings[f.ID] = field
 	}
 	var supports []string
@@ -1312,6 +1315,9 @@ func (s *Server) gooV3GatewayUpdate(c *gin.Context, req *restRequest) {
 		if fields[k].Type == "bacs_accounts" {
 			saved[k] = v
 			continue
+		}
+		if fields[k].Type == "password" && gooStr(v) == secretMask {
+			continue // the masked value of a GET: keep the stored secret
 		}
 		saved[k] = gooStr(v)
 		if fields[k].Type == "textarea" {

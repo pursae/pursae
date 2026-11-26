@@ -366,7 +366,7 @@ func (s *Server) gooSetOpts(ctx context.Context, values map[string]any) error {
 	m := make(map[string]any, len(values))
 	pages := false
 	for k, v := range values {
-		m[gooOptPrefix+k] = v
+		m[gooOptPrefix+k] = s.gooSealGatewaySecrets(k, v)
 		pages = pages || strings.HasSuffix(k, "_page_id")
 	}
 	if err := s.settings.Set(ctx, m); err != nil {

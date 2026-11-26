@@ -67,7 +67,9 @@ them elsewhere yourself (for example with the `tar` command above).
 A restore keeps this site's own secret (`auth_secret`), address and Backup Manager settings. Secrets
 the built-in plugins store encrypted under the archive site's secret (Pursae SMTP passwords and
 tokens, Pursae CDN credentials, the Multi Language translation key, Pursae Security authenticator
-apps) are re-encrypted for this site, so they keep working after a move; Pursae Security backup codes
+apps, the Contact Form captcha secrets, Pursae Pixel API tokens, payment gateway keys such as the Stripe
+secret keys and webhook secrets, the Forum Google client secret and the license key) are re-encrypted
+for this site; plain secrets in an archive from an older version are encrypted by the restore, so they keep working after a move; Pursae Security backup codes
 are only stored as hashes and have to be generated again. If the archive's site encrypted with
 `PURSAE_SECRET`, start this site with the same value instead. An archive with accounts whose username or
 e-mail differs only by case restores too: those columns then stay non-unique regardless of case, as

@@ -25,8 +25,8 @@ func (s *Server) gontactLoadOptions() gontactOptions {
 
 func (s *Server) gontactSaveOptions(ctx context.Context, o gontactOptions) error {
 	t := strings.TrimSpace
-	err := s.settings.Set(ctx, map[string]any{"gontact_recaptcha_sitekey": t(o.RecaptchaSitekey), "gontact_recaptcha_secret": t(o.RecaptchaSecret),
-		"gontact_turnstile_sitekey": t(o.TurnstileSitekey), "gontact_turnstile_secret": t(o.TurnstileSecret)})
+	err := s.settings.Set(ctx, map[string]any{"gontact_recaptcha_sitekey": t(o.RecaptchaSitekey), "gontact_recaptcha_secret": s.sealSecret(t(o.RecaptchaSecret)),
+		"gontact_turnstile_sitekey": t(o.TurnstileSitekey), "gontact_turnstile_secret": s.sealSecret(t(o.TurnstileSecret))})
 	s.purgeAll(ctx)
 	return err
 }
@@ -50,7 +50,7 @@ func init() {
 		func(s *Server, ctx context.Context, v pixelSettings) error { return s.pixelSave(ctx, v) })
 	optionGroups["analytics"] = groupOf(analyticsSlug, "Pursae Analytics", (*Server).analyticsLoad,
 		func(s *Server, ctx context.Context, v analyticsSettings) error { return s.analyticsSave(ctx, v) })
-	// The Google client secret is masked on output (maskSecrets); an empty one on save keeps the stored secret.
+	// The Google client secret is masked on output (maskSecrets) and sealed by forumSave; an empty one keeps the stored secret.
 	optionGroups["forum"] = groupOf(forumSlug, "Pursae Forum", (*Server).forumLoad,
 		func(s *Server, ctx context.Context, v forumSettings) error { return s.forumSave(ctx, v) })
 	optionGroups["cookie"] = groupOf(gooikeSlug, "Pursae Cookie", (*Server).gooikeLoad,

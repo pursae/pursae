@@ -81,8 +81,8 @@ Setup (Forums › **Google sign-in**, which shows both values to copy):
 2. Add the site origin under *Authorized JavaScript origins* and
    `https://<your-site>/forum-auth/google/callback` under *Authorized redirect URIs*. The route is fixed
    and has no language prefix, so the URI never changes.
-3. Paste the Client ID and Client secret, tick **Enable** and save. The secret is write-only: it is never
-   shown again, and `/pursae/v1/options/forum` masks it.
+3. Paste the Client ID and Client secret, tick **Enable** and save. The secret is write-only: it is stored
+   encrypted with a key derived from the server secret, never shown again, and `/pursae/v1/options/forum` masks it.
 
 Google requires HTTPS (except `localhost`). A Google account whose verified email matches an existing
 member is linked to that member, unless the member can edit content, moderate or manage the site: they
