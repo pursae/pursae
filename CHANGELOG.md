@@ -10,6 +10,8 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-26
+
 ### Security
 
 More fixes from the internal review. Upgrade every site; sites that run Pursae Commerce should upgrade right away.
@@ -18,13 +20,27 @@ More fixes from the internal review. Upgrade every site; sites that run Pursae C
   returned by a cancellation are taken back if the order is paid after all. Booking person counts are limited.
   REST `meta_data` no longer writes account, security or Web Builder keys.
 - **Scoped Application Passwords and OAuth tokens:** writing the CDN, SMTP, Security and Headless option groups
-  needs full access; `wc/v3/customers` follows the same rules as `wp/v2/users` for other accounts.
+  needs full access; through `wc/v3/customers` they change or delete only customer and subscriber accounts.
 - **Themes:** theme templates get public copies of authors and posts, without e-mail addresses, password data
   or user meta.
 - **Pursae SEO:** head tags and sitemaps follow Memberships restrictions.
 - **Hardening:** the "account under attack" CAPTCHA covers the Commerce, Forum and Headless sign-ins; the contact
   form CAPTCHA table cannot be filled; the firewall rate limit counts dynamic requests with a file extension;
   the maintenance gate stays closed on unrouted paths; maintenance custom CSS is escaped.
+
+### Changed
+
+- **Theme templates:** `.Q.Author` no longer carries the e-mail address, password hash, user meta, roles or
+  capabilities, and post passwords are empty (`.HasPassword` still tells). `AuthorEmail` is always empty; use the
+  new `AuthorAvatar`. ACF `get_field` on users and comments returns registered fields only.
+- **Stripe:** the Checkout page stays open for the store's hold-stock time (31 minutes to just under a day; one
+  hour when hold stock is off) instead of 24 hours. A cancelled order that is paid late and can no longer take
+  back its returned points or gift card balance is put on hold for review.
+- **Scoped credentials:** changing the maintenance page's custom CSS needs the Themes scope, as custom HTML does.
+  `wc/v3` `meta_data` ignores Web Builder keys and `_wp_page_template` for every caller.
+- **Headless:** `POST /auth/local` answers 403 `captcha_required` when CAPTCHA keys are set and the login CAPTCHA
+  is on or the account is under attack; send the token as `captchaToken`.
+- **Bookings:** more than 10,000 persons per type or in total (or more than the product's maximum) is refused.
 
 ## [0.5.9] - 2026-11-26
 
