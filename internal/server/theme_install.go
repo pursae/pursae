@@ -211,15 +211,20 @@ func (s *Server) installThemePackageFrom(ctx context.Context, data []byte, sourc
 	if err != nil {
 		return nil, err
 	}
-	event := "theme_install"
-	if t := s.themeFor(m.Slug); t != nil {
-		event = "theme_update"
+	checkVersion := func(t *Theme) error {
+		if t == nil {
+			return nil
+		}
 		if t.Package == nil {
-			return nil, fmt.Errorf("the slug %q belongs to a bundled theme", m.Slug)
+			return fmt.Errorf("the slug %q belongs to a bundled theme", m.Slug)
 		}
 		if !semverLess(t.Version, m.Version) {
-			return nil, fmt.Errorf("%s %s is already installed; the package (version %s) is not newer", t.Name, t.Version, m.Version)
+			return fmt.Errorf("%s %s is already installed; the package (version %s) is not newer", t.Name, t.Version, m.Version)
 		}
+		return nil
+	}
+	if err := checkVersion(s.themeFor(m.Slug)); err != nil {
+		return nil, err
 	}
 	dir := s.themesDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -246,6 +251,16 @@ func (s *Server) installThemePackageFrom(ctx context.Context, data []byte, sourc
 	}
 	themeSaveMu.Lock()
 	defer themeSaveMu.Unlock()
+	// Another install may have published a newer version while this one staged its files.
+	current := s.themeFor(m.Slug)
+	if err := checkVersion(current); err != nil {
+		cleanup()
+		return nil, err
+	}
+	event := "theme_install"
+	if current != nil {
+		event = "theme_update"
+	}
 	final := filepath.Join(dir, m.Slug)
 	old := ""
 	if _, err := os.Stat(final); err == nil {

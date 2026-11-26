@@ -216,12 +216,12 @@ func (s *Server) hubGet(ctx context.Context, path string, out any) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("hub: %s: HTTP %d", path, resp.StatusCode)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("hub: %s: HTTP %d", path, resp.StatusCode)
 	}
 	if bytes.Equal(bytes.TrimSpace(body), []byte("null")) {
 		return fmt.Errorf("hub: %s: expected a JSON object, got null", path)

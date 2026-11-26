@@ -244,8 +244,23 @@ func notesLink(s string) (label, href string, n int, ok bool) {
 				return "", "", 0, false
 			}
 			end, open := -1, 0 // the ")" that closes the destination; parentheses inside balance
+			var titleQuote byte
 			for j := i + 2; j < len(s) && end < 0; j++ {
-				switch s[j] {
+				ch := s[j]
+				if titleQuote != 0 {
+					switch ch {
+					case '\\':
+						j++
+					case titleQuote:
+						titleQuote = 0
+					}
+					continue
+				}
+				if open == 0 && j > i+2 && (ch == '\'' || ch == '"') && (s[j-1] == ' ' || s[j-1] == '\t') {
+					titleQuote = ch
+					continue
+				}
+				switch ch {
 				case '(':
 					open++
 				case ')':
@@ -430,9 +445,14 @@ func releaseNotesDigest(md string, max int) *notesDigest {
 		total   int
 	)
 	cur := -1
+	hasSectionHeading := false
 	for _, bl := range parseReleaseNotes(md) {
 		switch bl.Kind {
 		case 'h':
+			if bl.Level >= 4 && hasSectionHeading {
+				continue // full release notes also keep subheadings within their parent section
+			}
+			hasSectionHeading = bl.Level < 4
 			secs = append(secs, section{label: bl.Text})
 			cur = len(secs) - 1
 		case 'p':

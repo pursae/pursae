@@ -112,6 +112,7 @@ func IsSitePage(p string) bool {
 // template; a/b.html is page b under the page of folder a; a/index.html is folder a's page.
 func PlanSite(files []string) SitePlan {
 	var plan SitePlan
+	files = slices.Clone(files)
 	sort.Strings(files)
 	have := map[string]string{}
 	for _, f := range files {

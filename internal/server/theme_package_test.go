@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"html"
 	"io"
 	"io/fs"
@@ -12,8 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"wpgo/internal/store"
 )
@@ -528,5 +531,102 @@ func TestDeleteBundledThemeAndReinstall(t *testing.T) {
 	}
 	if code, body, _ := get(t, c, base+"/"); code != http.StatusOK || !strings.Contains(body, "wp-theme-inkwell") {
 		t.Errorf("front page after deleting the default theme: %d", code)
+	}
+}
+
+func themeVersionArchive(t *testing.T, version string) []byte {
+	t.Helper()
+	files, _, err := unpackThemeZip(zipDir(t, starterDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := map[string][]byte{}
+	for _, file := range files {
+		data[file.Path] = file.Data
+	}
+	data["theme.json"] = []byte(starterManifest(t, map[string]string{`"version": "1.0.0"`: `"version": "` + version + `"`}))
+	return zipFiles(t, data)
+}
+
+// Hold the real publish gate until staging began, then publish an intervening version
+// through the same disk and registry state the installer observes while holding the gate.
+func stageThemeAcrossInterveningInstall(t *testing.T, s *Server, dir, current string, staged []byte) error {
+	t.Helper()
+	target := filepath.Join(dir, "starter")
+	manifest := starterManifest(t, map[string]string{`"version": "1.0.0"`: `"version": "` + current + `"`})
+	themeSaveMu.Lock()
+	locked := true
+	finished := make(chan struct{})
+	var outcome error
+	go func() {
+		_, outcome = s.installThemePackage(t.Context(), staged)
+		close(finished)
+	}()
+	defer func() {
+		if locked {
+			themeSaveMu.Unlock()
+		}
+		<-finished
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sawStage := false
+	for !sawStage {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".starter.install-") {
+				sawStage = true
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for staging")
+		case <-finished:
+			t.Fatalf("installer did not reach the gate: %v", outcome)
+		default:
+			runtime.Gosched()
+		}
+	}
+	if err := os.WriteFile(filepath.Join(target, "theme.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	published, err := loadThemePackage(target, "starter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Version != current {
+		t.Fatalf("fixture installed %s, want %s", published.Version, current)
+	}
+	s.registerPackage(published)
+	themeSaveMu.Unlock()
+	locked = false
+	<-finished
+	return outcome
+}
+
+func TestThemeInstallKeepsNewerStagedVersion(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PURSAE_THEMES_DIR", dir)
+	ts, c, s := testServerBuilderOff(t)
+	installAndLogin(t, ts, c)
+	t.Cleanup(func() { unregisterTheme("starter") })
+	if _, err := s.installThemePackage(t.Context(), themeVersionArchive(t, "1.0.0")); err != nil {
+		t.Fatal(err)
+	}
+
+	err := stageThemeAcrossInterveningInstall(t, s, dir, "1.2.0", themeVersionArchive(t, "1.1.0"))
+	if err == nil || !strings.Contains(err.Error(), "not newer") {
+		t.Fatalf("stale theme install: %v", err)
+	}
+	installed, err := loadThemePackage(filepath.Join(dir, "starter"), "starter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registered := s.themeFor("starter"); installed.Version != "1.2.0" || registered == nil || registered.Version != "1.2.0" {
+		t.Fatalf("older package replaced newer version: disk=%s registry=%+v", installed.Version, registered)
 	}
 }
