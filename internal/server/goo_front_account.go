@@ -606,7 +606,10 @@ func (s *Server) gooSaveAccountPost(c *gin.Context) {
 			errs = append(errs, "This email address is already registered.")
 		}
 	}
-	changePass := p1 != "" || p2 != "" || cur != ""
+	// A new e-mail address needs the current password too (it is how the account is recovered) and is
+	// applied only once confirmed from the new inbox, as on the wp-admin profile.
+	emailChange := email != "" && !strings.EqualFold(email, u.Email)
+	changePass := p1 != "" || p2 != "" || (cur != "" && !emailChange)
 	if changePass {
 		switch {
 		case cur == "":
@@ -617,11 +620,25 @@ func (s *Server) gooSaveAccountPost(c *gin.Context) {
 			errs = append(errs, "Please re-enter your password.")
 		case p1 != p2:
 			errs = append(errs, "New passwords do not match.")
+		}
+	} else if emailChange && cur == "" {
+		errs = append(errs, "Please enter your current password to change your email address.")
+	}
+	if len(errs) == 0 && (changePass || emailChange) {
+		// The same per-account budget as the login form: the current password is a guessable secret.
+		id, key, throttled := s.coreBeginAttempt(c, u.Login)
+		switch {
+		case throttled:
+			errs = append(errs, "Too many failed attempts. Please try again in 15 minutes.")
+		case !s.checkUserPassword(ctx, u, cur):
+			s.auth.AttemptFailed(c, id)
+			errs = append(errs, "Your current password is incorrect.")
 		default:
-			if !s.checkUserPassword(c.Request.Context(), u, cur) {
-				errs = append(errs, "Your current password is incorrect.")
-			} else if msg := s.adminsecPasswordProblem(u.Roles, u.Login, email, p1); msg != "" { // Pursae Security password policy
-				errs = append(errs, msg)
+			s.auth.AttemptSucceeded(c, id, clientIP(c), key)
+			if changePass {
+				if msg := s.adminsecPasswordProblem(u.Roles, u.Login, u.Email, p1); msg != "" { // Pursae Security password policy
+					errs = append(errs, msg)
+				}
 			}
 		}
 	}
@@ -636,7 +653,10 @@ func (s *Server) gooSaveAccountPost(c *gin.Context) {
 		u.Profile = map[string]string{}
 	}
 	u.Profile["first_name"], u.Profile["last_name"] = first, last
-	u.DisplayName, u.Email = display, email
+	u.DisplayName = display
+	if !emailChange {
+		u.Email = email // a change of letter case only
+	}
 	if err := s.store.UpdateUserProfile(ctx, u); err != nil {
 		s.gooAddNotice(c, "error", "Could not save your account details.")
 		s.gooRedirect(c, editURL)
@@ -650,6 +670,10 @@ func (s *Server) gooSaveAccountPost(c *gin.Context) {
 				s.endSessionsAfterPasswordChange(ctx, c, u.ID)
 			}
 		}
+	}
+	if emailChange {
+		s.sendEmailChangeConfirmation(c, u, email)
+		s.gooAddNotice(c, "notice", "Your email address has not been updated yet. Please check your inbox at "+gooEsc(email)+" for a confirmation email.")
 	}
 	s.gooAddNotice(c, "success", "Account details changed successfully.")
 	s.gooRedirect(c, s.gooPageURL(ctx, "myaccount"))

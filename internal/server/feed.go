@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -263,9 +264,13 @@ func (s *Server) atomFeed(ctx context.Context, c *gin.Context, q *siteQuery, lb 
 
 // feedComments is the comment feed query: a post's approved comments, or the newest approved
 // comments across published posts, newest first and limited by posts_per_rss.
-func (s *Server) feedComments(ctx context.Context, q *siteQuery) []*store.Comment {
+func (s *Server) feedComments(ctx context.Context, c *gin.Context, q *siteQuery) []*store.Comment {
 	limit := s.settings.Int("posts_per_rss")
+	u := currentUser(c)
 	if q.Post != nil {
+		if s.gmemHidesComments(ctx, u, q.Post.ID) { // Memberships: restricted content's discussion
+			return nil
+		}
 		comments, _ := s.store.ApprovedComments(ctx, q.Post.ID, "desc", "")
 		if limit > 0 && len(comments) > limit {
 			comments = comments[:limit]
@@ -273,6 +278,9 @@ func (s *Server) feedComments(ctx context.Context, q *siteQuery) []*store.Commen
 		return comments
 	}
 	comments, _ := s.store.RecentComments(ctx, limit, false)
+	if hidden := s.gmemCommentHiddenPosts(ctx, u); len(hidden) > 0 {
+		comments = slices.DeleteFunc(comments, func(cm *store.Comment) bool { return slices.Contains(hidden, cm.PostID) })
+	}
 	return comments
 }
 
@@ -315,7 +323,7 @@ func (s *Server) feedCommentPosts(ctx context.Context, q *siteQuery, comments []
 
 // rssCommentsFeed is feed-rss2-comments.php.
 func (s *Server) rssCommentsFeed(ctx context.Context, c *gin.Context, q *siteQuery, lb *links.Builder) string {
-	comments := s.feedComments(ctx, q)
+	comments := s.feedComments(ctx, c, q)
 	posts := s.feedCommentPosts(ctx, q, comments)
 	link := lb.Front()
 	if q.Post != nil {
@@ -366,7 +374,7 @@ func (s *Server) rssCommentsFeed(ctx context.Context, c *gin.Context, q *siteQue
 
 // atomCommentsFeed is feed-atom-comments.php.
 func (s *Server) atomCommentsFeed(ctx context.Context, c *gin.Context, q *siteQuery, lb *links.Builder) string {
-	comments := s.feedComments(ctx, q)
+	comments := s.feedComments(ctx, c, q)
 	posts := s.feedCommentPosts(ctx, q, comments)
 	built := time.Now().UTC()
 	if len(comments) > 0 {

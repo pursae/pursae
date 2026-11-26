@@ -755,6 +755,37 @@ func (s *Server) gmemRestrictsPost(c *gin.Context, postID int64) bool {
 	return !ok
 }
 
+// gmemHidesComments reports whether Memberships hides a post's comments from u: they belong to the
+// restricted content, so a non-member sees them nowhere (comment lists, feeds, the REST API).
+func (s *Server) gmemHidesComments(ctx context.Context, u *store.User, postID int64) bool {
+	if !s.gooOn() || !s.gooExtOn(gmemKey) || gmemIsManager(u) {
+		return false
+	}
+	ok, _ := s.gmemPostAccess(ctx, u, postID, s.gmemPostPlans(ctx, postID))
+	return !ok
+}
+
+// gmemCommentHiddenPosts are the posts whose comments Memberships hides from u (gmemHidesComments),
+// for the site-wide comment lists that filter in SQL.
+func (s *Server) gmemCommentHiddenPosts(ctx context.Context, u *store.User) []int64 {
+	if !s.gooOn() || !s.gooExtOn(gmemKey) || gmemIsManager(u) {
+		return nil
+	}
+	seen := map[int64]bool{}
+	var out []int64
+	for _, p := range s.gmemPlans(ctx) {
+		for _, id := range s.gmemPlanItemsRmode(ctx, p, "post", false) {
+			if !seen[id] {
+				seen[id] = true
+				if s.gmemHidesComments(ctx, u, id) {
+					out = append(out, id)
+				}
+			}
+		}
+	}
+	return out
+}
+
 // gmemRestrictedContent is what a non-member sees instead of restricted content: the excerpt (per
 // setting) and the restriction message.
 func (s *Server) gmemRestrictedContent(ctx context.Context, postID int64, plans []*gooMembershipPlan, u *store.User, availableAt *time.Time) string {

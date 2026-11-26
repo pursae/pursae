@@ -176,22 +176,18 @@ func pendingEmail(u *store.User) string {
 func (s *Server) profile(c *gin.Context) {
 	u := currentUser(c)
 	if hash := c.Query("newuseremail"); hash != "" {
-		rec, _ := u.Meta["_new_email"].(map[string]any)
-		want, _ := rec["hash"].(string)
-		ne, _ := rec["newemail"].(string)
-		if want != "" && ne != "" && subtle.ConstantTimeCompare([]byte(want), []byte(hash)) == 1 {
-			// The address was free when the change was requested; someone may have registered it since.
-			if _, taken, err := s.store.LoginOrEmailTaken(c, "", ne); err == nil && (!taken || strings.EqualFold(ne, u.Email)) {
-				u.Email = ne
-				if err := s.store.UpdateUserProfile(c, u); err == nil {
-					_ = s.setUserMeta(c, u, "_new_email", nil)
-					s.purgeAll(c)
-					c.Redirect(http.StatusFound, "/wp-admin/profile?updated=1")
-					return
-				}
-			}
+		ok := s.confirmEmailChange(c, u, hash)
+		if frontEndOnly(u) {
+			// Customers and forum members confirm here too (denyFrontEndAdmin lets this link through),
+			// then go back to the front end.
+			s.frontEndEmailConfirmed(c, ok)
+			return
 		}
-		c.Redirect(http.StatusFound, "/wp-admin/profile?error=new-email")
+		if ok {
+			c.Redirect(http.StatusFound, "/wp-admin/profile?updated=1")
+		} else {
+			c.Redirect(http.StatusFound, "/wp-admin/profile?error=new-email")
+		}
 		return
 	}
 	if d := c.Query("dismiss"); d != "" && d == itoa64(u.ID)+"_new_email" {
@@ -416,6 +412,42 @@ func (s *Server) saveUser(c *gin.Context, target *store.User) {
 	}
 	s.purgeAll(c) // names and avatars appear in bylines and comment lists across the site
 	c.Redirect(http.StatusFound, back)
+}
+
+// confirmEmailChange applies the pending _new_email address when hash matches its link.
+func (s *Server) confirmEmailChange(c *gin.Context, u *store.User, hash string) bool {
+	rec, _ := u.Meta["_new_email"].(map[string]any)
+	want, _ := rec["hash"].(string)
+	ne, _ := rec["newemail"].(string)
+	if want == "" || ne == "" || subtle.ConstantTimeCompare([]byte(want), []byte(hash)) != 1 {
+		return false
+	}
+	// The address was free when the change was requested; someone may have registered it since.
+	if _, taken, err := s.store.LoginOrEmailTaken(c, "", ne); err != nil || (taken && !strings.EqualFold(ne, u.Email)) {
+		return false
+	}
+	u.Email = ne
+	if err := s.store.UpdateUserProfile(c, u); err != nil {
+		return false
+	}
+	_ = s.setUserMeta(c, u, "_new_email", nil)
+	s.purgeAll(c)
+	return true
+}
+
+// frontEndEmailConfirmed sends a front-end member back from the confirmation link: to My Account's
+// account details with a notice while the store is on, otherwise to their front-end home.
+func (s *Server) frontEndEmailConfirmed(c *gin.Context, ok bool) {
+	if s.gooOn() {
+		if ok {
+			s.gooAddNotice(c, "success", "Your email address has been updated.")
+		} else {
+			s.gooAddNotice(c, "error", "Error while saving the new email address. Please try again.")
+		}
+		s.gooRedirect(c, s.gooAccountURL(c.Request.Context(), "edit-account"))
+		return
+	}
+	c.Redirect(http.StatusFound, s.frontEndHome(c))
 }
 
 // sendEmailChangeConfirmation is send_confirmation_on_profile_email(): stores the pending address in

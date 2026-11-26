@@ -93,7 +93,9 @@ form routes (`/contact-form-7/v1`, which set a form's mail recipients and header
 they need full access. The `settings` scope reads every `/pursae/v1/options` group but changes only
 some: writing `gocdn` (the asset URL every page loads scripts from), `smtp` (where all site mail,
 password resets included, is sent), `security` (two-step login, lockouts, the login page) or
-`headless` (public permissions, front-end sign-up, CORS) needs full access (403 `rest_scope_forbidden`).
+`headless` (public permissions, front-end sign-up, CORS) needs full access (403 `rest_scope_forbidden`),
+and so does changing the administration email address (`email` on `/wp/v2/settings`), which receives
+password resets and store mail.
 Changing the maintenance page's custom CSS or custom HTML needs `unfiltered_html`, so the `themes`
 scope as well.
 
@@ -109,6 +111,9 @@ each inner request. On `/wp/v2/users/me` a scoped password may edit the profile 
 description, …) but changing the account's own `email` or `password` needs the `users` scope, and
 roles (the account's own or another user's) or another user's `email` or `password` need full access:
 `403 rest_scope_forbidden` with `data.required_scope` (`users` or `full_access`) otherwise.
+A browser session (cookie and `X-WP-Nonce`) that changes its own `email` gets the confirmation the
+Profile screen uses: the address stays as it is and a confirmation link goes to the new one;
+Application Passwords and OAuth tokens change it at once, as in WordPress.
 `wc/v3/customers` (single and batch) is narrower for shop integrations: with the `users` scope, a
 credential may change the `email` or `password` of, or delete, accounts without a staff role (customers,
 subscribers); any other account needs full access. Customer `meta_data` never writes or shows sign-in and

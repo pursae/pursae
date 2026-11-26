@@ -87,7 +87,7 @@ func (s *Server) commentPaging(topLevel, cpage int) (perPage, maxPage, page int)
 
 // commentsView renders comments.php: the comment list and comment_form().
 func (s *Server) commentsView(c *gin.Context, p *store.Post, lb *links.Builder, u *store.User) *commentsView {
-	if s.passwordRequired(c, p) {
+	if s.passwordRequired(c, p) || s.gmemHidesComments(c.Request.Context(), u, p.ID) {
 		return nil
 	}
 	cv := &commentsView{Open: s.commentsOpen(p)}

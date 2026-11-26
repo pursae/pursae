@@ -45,6 +45,15 @@ func adminOpenToFrontEnd(p string) bool {
 	return p == "/wp-admin/admin-ajax" || p == "/wp-admin/admin-ajax.php"
 }
 
+// emailChangeLink reports whether the request is the confirmation link of an e-mail change
+// (sendEmailChangeConfirmation): front-end members change their address from My Account and confirm
+// it there; profile() answers it with a redirect back to the front end and never shows the screen.
+func emailChangeLink(c *gin.Context) bool {
+	p := strings.TrimSuffix(c.Request.URL.Path, "/")
+	return (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) &&
+		(p == "/wp-admin/profile" || p == "/wp-admin/profile.php") && c.Query("newuseremail") != ""
+}
+
 // frontEndHome is where a front-end member goes instead of wp-admin: the forum account page while
 // Pursae Forum is on, otherwise the home page.
 func (s *Server) frontEndHome(c *gin.Context) string {
@@ -57,7 +66,7 @@ func (s *Server) frontEndHome(c *gin.Context) string {
 // denyFrontEndAdmin answers a front-end member's wp-admin request: a redirect for a page view, 403 for
 // anything else. It reports whether the request was refused.
 func (s *Server) denyFrontEndAdmin(c *gin.Context, u *store.User) bool {
-	if !frontEndOnly(u) || adminOpenToFrontEnd(c.Request.URL.Path) {
+	if !frontEndOnly(u) || adminOpenToFrontEnd(c.Request.URL.Path) || emailChangeLink(c) {
 		return false
 	}
 	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {

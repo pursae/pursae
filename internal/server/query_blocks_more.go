@@ -207,7 +207,7 @@ func registerMoreQueryBlocks(s *Server) {
 	// Comments -------------------------------------------------------------------------------------
 	blocks.RegisterContainer("core/comments", func(ctx context.Context, b *blocks.Block, _ string) string {
 		rc, p := loopPost(ctx)
-		if p == nil || rc.c == nil || rc.s.passwordRequired(rc.c, p) {
+		if p == nil || rc.c == nil || rc.s.passwordRequired(rc.c, p) || rc.s.gmemHidesComments(ctx, rc.user, p.ID) {
 			return ""
 		}
 		// Legacy mode (and a block without inner blocks) prints the theme's comments template.

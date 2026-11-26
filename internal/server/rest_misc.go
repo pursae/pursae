@@ -305,6 +305,13 @@ func (api *restAPI) saveSettings(c *gin.Context, r *restRequest) {
 		restErr(c, http.StatusBadRequest, "rest_invalid_param", "Invalid parameter(s): "+strings.Join(names, ", "), map[string]any{"params": bad})
 		return
 	}
+	if v, ok := values["admin_email"].(string); ok && v != api.s.settings.String("admin_email") && len(restScopes(c)) > 0 {
+		// The admin address receives password resets and store mail; WordPress sets it from REST only for a
+		// caller with the account's full rights, so a scoped credential may not (the admin form confirms it).
+		restErr(c, http.StatusForbidden, "rest_scope_forbidden", "Changing the administration email address needs an application password with full access.",
+			map[string]any{"required_scope": appScopeFullAccess, "scopes": restScopes(c)})
+		return
+	}
 	if lang, ok := values["WPLANG"].(string); ok {
 		if err := api.s.installLanguage(c.Request.Context(), lang); err != nil {
 			restErr(c, http.StatusBadRequest, "rest_invalid_param", "Invalid parameter(s): language",
@@ -998,6 +1005,7 @@ func (api *restAPI) saveUser(c *gin.Context, r *restRequest, u *store.User) {
 			map[string]any{"required_scope": need, "scopes": restScopes(c)})
 		return
 	}
+	pendingEmail := ""
 	if v, ok := r.Str(c, "email"); ok {
 		if !validEmail(v) {
 			restErr(c, http.StatusBadRequest, "rest_user_invalid_email", "Invalid email address.")
@@ -1009,7 +1017,14 @@ func (api *restAPI) saveUser(c *gin.Context, r *restRequest, u *store.User) {
 				return
 			}
 		}
-		u.Email = v
+		if cur.ID == u.ID && !strings.EqualFold(v, u.Email) && !restCredentialAuth(c) {
+			// A browser session changing its own address: confirmed from the new inbox first, as on the
+			// profile screen. Application Passwords and OAuth grants (full access or the users scope, which
+			// may set the password too) keep WordPress' immediate change.
+			pendingEmail = v
+		} else {
+			u.Email = v
+		}
 	}
 	if v, ok := r.Str(c, "slug"); ok && v != u.Nicename {
 		slug := wp.SanitizeTitle(v)
@@ -1088,9 +1103,20 @@ func (api *restAPI) saveUser(c *gin.Context, r *restRequest, u *store.User) {
 	if _, has := r.Body["acf"]; has {
 		s.acfgoRESTSaveFor(c, r.Body, acfgoUserRESTScreen(u.ID, valRoles, "edit"), &acfObject{Kind: "user", ID: u.ID, meta: orEmptyMap(u.Meta)})
 	}
+	if pendingEmail != "" {
+		s.sendEmailChangeConfirmation(c, u, pendingEmail)
+	}
 	s.purgeAll(c)
 	u, _ = s.store.UserByID(c, u.ID)
 	restJSON(c, http.StatusOK, s.restUser(c, u, "edit"))
+}
+
+// restCredentialAuth reports whether the request is signed in with an Application Password or an OAuth
+// grant rather than a browser session.
+func restCredentialAuth(c *gin.Context) bool {
+	_, app := c.Get(restAppPasswordKey)
+	_, grant := c.Get(restOAuthKey)
+	return app || grant
 }
 
 // createUser is create_item(): POST /wp/v2/users.
