@@ -309,9 +309,8 @@ func (c *cssCleaner) declOK(decl string, fontFace bool) bool {
 			return false
 		}
 	}
-	value := cssUnescape(decl[colon+1:])
 	lname := strings.ToLower(cssUnescape(name))
-	urls, ok := cssURLs(value)
+	urls, ok := cssURLs(decl[colon+1:])
 	if !ok {
 		return false
 	}
@@ -361,11 +360,14 @@ func cssBalanced(s string) bool {
 
 // cssURLs returns the URLs a declaration value references: url(...) arguments and, when the value
 // uses image-set()/image()/src()/cross-fade(), every quoted string. ok=false on unbalanced input.
+// v is the raw (still escaped) value and is tokenized the way a browser does: an escape is part of
+// an identifier and never opens or closes a string, and an escaped function name ("u\72l(") is
+// still url(.
 func cssURLs(v string) (urls []string, ok bool) {
-	lv := strings.ToLower(v)
+	lv := stripSpace(strings.ToLower(cssUnescape(v)))
 	quotedAreURLs := false
 	for _, fn := range []string{"image-set(", "image(", "src(", "cross-fade(", "element("} {
-		if strings.Contains(stripSpace(lv), fn) {
+		if strings.Contains(lv, fn) {
 			quotedAreURLs = true
 		}
 	}
@@ -382,8 +384,13 @@ func cssURLs(v string) (urls []string, ok bool) {
 				urls = append(urls, s)
 			}
 			i = end
-		case (ch == 'u' || ch == 'U') && i+4 <= len(v) && strings.EqualFold(v[i:i+4], "url("):
-			j := i + 4
+		case ch == '\\' || cssNameChar(ch):
+			end := cssIdentEnd(v, i)
+			if end >= len(v) || v[end] != '(' || !strings.EqualFold(cssUnescape(v[i:end]), "url") {
+				i = end
+				continue
+			}
+			j := end + 1
 			for j < len(v) && isCSSSpace(v[j]) {
 				j++
 			}
@@ -403,17 +410,61 @@ func cssURLs(v string) (urls []string, ok bool) {
 				i = j + 1
 				continue
 			}
-			k := strings.IndexByte(v[j:], ')')
-			if k < 0 {
+			k := j
+			for k < len(v) && v[k] != ')' {
+				if v[k] == '\\' {
+					k++
+				}
+				k++
+			}
+			if k >= len(v) {
 				return nil, false
 			}
-			urls = append(urls, strings.TrimSpace(v[j:j+k]))
-			i = j + k + 1
+			urls = append(urls, strings.TrimSpace(cssUnescape(v[j:k])))
+			i = k + 1
 		default:
 			i++
 		}
 	}
 	return urls, true
+}
+
+// cssNameChar: a byte that continues a CSS identifier (non-ASCII bytes included).
+func cssNameChar(b byte) bool {
+	return b == '-' || b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
+}
+
+// cssIdentEnd returns the index after the identifier (name characters and escapes) starting at i.
+func cssIdentEnd(v string, i int) int {
+	for i < len(v) {
+		switch {
+		case v[i] == '\\':
+			i++
+			if i >= len(v) {
+				return i
+			}
+			if isHex(v[i]) {
+				j := i
+				for j < len(v) && j-i < 6 && isHex(v[j]) {
+					j++
+				}
+				i = j
+				if i < len(v) && isCSSSpace(v[i]) {
+					if v[i] == '\r' && i+1 < len(v) && v[i+1] == '\n' {
+						i++
+					}
+					i++
+				}
+				continue
+			}
+			i++
+		case cssNameChar(v[i]):
+			i++
+		default:
+			return i
+		}
+	}
+	return i
 }
 
 // cssURLOK: http, https, relative, "#id" or data:image/* within MaxDataURIBytes.

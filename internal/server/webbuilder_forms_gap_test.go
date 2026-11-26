@@ -55,7 +55,7 @@ func wbfSetContent(t *testing.T, srv *Server, postID int64, section string, kv m
 		t.Fatal(err)
 	}
 	out, _ := json.Marshal(doc)
-	d := &store.WebBuilderDoc{PostID: postID, Doc: out, Renderer: webbuilder.RendererVersion, ContentHash: store.WebBuilderContentHash("<p>fallback</p>")}
+	d := &store.WebBuilderDoc{PostID: postID, Doc: out, Renderer: webbuilder.RendererVersion, ContentHash: store.WebBuilderContentHash("<p>fallback</p>"), SnapshotUser: 1}
 	if err := srv.store.WebBuilder().PublishDoc(ctx, d, cur.Rev); err != nil {
 		t.Fatal(err)
 	}
