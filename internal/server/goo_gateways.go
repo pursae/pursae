@@ -84,6 +84,34 @@ func (s *Server) gooGatewaySettings(id string) map[string]any {
 	for k, v := range s.gooOptMap(id + "_settings") {
 		out[k] = v
 	}
+	if g != nil {
+		for _, f := range g.FormFields() { // secrets are stored sealed (gooSealGatewaySecrets)
+			if v, ok := out[f.ID].(string); ok && f.Type == "password" {
+				out[f.ID] = s.revealSecret(v)
+			}
+		}
+	}
+	return out
+}
+
+// gooSealGatewaySecrets seals the password fields (API keys, webhook signing secrets) of a gateway's
+// settings option (<gateway id>_settings) before it is stored; other options pass through.
+func (s *Server) gooSealGatewaySecrets(key string, v any) any {
+	id, ok := strings.CutSuffix(key, "_settings")
+	g := gooGatewayRegistry[id]
+	m, isMap := v.(map[string]any)
+	if !ok || g == nil || !isMap {
+		return v
+	}
+	out := make(map[string]any, len(m))
+	for k, x := range m {
+		out[k] = x
+	}
+	for _, f := range g.FormFields() {
+		if x, ok := out[f.ID].(string); ok && f.Type == "password" {
+			out[f.ID] = s.sealSecret(x)
+		}
+	}
 	return out
 }
 

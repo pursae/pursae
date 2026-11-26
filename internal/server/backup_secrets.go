@@ -16,23 +16,25 @@ import (
 // Secrets sealed with the site secret. Several built-in plugins keep credentials encrypted in the
 // database under a key derived from the server secret (PURSAE_SECRET, else the auth_secret option):
 // the Pursae SMTP passwords and API tokens, the Pursae CDN credentials, the Multi Language
-// machine-translation key and the Pursae Security TOTP secrets. A restore keeps this site's own
+// machine-translation key, the Pursae Security TOTP secrets and the credentials sealed with
+// sealSecret (captcha keys, Pixel API tokens, payment gateway keys, Forum Google secret, license key). A restore keeps this site's own
 // auth_secret (bmgrKeepSettings), so on another site (or a reinstalled one) those values would no
 // longer decrypt: e-mail stops, the CDN loses its credentials and every user with an authenticator
 // app is locked out. The restore therefore re-encrypts them from the archive's secret to this site's.
 //
 // bmgrSealKinds must follow the derivations of msKey (mailsmtp.go), gocdnKey (gocdn.go),
-// pllMTCipher (golylang_mt_key.go) and asKey (adminsec_totp.go); TestBmgrResealMatchesPlugins
+// pllMTCipher (golylang_mt_key.go), asKey (adminsec_totp.go) and sealSecret (secret_seal.go); TestBmgrResealMatchesPlugins
 // checks that it does.
 var bmgrSealKinds = []struct{ Prefix, Purpose string }{
 	{msSealPrefix, "wpgo-mail-smtp|"},
 	{gocdnSealPrefix, "wpgo-gocdn|"},
 	{pllSealPrefix, "wpgo-golylang-mt|"},
 	{asSealPrefix, "adminsecgo-seal|"},
+	{secretSealPrefix, secretSealPurpose},
 }
 
 // bmgrSealedRe finds sealed values in a JSON line: the longest prefix wins (pllenc: before enc:).
-var bmgrSealedRe = regexp.MustCompile(`(?:pllenc|enc|asg):v1:[A-Za-z0-9+/]+`)
+var bmgrSealedRe = regexp.MustCompile(`(?:pllenc|enc|asg|sec):v1:[A-Za-z0-9+/]+`)
 
 func bmgrSealAEAD(purpose, secret string) cipher.AEAD {
 	k := sha256.Sum256([]byte(purpose + secret))

@@ -58,8 +58,10 @@ func (l *licenseStatus) fresh(hash string) bool {
 	return time.Since(l.Fetched) < ttl
 }
 
-// licenseKey is the key entered under Settings › License.
-func (s *Server) licenseKey() string { return strings.TrimSpace(s.settings.String(licenseOption)) }
+// licenseKey is the key entered under Settings › License (stored sealed, see sealSecret).
+func (s *Server) licenseKey() string {
+	return strings.TrimSpace(s.revealSecret(s.settings.String(licenseOption)))
+}
 
 // licenseHash is a short, stable digest of a key (cache keys; the key itself is never a cache key).
 func licenseHash(key string) string {
@@ -184,11 +186,14 @@ func (s *Server) optionsLicense(c *gin.Context) {
 		q := "checked=true"
 		if c.PostForm("check") == "" { // Save Changes
 			key := strings.TrimSpace(c.PostForm(licenseOption))
+			if cur := s.licenseKey(); cur != "" && key == gfMask(cur) {
+				key = cur // the form shows the saved key masked; sending it back keeps it
+			}
 			if len(key) > 200 || strings.ContainsAny(key, "\r\n\t") {
 				c.Redirect(http.StatusFound, "/wp-admin/options-license?error=invalid")
 				return
 			}
-			if err := s.settings.Set(ctx, map[string]any{licenseOption: key}); err != nil {
+			if err := s.settings.Set(ctx, map[string]any{licenseOption: s.sealSecret(key)}); err != nil {
 				c.Redirect(http.StatusFound, "/wp-admin/options-license?error=save")
 				return
 			}
@@ -208,7 +213,7 @@ func (s *Server) optionsLicense(c *gin.Context) {
 		c.Redirect(http.StatusFound, "/wp-admin/options-license?"+q)
 		return
 	}
-	v := licenseView{Key: s.licenseKey(), Nonce: s.nonce(c, "pursae-license"), Hub: s.hubBase() != ""}
+	v := licenseView{Key: gfMask(s.licenseKey()), Nonce: s.nonce(c, "pursae-license"), Hub: s.hubBase() != ""}
 	v.SendStats = s.statsEnabled()
 	if v.Key != "" {
 		v.Status = s.license(ctx)

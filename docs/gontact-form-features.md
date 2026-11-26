@@ -190,4 +190,6 @@ the REST cookie check also reads `_wpnonce` from multipart bodies (WordPress rea
 a non-JS form POST render the page; plus one-line registrations in `plugins.go`, `admin.go`, `wpgocache.go`
 (`pluginAdmin`), `rest.go` (namespace hidden while off), `site_view.go`, `server.go` and `editor_block.go`; `scheduler.go` has the `gontact_captcha_cleanup` event.
 Options: `native_gontact_form`, `gontact_form_installed`, `gontact_form_secret`, `gontact_recaptcha_sitekey/secret`,
-`gontact_turnstile_sitekey/secret`.
+`gontact_turnstile_sitekey/secret`. The two secret keys are stored encrypted (AES-256-GCM with a key derived from the
+server secret, prefix `sec:v1:`); the Integration screen shows them masked and `/pursae/v1/options/contact` never
+returns them.

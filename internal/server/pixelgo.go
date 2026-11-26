@@ -273,7 +273,12 @@ func (s *Server) pixelLoad() pixelSettings {
 			}
 		}
 	}
-	return pixelSanitize(st)
+	st = pixelSanitize(st)
+	for k, cfg := range st.Platforms { // API tokens are stored sealed (pixelSave)
+		cfg.Token = s.revealSecret(cfg.Token)
+		st.Platforms[k] = cfg
+	}
+	return st
 }
 
 // pixelMerge lays saved settings over the defaults: maps are merged key by key so a release that
@@ -340,8 +345,8 @@ func pixelSanitize(st pixelSettings) pixelSettings {
 		}
 		cfg.IDs = ids
 		cfg.Token = strings.TrimSpace(cfg.Token)
-		if len(cfg.Token) > 600 || strings.ContainsAny(cfg.Token, " \t\r\n\"'<>&") {
-			cfg.Token = ""
+		if !secretLooksSealed(cfg.Token) && (len(cfg.Token) > 600 || strings.ContainsAny(cfg.Token, " \t\r\n\"'<>&")) {
+			cfg.Token = "" // a sealed token (pixelSave) was checked in clear before it was sealed
 		}
 		cfg.TestCode = strings.TrimSpace(cfg.TestCode)
 		if len(cfg.TestCode) > 40 || strings.ContainsAny(cfg.TestCode, " \"'<>&") {
@@ -534,7 +539,12 @@ func pixelRandom(n int) string {
 
 // pixelSave stores the settings and drops every cached page: the tags are in them.
 func (s *Server) pixelSave(ctx context.Context, st pixelSettings) error {
-	if err := s.settings.Set(ctx, map[string]any{pixelOptions: pixelSanitize(st)}); err != nil {
+	st = pixelSanitize(st)
+	for k, cfg := range st.Platforms { // API tokens are stored sealed; pixelLoad opens them
+		cfg.Token = s.sealSecret(cfg.Token)
+		st.Platforms[k] = cfg
+	}
+	if err := s.settings.Set(ctx, map[string]any{pixelOptions: st}); err != nil {
 		return err
 	}
 	s.purgeAll(ctx)

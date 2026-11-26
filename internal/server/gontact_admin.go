@@ -438,12 +438,12 @@ func (s *Server) gontactIntegration(c *gin.Context) {
 		vals := map[string]any{}
 		switch c.PostForm("service") {
 		case "recaptcha":
-			vals["gontact_recaptcha_sitekey"], vals["gontact_recaptcha_secret"] = strings.TrimSpace(c.PostForm("sitekey")), strings.TrimSpace(c.PostForm("secret"))
+			vals["gontact_recaptcha_sitekey"], vals["gontact_recaptcha_secret"] = strings.TrimSpace(c.PostForm("sitekey")), s.sealSecret(strings.TrimSpace(c.PostForm("secret")))
 			if c.PostForm("reset") != "" {
 				vals["gontact_recaptcha_sitekey"], vals["gontact_recaptcha_secret"] = "", ""
 			}
 		case "turnstile":
-			vals["gontact_turnstile_sitekey"], vals["gontact_turnstile_secret"] = strings.TrimSpace(c.PostForm("sitekey")), strings.TrimSpace(c.PostForm("secret"))
+			vals["gontact_turnstile_sitekey"], vals["gontact_turnstile_secret"] = strings.TrimSpace(c.PostForm("sitekey")), s.sealSecret(strings.TrimSpace(c.PostForm("secret")))
 			if c.PostForm("reset") != "" {
 				vals["gontact_turnstile_sitekey"], vals["gontact_turnstile_secret"] = "", ""
 			}
@@ -460,10 +460,10 @@ func (s *Server) gontactIntegration(c *gin.Context) {
 	d.RecaptchaActive = d.RecaptchaSite != "" && s.settings.String("gontact_recaptcha_secret") != ""
 	d.TurnstileActive = d.TurnstileSite != "" && s.settings.String("gontact_turnstile_secret") != ""
 	if d.RecaptchaActive {
-		d.RecaptchaSecret = gfMask(s.settings.String("gontact_recaptcha_secret"))
+		d.RecaptchaSecret = gfMask(s.revealSecret(s.settings.String("gontact_recaptcha_secret")))
 	}
 	if d.TurnstileActive {
-		d.TurnstileSecret = gfMask(s.settings.String("gontact_turnstile_secret"))
+		d.TurnstileSecret = gfMask(s.revealSecret(s.settings.String("gontact_turnstile_secret")))
 	}
 	s.adminPage(c, "admin?page=wpcf7-integration", "Integration with External API", "contact_page_wpcf7-integration", "admin/gontact-integration", d, s.gontactNotices(c)...)
 }

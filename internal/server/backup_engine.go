@@ -867,11 +867,12 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		conn.Release()
 		s.bmgrLog(j, "database restored: %d tables", len(plan.Tables))
 		if reseal != nil && reseal.n > 0 {
-			s.bmgrLog(j, "%d stored secrets (mail, CDN, translation keys, two-factor apps) were re-encrypted for this site; Pursae Security backup codes made on the other site must be generated again", reseal.n)
+			s.bmgrLog(j, "%d stored secrets (mail, CDN, payment, API and translation keys, two-factor apps) were re-encrypted for this site; Pursae Security backup codes made on the other site must be generated again", reseal.n)
 		}
 		if err := s.settings.Load(ctx); err != nil {
 			slog.Warn("backup: reloading settings", "err", err)
 		}
+		s.sealStoredSecrets(ctx) // an archive from an older version may hold plain secrets
 		s.purgeAll(ctx)
 	}
 

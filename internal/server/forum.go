@@ -143,7 +143,7 @@ type forumSettings struct {
 	FloodSeconds       int    `json:"flood_seconds"`        // 15
 	GoogleEnabled      bool   `json:"google_enabled"`       //
 	GoogleClientID     string `json:"google_client_id"`     //
-	GoogleClientSecret string `json:"google_client_secret"` // never rendered back; empty on save = keep stored
+	GoogleClientSecret string `json:"google_client_secret"` // sealed; never rendered back; empty on save = keep stored
 	ShowMembers        bool   `json:"show_members"`         // WP7: true: the public member list /<base>/members/
 	// v0.2.5.
 	RulesURL      string `json:"rules_url"`      // the community rules page ("" = none); the sign-up checkbox links it
@@ -251,15 +251,19 @@ func (s *Server) forumLoad() forumSettings {
 			_ = json.Unmarshal(raw, &st) // keys the saved settings lack keep their defaults
 		}
 	}
-	return forumSanitize(st)
+	st = forumSanitize(st)
+	st.GoogleClientSecret = s.revealSecret(st.GoogleClientSecret) // stored sealed (forumSave)
+	return st
 }
 
-// forumSave stores the settings; an empty Google client secret keeps the stored one.
+// forumSave stores the settings; an empty Google client secret keeps the stored one. The secret
+// is stored sealed (sealSecret); forumLoad opens it.
 func (s *Server) forumSave(ctx context.Context, st forumSettings) error {
 	st = forumSanitize(st)
 	if st.GoogleClientSecret == "" {
 		st.GoogleClientSecret = s.forumLoad().GoogleClientSecret
 	}
+	st.GoogleClientSecret = s.sealSecret(st.GoogleClientSecret)
 	if err := s.settings.Set(ctx, map[string]any{forumOptions: st}); err != nil {
 		return err
 	}

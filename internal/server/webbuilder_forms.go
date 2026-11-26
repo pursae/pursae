@@ -452,7 +452,7 @@ func (s *Server) wbFormCaptcha(ctx context.Context, values map[string]string, ip
 		{"gontact_turnstile_secret", "gontact_turnstile_sitekey", "cf-turnstile-response", "https://challenges.cloudflare.com/turnstile/v0/siteverify"},
 		{"gontact_recaptcha_secret", "gontact_recaptcha_sitekey", "g-recaptcha-response", "https://www.google.com/recaptcha/api/siteverify"},
 	} {
-		secret := s.settings.String(k.secret)
+		secret := s.revealSecret(s.settings.String(k.secret)) // stored sealed (sealSecret)
 		if secret == "" || s.settings.String(k.site) == "" {
 			continue
 		}

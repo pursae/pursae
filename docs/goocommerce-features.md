@@ -149,7 +149,8 @@ stock or allow backorders are not reserved.
 
 - Payment methods: the built-in ones are direct bank transfer (BACS), check, cash on delivery, Stripe
   and the Test payments gateway. Stripe (Payments › Stripe: test/live secret keys and webhook signing
-  secrets, kept out of the form once saved) takes cards on Stripe-hosted Checkout, so no card data
+  secrets, stored encrypted with a key derived from the server secret, kept out of the form once saved and
+  masked as `********` by `GET /wc/v3/payment_gateways`; sending the mask back keeps the saved value) takes cards on Stripe-hosted Checkout, so no card data
   reaches the server. The Checkout page expires after the hold-stock time (between 30 minutes and
   24 hours; one hour when hold stock is off) and every Checkout page opened for the order (one per payment attempt) is closed when the order is cancelled. Its webhook is `/wc-api/goo_stripe` (Stripe-Signature HMAC-SHA256, 5-minute
   timestamp tolerance, each event id handled once); order updates are idempotent, refunds from the

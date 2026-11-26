@@ -33,10 +33,10 @@ type captchaProvider struct{ kind, site, secret, endpoint, field string }
 
 // captchaProvider returns the configured service, Turnstile before reCAPTCHA (ok=false: no keys).
 func (s *Server) captchaProvider() (captchaProvider, bool) {
-	if site, secret := s.settings.String("gontact_turnstile_sitekey"), s.settings.String("gontact_turnstile_secret"); site != "" && secret != "" {
+	if site, secret := s.settings.String("gontact_turnstile_sitekey"), s.revealSecret(s.settings.String("gontact_turnstile_secret")); site != "" && secret != "" {
 		return captchaProvider{"turnstile", site, secret, captchaTurnstileVerify, "cf-turnstile-response"}, true
 	}
-	if site, secret := s.settings.String("gontact_recaptcha_sitekey"), s.settings.String("gontact_recaptcha_secret"); site != "" && secret != "" {
+	if site, secret := s.settings.String("gontact_recaptcha_sitekey"), s.revealSecret(s.settings.String("gontact_recaptcha_secret")); site != "" && secret != "" {
 		return captchaProvider{"recaptcha", site, secret, captchaRecaptchaVerify, "g-recaptcha-response"}, true
 	}
 	return captchaProvider{}, false
