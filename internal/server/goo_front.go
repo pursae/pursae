@@ -87,7 +87,12 @@ func (s *Server) gooAcceptsPost(c *gin.Context) bool {
 		return true
 	}
 	// Only form values are read here: 1 MB in memory, files beyond it spool to the temp directory.
-	if err := c.Request.ParseMultipartForm(1 << 20); err != nil && c.Request.PostForm == nil { //nolint:gosec // G120: the body is capped by requestBodyLimit (maxRequestBody); parts over 1 MB spool to disk
+	// The body is bounded by the largest store form first (a product add-on file plus the fields).
+	if c.Request.Body != nil && c.Request.Body != http.NoBody {
+		limit := max(int64(max(s.gooExtInt(paoKey, "max_upload_mb"), 1))<<20+2<<20, 8<<20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+	}
+	if err := c.Request.ParseMultipartForm(1 << 20); err != nil && c.Request.PostForm == nil { //nolint:gosec // G120: the body is bounded just above
 		_ = c.Request.ParseForm()
 	}
 	for _, k := range gooPostMarkers {

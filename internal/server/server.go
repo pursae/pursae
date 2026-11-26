@@ -554,6 +554,9 @@ func (s *Server) loadUser() gin.HandlerFunc {
 				}
 			}
 		}
+		if u == nil && !anonBoundBody(c) {
+			return
+		}
 		// Every request is request-scoped, including anonymous ones, so a plugin cannot publish
 		// or send mail as a visitor merely because it holds posts:write or mail:send.
 		c.Request = c.Request.WithContext(withPluginRequest(c.Request.Context(), u))
@@ -570,7 +573,10 @@ func isBackgroundPoll(c *gin.Context) bool {
 	case "/wp-admin/admin-ajax":
 		action := c.Query("action")
 		if action == "" && c.Request.Method == http.MethodPost {
-			action = c.PostForm("action")
+			// Runs before the session is known: only a URL-encoded body (what heartbeat.js sends) is
+			// read, never a multipart one, which would spool its files to disk.
+			_ = c.Request.ParseForm()
+			action = c.Request.PostForm.Get("action")
 		}
 		return action == "heartbeat"
 	case "/wp-admin/headlessgo/lock":

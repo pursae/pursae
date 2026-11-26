@@ -97,6 +97,45 @@ func requestBodyLimit(r *http.Request) int64 {
 	return maxRequestBody
 }
 
+// anonMaxBody bounds the body of a request with neither a signed-in user nor an Authorization
+// header: a visitor's forms (comments, checkout, forum, contact forms without JavaScript) fit well
+// within it, and any handler that parses a form first could otherwise spool maxRequestBody to disk.
+// A variable for tests.
+var anonMaxBody int64 = 32 << 20
+
+// anonBodyExempt lists the anonymous routes that bound the body themselves by their own settings
+// (contact form file fields, product add-on uploads) or carry credentials in it (XML-RPC).
+func anonBodyExempt(r *http.Request) bool {
+	p := strings.TrimSuffix(r.URL.Path, ".php")
+	if p == "/xmlrpc" {
+		return true
+	}
+	q := r.URL.Query()
+	if q.Get("goo-ajax") == "addon_upload" {
+		return true
+	}
+	route := strings.TrimPrefix(p, "/wp-json")
+	if route == p {
+		route = q.Get("rest_route")
+	}
+	return strings.HasPrefix(route, "/contact-form-7/v1/contact-forms/") && strings.HasSuffix(route, "/feedback")
+}
+
+// anonBoundBody applies anonMaxBody to an anonymous request; false when it answered 413.
+func anonBoundBody(c *gin.Context) bool {
+	r := c.Request
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 || r.Header.Get("Authorization") != "" || anonBodyExempt(r) {
+		return true
+	}
+	if r.ContentLength > anonMaxBody {
+		c.Header("Connection", "close")
+		c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+		return false
+	}
+	r.Body = http.MaxBytesReader(c.Writer, r.Body, anonMaxBody)
+	return true
+}
+
 func newRequestID() string {
 	var b [12]byte
 	_, _ = rand.Read(b[:])
