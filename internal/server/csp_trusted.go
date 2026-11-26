@@ -182,6 +182,19 @@ func (s *Server) maintCheckRaw(c *gin.Context, old, st maintSettings) []string {
 	return nil
 }
 
+// seogoCheckRaw: the RSS texts are HTML in every feed item; markup KSES would change needs
+// unfiltered_html, as the SEO screen filters it otherwise.
+func (s *Server) seogoCheckRaw(c *gin.Context, old, st *seogoOptions) []string {
+	if currentUser(c).Can("unfiltered_html", nil) {
+		return nil
+	}
+	raw := func(cur, prev string) bool { return cur != prev && wp.KsesPost(cur) != cur }
+	if raw(st.RSSBefore, old.RSSBefore) || raw(st.RSSAfter, old.RSSAfter) {
+		return []string{errNeedsUnfiltered}
+	}
+	return nil
+}
+
 // gooikeCheckRaw: the code of custom (non-service) scripts only with unfiltered_html.
 func (s *Server) gooikeCheckRaw(c *gin.Context, old, st gooikeSettings) []string {
 	if currentUser(c).Can("unfiltered_html", nil) {

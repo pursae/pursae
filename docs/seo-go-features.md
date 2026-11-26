@@ -73,7 +73,7 @@ gets comes from `GET web-builder/v2/documents/{id}/plugins` (docs/developer/web-
 | Knowledge Graph / site representation | Organization or person, logo, other profiles | Local SEO & Knowledge Graph | ✓ Organization (name, alternate name, logo) or person (a user), social profiles as `sameAs`. |
 | Social settings | Facebook (default image, front page), X card type, other profiles | Same | ✓ Open Graph on/off, X cards on/off, card type, default image, home image, Facebook page URL and app ID, X username. The default image is also used as `og:image`/`twitter:image` on public Pursae Forum pages, which print their own tags ([forum features](forum-features.md#caching-and-seo)). |
 | Webmaster verification | Google, Bing, Baidu, Yandex | Google, Bing, Baidu, Yandex, Pinterest, Norton | ✓ Google, Bing, Baidu, Yandex, Pinterest, Naver. Accepts the bare code or the whole `<meta>` tag. Output only on the home page. |
-| RSS before/after content | ✓ (`%%POSTLINK%%`, `%%BLOGLINK%%`…) | ✓ | ✓ `%postlink%`, `%bloglink%`, `%blogdesclink%`, `%authorlink%` plus all variables. |
+| RSS before/after content | ✓ (`%%POSTLINK%%`, `%%BLOGLINK%%`…) | ✓ | ✓ `%postlink%`, `%bloglink%`, `%blogdesclink%`, `%authorlink%` plus all variables. Markup is filtered (KSES) for users without `unfiltered_html`; the options API refuses it. |
 | robots.txt editor | File editor | Edit robots.txt | ✓ Tools › robots.txt editor, served virtually; the default adds the sitemap index. |
 | .htaccess editor | ✓ | ✓ | ✗ Not applicable: Pursae serves every request itself. |
 | Noindex empty terms / paginated pages | — | ✓ | ✓ |
