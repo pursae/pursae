@@ -94,6 +94,8 @@ func gooSettingsTabs() []gooTab {
 				{ID: "shop_page_id", Title: "Shop page", Type: "single_select_page", Default: 0, Desc: "The base page can also be used in your product permalinks."},
 				{ID: "cart_redirect_after_add", Title: "Add to cart behaviour", Type: "checkbox", Default: false, Desc: "Redirect to the cart page after successful addition", Group: "start"},
 				{ID: "enable_ajax_add_to_cart", Type: "checkbox", Default: true, Desc: "Enable AJAX add to cart buttons on archives", Group: "end"},
+				{ID: "installments_on_product", Title: "Installment options", Type: "checkbox", Default: true,
+					Desc: "Show the installment options of the bank payment methods on product pages (stores selling in TRY with an installment plan)"},
 				{ID: "placeholder_image", Title: "Placeholder image", Type: "number", Default: 0, Desc: "This is the attachment ID, or image URL, used for placeholder images in the product catalog. Products with no image will use this."},
 				{ID: "shop_options_end", Type: "sectionend"},
 				{ID: "product_measurement_options", Title: "Measurements", Type: "title"},

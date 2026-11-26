@@ -93,6 +93,7 @@ type gooCart struct {
 	TotalTax, Total                    float64
 	Taxes                              map[int64]float64 // cart contents + fee taxes per rate
 	ShippingTaxes                      map[int64]float64
+	SurchargeBase                      float64 // the total before payment surcharges (gooCartSurchargeHooks)
 
 	TaxLocation gooLocation
 	rateCache   map[string][]gooTaxRate // tax rates looked up by Calculate, reused for the request
@@ -576,6 +577,10 @@ func (cart *gooCart) RemoveCoupon(code string) bool {
 // Coupons are the applied coupons.
 func (cart *gooCart) Coupons() []*gooCoupon { return cart.coupons }
 
+// gooCartSurchargeHooks add payment surcharges (cart.AddFee, never taxable) once shipping and taxes
+// are known; cart.SurchargeBase is the amount they apply to.
+var gooCartSurchargeHooks []gooCartFeesHook
+
 // AddFee is WC_Cart::add_fee(), for gooCartFeesHooks.
 func (cart *gooCart) AddFee(id, name string, amount float64, taxable bool, taxClass string) *gooFee {
 	f := &gooFee{ID: defaultStr(id, gooSanitizeKey(name)), Name: name, Amount: amount, Taxable: taxable, TaxClass: taxClass}
@@ -927,6 +932,18 @@ func (cart *gooCart) Calculate() {
 		cart.ShippingTax = gooSumTaxes(cart.ShippingTaxes)
 	}
 	cart.TotalTax = gooRound(gooSumTaxes(cart.Taxes)+gooSumTaxes(cart.ShippingTaxes), dp)
+	// Payment surcharges: fees on the whole amount (items, fees, shipping and taxes), added once
+	// everything else is known, so they feed into no other calculation. They are not taxable.
+	cart.SurchargeBase = max(gooRound(cart.CartContentsTotal+cart.FeeTotal+cart.ShippingTotal+cart.TotalTax, dp), 0)
+	if n := len(cart.Fees); len(gooCartSurchargeHooks) > 0 {
+		for _, h := range gooCartSurchargeHooks {
+			h(s, ctx, cart)
+		}
+		for _, f := range cart.Fees[n:] {
+			f.Taxable, f.Total, f.Taxes, f.Tax = false, gooRound(f.Amount, dp), map[int64]float64{}, 0
+			cart.FeeTotal += f.Total
+		}
+	}
 	cart.Total = gooRound(cart.CartContentsTotal+cart.FeeTotal+cart.ShippingTotal+cart.TotalTax, dp)
 	if cart.Total < 0 {
 		cart.Total = 0

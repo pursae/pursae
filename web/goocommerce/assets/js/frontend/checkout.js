@@ -203,6 +203,15 @@
 			var t = e.target;
 			if (t.name === 'payment_method') {
 				paymentBoxes();
+				// A method that adds to the total (an installment surcharge) is on the page: the order
+				// review must show the total of the method now chosen.
+				if (f.querySelector('.goo-pay-installments')) {
+					updateOrderReview();
+				}
+				return;
+			}
+			if (t.closest('.update_totals_on_change')) {
+				updateOrderReview();
 				return;
 			}
 			if (t.id === 'ship-to-different-address-checkbox') {

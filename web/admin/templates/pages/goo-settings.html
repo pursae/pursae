@@ -156,20 +156,7 @@
 </table>
 {{end}}
 
-{{define "goo-settings-gateways"}}
-<input type="hidden" name="gateway_toggles" value="1">
-<table class="wc_gateways widefat" cellspacing="0" aria-describedby="payment_gateways_options-description">
-<thead><tr><th class="sort"></th><th class="name">Method</th><th class="status">Enabled</th><th class="description">Description</th><th class="action"></th></tr></thead>
-<tbody>
-{{range .Gateways}}<tr data-gateway_id="{{.ID}}">
-<td class="sort ui-sortable-handle" width="1%"><div class="wc-item-reorder-nav"><button type="button" class="wc-move-up" aria-label="Move up">&#9650;</button><button type="button" class="wc-move-down" aria-label="Move down">&#9660;</button></div><input type="hidden" name="gateway_order[]" value="{{.ID}}"></td>
-<td class="name" width=""><a href="{{.URL}}" class="wc-payment-gateway-method-title">{{.Title}}</a>{{if ne .Title .MethodTitle}}<span class="wc-payment-gateway-method-name">&nbsp;&ndash; {{.MethodTitle}}</span>{{end}}</td>
-<td class="status" width="1%"><label class="goo-toggle"><input type="checkbox" name="gateway_enabled[{{.ID}}]" value="1"{{if .Enabled}} checked="checked"{{end}}><span class="woocommerce-input-toggle{{if .Enabled}} woocommerce-input-toggle--enabled{{else}} woocommerce-input-toggle--disabled{{end}}">{{if .Enabled}}Yes{{else}}No{{end}}</span></label></td>
-<td class="description" width="">{{.Desc}}</td>
-<td class="action" width="1%"><a class="button alignright" href="{{.URL}}">{{if .Enabled}}Manage{{else}}Finish set up{{end}}</a></td>
-</tr>{{end}}
-</tbody></table>
-{{end}}
+{{define "goo-settings-gateways"}}{{.Body}}{{end}}
 
 {{define "goo-settings-emails"}}
 <table class="wc_emails widefat" cellspacing="0">

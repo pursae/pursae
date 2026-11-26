@@ -157,8 +157,33 @@ stock or allow backorders are not reserved.
   order screen go through the Stripe API (Idempotency-Key per refund), saved cards appear under
   My Account › Payment methods (a provider reference only), and subscription renewals are charged
   off-session with the saved card (a processing payment puts the renewal on hold until the webhook
-  settles it). iyzico is not built yet. BACS, check and cash on delivery reject automatic refunds, so
+  settles it). BACS, check and cash on delivery reject automatic refunds, so
   refund those by hand and record it on the order. Bookings do not support refunds either.
+- Hosted payment providers (Settings › Payments, tabs Türkiye / Worldwide / Offline): PayTR (iFrame
+  API), iyzico (Checkout Form), Sipay (payment link), the EST / Nestpay banks (İş Bankası, Ziraat
+  Bankası, Halkbank, TEB, Şekerbank and Akbank's older POS; 3D Pay Hosting), Akbank (3D Pay
+  Hosting), GarantiPay, QNB (3D Host), VakıfBank (common payment page) and PayPal (Checkout by
+  redirect). In every one the customer types the card on the provider's page or in its iframe: no
+  card data reaches the server, and a method without such a mode is not offered (Yapı Kredi,
+  DenizBank, Param, QNBpay, Kuveyt Türk, Albaraka Türk, Garanti's common payment page). They are
+  marked **Beta**: each was written from the provider's protocol and tested against a simulated
+  provider, not yet against a real test merchant. A method cannot be enabled before its credentials
+  are saved; credentials are never shown again in the settings screen or the REST API. Each payment
+  attempt has its own reference (table `goo_payment_attempts`); an order is marked paid only on the
+  provider's signed notification or its answer to a server-side query, and only when the amount and
+  currency match the attempt, otherwise it goes on hold with a note. Callback URL:
+  `/wc-api/goo_<id>/` (PayTR: enter the notification URL shown in the gateway's settings in the
+  PayTR panel; PayPal: create a webhook for it and paste the webhook ID). Refunds from the order
+  screen go to the provider (a same-day full refund is a void where the provider distinguishes); an
+  unknown outcome is never retried automatically. The order screen has "Check payment status with
+  <provider>" (asks the provider now, for an order stuck in pending) and lists the order's payment
+  attempts. Installments: PayTR, iyzico and Sipay offer them on their own page (a maximum can be
+  set). For the bank POS methods the merchant enters a plan (`count:rate`, e.g. `3:2.5, 6:5.9`);
+  the customer picks the count on the checkout and the surcharge is a fee line of the order
+  (computed on the items after discounts, not on shipping; TRY only). On the Pay for order page only
+  the entries without a surcharge are offered. The method logos (the companies' own, sources in
+  `web/goocommerce/assets/images/payment-gateways/README.md`) show in Settings › Payments, on the
+  checkout and as `icon` in `wc/v3/payment_gateways`.
 - Geolocate uses the country from the request headers when available (CDN or proxy header) and falls
   back to the store base country; there is no GeoIP database lookup.
 

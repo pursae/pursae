@@ -26,6 +26,9 @@ import (
 
 const gooStoreAPINonce = "wc_store_api"
 
+// gooStoreAPIKey marks a request handled by the Store API (gin context key).
+const gooStoreAPIKey = "goo_store_api"
+
 func (s *Server) registerGooStoreCartREST() {
 	r := func(pattern string, m map[string]restHandler) {
 		wrapped := map[string]restHandler{}
@@ -56,6 +59,7 @@ func (s *Server) registerGooStoreCartREST() {
 func (s *Server) gooStore(h restHandler, mutating bool) restHandler {
 	return func(c *gin.Context, req *restRequest) {
 		c.Header("Access-Control-Expose-Headers", "X-WP-Total, X-WP-TotalPages, Link, Nonce, Nonce-Timestamp, Cart-Token, User-ID")
+		c.Set(gooStoreAPIKey, true)
 		token := s.gooUseCartToken(c)
 		if mutating && !token {
 			nonce := c.GetHeader("Nonce")
