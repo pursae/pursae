@@ -247,6 +247,26 @@ func (s *Server) hgRegister(c *gin.Context, st hgSettings) {
 	if !ok {
 		return
 	}
+	// The same gates as the other sign-up forms (wp-login, Forum): a per-network limit, and the
+	// account-forms CAPTCHA when Pursae Security asks for one.
+	if !forumAllow("hg-register:"+gooikeTruncateIP(clientIP(c)), 20, 10*time.Minute) {
+		hgErr(c, http.StatusTooManyRequests, "TooManyRequestsError", "Too many sign-ups from your network. Try again later.", nil)
+		return
+	}
+	if p, ok := s.loginCaptchaCfg(); ok {
+		token, _ := body["captchaToken"].(string)
+		token = strings.TrimSpace(token)
+		good := token != "" && len(token) <= 4096
+		if good {
+			score, ok := s.verifyCaptcha(c.Request.Context(), p.endpoint, p.secret, token, clientIP(c))
+			good = ok && score >= 0.5
+		}
+		if !good {
+			hgErr(c, http.StatusForbidden, "ForbiddenError", "A valid CAPTCHA token (captchaToken) is required",
+				map[string]any{"code": "captcha_required", "provider": p.kind, "siteKey": p.site})
+			return
+		}
+	}
 	login, _ := body["username"].(string)
 	email, _ := body["email"].(string)
 	pass, _ := body["password"].(string)

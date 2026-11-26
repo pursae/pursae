@@ -705,7 +705,11 @@ func (s *Server) hgWrite(c *gin.Context, a *hgAuth, sc *hgSchema, doc, action st
 			p.Populate = pp
 		}
 	}
-	obj, err := s.hgSerializer(c, a, p).entry(sc, e, p.Populate, nil)
+	var fields []string
+	if doc != "" && p.Status == "draft" {
+		fields, p.Populate = hgWriteView(a, sc, data, p.Populate)
+	}
+	obj, err := s.hgSerializer(c, a, p).entry(sc, e, p.Populate, fields)
 	if err != nil {
 		hgFail(c, err)
 		return
@@ -715,6 +719,34 @@ func (s *Server) hgWrite(c *gin.Context, a *hgAuth, sc *hgSchema, doc, action st
 		code = http.StatusCreated
 	}
 	hgWriteJSON(c, code, map[string]any{"data": obj, "meta": map[string]any{}})
+}
+
+// hgWriteView narrows the answer of a write that returns an existing document's draft for a caller
+// that may not read drafts: the draft may hold someone else's unpublished changes, so only the
+// attributes the request wrote (and the entry's metadata) are shown. It returns the fields and the
+// populate to serialize with (nil fields: everything).
+func hgWriteView(a *hgAuth, sc *hgSchema, written map[string]any, pop *hgPop) ([]string, *hgPop) {
+	if a == nil || !sc.DraftAndPublish || a.drafts(sc.UID) {
+		return nil, pop
+	}
+	fields := []string{"createdAt", "updatedAt", "publishedAt", "locale"} // never empty: empty means all
+	narrowed := &hgPop{Populate: map[string]*hgPop{}}
+	for name := range written {
+		f := sc.Field(name)
+		if f == nil {
+			continue
+		}
+		fields = append(fields, name)
+		if pop == nil || f.scalar() {
+			continue
+		}
+		if sub, ok := pop.Populate[name]; ok {
+			narrowed.Populate[name] = sub
+		} else if pop.All {
+			narrowed.Populate[name] = &hgPop{Populate: map[string]*hgPop{}}
+		}
+	}
+	return fields, narrowed
 }
 
 // hgDelete deletes a document: the given ?locale= version, or every locale (locale=* or none).
@@ -784,7 +816,11 @@ func (s *Server) hgPublishAPI(c *gin.Context, a *hgAuth, sc *hgSchema, doc, acti
 	}
 	s.hgEmit(c, "entry."+action, sc, e)
 	p := &hgReadParams{Status: status, Locale: loc, Populate: &hgPop{Populate: map[string]*hgPop{}}}
-	obj, err := s.hgSerializer(c, a, p).entry(sc, e, p.Populate, nil)
+	var fields []string
+	if status == "draft" {
+		fields, p.Populate = hgWriteView(a, sc, nil, p.Populate)
+	}
+	obj, err := s.hgSerializer(c, a, p).entry(sc, e, p.Populate, fields)
 	if err != nil {
 		hgFail(c, err)
 		return
