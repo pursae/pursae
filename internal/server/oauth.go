@@ -40,8 +40,11 @@ const (
 	// oauthRegisterGlobalLimit caps registrations from all addresses together per window, below
 	// oauthMaxClients, so rotating addresses (an IPv6 /48, many IPv4 hosts) cannot fill the cap alone.
 	oauthRegisterGlobalLimit = 100
-	oauthMCPPath             = "/wp-json/pursae/v1/mcp"
-	restOAuthKey             = "wpgo.restOAuthGrant" // oauth_tokens.id that authenticated the request
+	// oauthRegisterNetLimit caps registrations from one network (IPv4 /24, IPv6 /48) per window, so a
+	// few hosts of one provider cannot use up the global window and lock out every other client.
+	oauthRegisterNetLimit = 25
+	oauthMCPPath          = "/wp-json/pursae/v1/mcp"
+	restOAuthKey          = "wpgo.restOAuthGrant" // oauth_tokens.id that authenticated the request
 )
 
 // oauthReuseGrace is how long after a rotation the replaced refresh token is refused without ending
@@ -136,7 +139,7 @@ func (s *Server) oauthRegister(c *gin.Context) {
 	if oauthCORS(c) {
 		return
 	}
-	if !oauthRegisterAllow(oauthRegisterKey(clientIP(c)), time.Now()) {
+	if !oauthRegisterAllowNet(oauthRegisterKey(clientIP(c)), oauthRegisterNet(clientIP(c)), time.Now()) {
 		oauthErr(c, http.StatusTooManyRequests, "temporarily_unavailable", "Too many client registrations from this address. Try again later.")
 		return
 	}
@@ -192,6 +195,18 @@ var oauthRegisterLimiter = struct {
 	global oauthRegisterHits
 }{hits: map[string]oauthRegisterHits{}}
 
+// oauthRegisterNet is the network of a client address for oauthRegisterNetLimit: IPv4 /24, IPv6 /48.
+func oauthRegisterNet(addr string) string {
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return ""
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return "net:" + v4.Mask(net.CIDRMask(24, 32)).String() + "/24"
+	}
+	return "net:" + ip.Mask(net.CIDRMask(48, 128)).String() + "/48"
+}
+
 // oauthRegisterKey is the limiter key for a client address: IPv4 as is, IPv6 by its /64 prefix
 // (one subscriber usually holds a whole /64, so per-address counting would never trigger).
 func oauthRegisterKey(addr string) string {
@@ -207,7 +222,11 @@ type oauthRegisterHits struct {
 	n     int
 }
 
-func oauthRegisterAllow(key string, now time.Time) bool {
+func oauthRegisterAllow(key string, now time.Time) bool { return oauthRegisterAllowNet(key, "", now) }
+
+// oauthRegisterAllowNet counts one registration against the address key, its network (when known)
+// and the global window; a refusal uses up none of them.
+func oauthRegisterAllowNet(key, network string, now time.Time) bool {
 	oauthRegisterLimiter.Lock()
 	defer oauthRegisterLimiter.Unlock()
 	if len(oauthRegisterLimiter.hits) > 10000 { // bound memory: drop expired windows
@@ -224,6 +243,15 @@ func oauthRegisterAllow(key string, now time.Time) bool {
 	if h.n >= oauthRegisterLimit {
 		return false // a refused request does not use up the global budget
 	}
+	var nh oauthRegisterHits
+	if network != "" {
+		if nh = oauthRegisterLimiter.hits[network]; now.Sub(nh.start) > oauthRegisterWindow {
+			nh = oauthRegisterHits{start: now}
+		}
+		if nh.n >= oauthRegisterNetLimit {
+			return false
+		}
+	}
 	g := oauthRegisterLimiter.global
 	if now.Sub(g.start) > oauthRegisterWindow {
 		g = oauthRegisterHits{start: now}
@@ -234,6 +262,10 @@ func oauthRegisterAllow(key string, now time.Time) bool {
 	h.n++
 	g.n++
 	oauthRegisterLimiter.hits[key] = h
+	if network != "" {
+		nh.n++
+		oauthRegisterLimiter.hits[network] = nh
+	}
 	oauthRegisterLimiter.global = g
 	return true
 }
