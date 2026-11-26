@@ -14,6 +14,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -71,22 +72,62 @@ func (s *Server) gooStripeSessionTTL() time.Duration {
 	return time.Duration(min(max(mins, 31), 24*60-5)) * time.Minute
 }
 
-// gooStripeExpireSession closes the open Checkout page of a cancelled order, so it can no longer be
-// paid there. Best effort and in the background: the cancellation never waits on or fails with Stripe.
+// gooStripeMaxSessions bounds the Checkout sessions remembered per order (one per pay-for-order attempt).
+const gooStripeMaxSessions = 10
+
+// gooStripeSessionIDs are the order's Checkout sessions that may still be open: the remembered list
+// and the latest one.
+func gooStripeSessionIDs(o *gooOrder) []string {
+	var out []string
+	add := func(id string) {
+		if id != "" && !strings.ContainsAny(id, "/?#") && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	if list, ok := o.Meta["_stripe_session_ids"].([]any); ok {
+		for _, v := range list {
+			if id, ok := v.(string); ok {
+				add(id)
+			}
+		}
+	} else if list, ok := o.Meta["_stripe_session_ids"].([]string); ok {
+		for _, id := range list {
+			add(id)
+		}
+	}
+	add(gxaStr(o.Meta, "_stripe_session_id"))
+	return out
+}
+
+// gooStripeRememberSession records a new Checkout session on the order, keeping the newest few.
+func gooStripeRememberSession(o *gooOrder, id string) {
+	ids := append(gooStripeSessionIDs(o), id)
+	if len(ids) > gooStripeMaxSessions {
+		ids = ids[len(ids)-gooStripeMaxSessions:]
+	}
+	o.Meta["_stripe_session_ids"] = ids
+	o.Meta["_stripe_session_id"] = id
+}
+
+// gooStripeExpireSession closes the open Checkout pages of a cancelled order (every pay-for-order
+// attempt's, not only the last), so none can still be paid. Best effort and in the background: the
+// cancellation never waits on or fails with Stripe.
 func (s *Server) gooStripeExpireSession(ctx context.Context, o *gooOrder) {
 	if o == nil || o.PaymentMethod != gooStripeID || s.gooStripeSecret() == "" {
 		return
 	}
-	sid := gxaStr(o.Meta, "_stripe_session_id")
-	if sid == "" || strings.ContainsAny(sid, "/?#") {
+	ids := gooStripeSessionIDs(o)
+	if len(ids) == 0 {
 		return
 	}
 	bg := context.WithoutCancel(ctx)
 	safeGo("stripe-expire-session", func() {
-		ctx, cancel := context.WithTimeout(bg, 10*time.Second)
-		defer cancel()
-		if _, err := s.gooStripeCall(ctx, http.MethodPost, "/v1/checkout/sessions/"+sid+"/expire", url.Values{}, ""); err != nil {
-			log.Printf("stripe: expiring the checkout session of cancelled order %d: %q", o.ID, err.Error()) //nolint:gosec // G706: a numeric order id and Stripe's error, quoted by %q (no raw newlines)
+		for _, sid := range ids {
+			ctx, cancel := context.WithTimeout(bg, 10*time.Second)
+			if _, err := s.gooStripeCall(ctx, http.MethodPost, "/v1/checkout/sessions/"+sid+"/expire", url.Values{}, ""); err != nil {
+				log.Printf("stripe: expiring a checkout session of cancelled order %d: %q", o.ID, err.Error()) //nolint:gosec // G706: a numeric order id and Stripe's error, quoted by %q (no raw newlines)
+			}
+			cancel()
 		}
 	})
 }
@@ -491,7 +532,7 @@ func (g gooStripeGateway) ProcessPayment(s *Server, c *gin.Context, o *gooOrder)
 	if target == "" {
 		return fail(errors.New("Stripe did not return a payment page"))
 	}
-	o.Meta["_stripe_session_id"] = gxaStr(sess, "id")
+	gooStripeRememberSession(o, gxaStr(sess, "id"))
 	if customer != "" {
 		o.Meta["_stripe_customer_id"] = customer
 	}

@@ -27,6 +27,7 @@ type CommentQuery struct {
 	PostIDs          []int64
 	IDs              []int64
 	ExcludeIDs       []int64
+	ExcludePostIDs   []int64 // posts whose comments the caller may not see
 	UserIDs          []int64 // 0 matches guest comments
 	ExcludeUserIDs   []int64
 	ParentIDs        []int64 // 0 matches top-level comments
@@ -63,6 +64,9 @@ func (s *Store) QueryComments(ctx context.Context, q CommentQuery) ([]*Comment, 
 	}
 	if len(q.ExcludeIDs) > 0 {
 		where = append(where, "NOT (c.id = ANY("+arg(q.ExcludeIDs)+"))")
+	}
+	if len(q.ExcludePostIDs) > 0 {
+		where = append(where, "NOT (c.post_id = ANY("+arg(q.ExcludePostIDs)+"))")
 	}
 	if len(q.UserIDs) > 0 {
 		where = append(where, "coalesce(c.user_id,0) = ANY("+arg(q.UserIDs)+")")

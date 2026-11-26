@@ -56,7 +56,9 @@ fields (name, label, type, required, options, condition, date limits); `POST /ca
 Store URLs render inside the active theme the way WooCommerce's theme-compatibility mode does: the main
 query is a page whose content is the store markup (a synthetic page for products and archives, the real
 Cart, Checkout and My account pages for those). The markup keeps WooCommerce's templates, classes and
-field names, so themes made for WooCommerce style it. Shortcodes are named `goocommerce_*` and every one
+field names, so themes made for WooCommerce style it. My account › Account details asks for the current
+password to change the e-mail address (the attempts count toward the login throttle), and the new
+address applies once the confirmation link mailed to it is followed. Shortcodes are named `goocommerce_*` and every one
 also answers to its `woocommerce_*` alias.
 
 To tell the store that a theme is made for it, declare support in `theme.json`:
@@ -149,7 +151,7 @@ stock or allow backorders are not reserved.
   and the Test payments gateway. Stripe (Payments › Stripe: test/live secret keys and webhook signing
   secrets, kept out of the form once saved) takes cards on Stripe-hosted Checkout, so no card data
   reaches the server. The Checkout page expires after the hold-stock time (between 30 minutes and
-  24 hours; one hour when hold stock is off) and is closed when the order is cancelled. Its webhook is `/wc-api/goo_stripe` (Stripe-Signature HMAC-SHA256, 5-minute
+  24 hours; one hour when hold stock is off) and every Checkout page opened for the order (one per payment attempt) is closed when the order is cancelled. Its webhook is `/wc-api/goo_stripe` (Stripe-Signature HMAC-SHA256, 5-minute
   timestamp tolerance, each event id handled once); order updates are idempotent, refunds from the
   order screen go through the Stripe API (Idempotency-Key per refund), saved cards appear under
   My Account › Payment methods (a provider reference only), and subscription renewals are charged
@@ -204,6 +206,7 @@ Bookings REST (`wc-bookings/v1`): `GET /products/slots?product_id=&date=` (publi
 - A cancelled or refunded order cancels the memberships it granted; a subscription status change pauses, resumes, cancels or expires the memberships its orders granted. A partial refund cancels a membership only when the line of the product that granted it is refunded in full.
 - E-mails (Goocommerce > Settings > Emails): Membership welcome, Membership ending soon (days before the end set by Memberships > Ending soon reminder, 0 = off) and Membership ended. Each is sent once per membership and end date.
 - Plan > Restrict Content > Drip schedule (`post ID:days, tTERMID:days`) opens restricted content N days after the membership start; members see "available on <date>" until then.
+- The comments of restricted content are restricted too: non-members do not see them on the page, in the comment feeds, in the Latest Comments block or through `wp/v2/comments`.
 - The plan form checks that every product, post and term ID exists and has search boxes that add IDs to the fields.
 
 Some payment methods do not support refunds; their cancelled paid bookings get a "refund required" order note.

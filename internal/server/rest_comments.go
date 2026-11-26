@@ -175,7 +175,7 @@ func (api *restAPI) listComments(c *gin.Context, r *restRequest) {
 	postIDs, _ := r.IDs(c, "post")
 	for _, pid := range postIDs {
 		p, err := s.store.GetPost(c, pid)
-		if err != nil || !api.postReadableWithPassword(c, p, c.Query("password")) {
+		if err != nil || !api.postReadableWithPassword(c, p, c.Query("password")) || !canModerate(u) && s.gmemHidesComments(c, u, pid) {
 			forbidden(c, "rest_cannot_read_post", "Sorry, you are not allowed to read the post for this comment.")
 			return
 		}
@@ -196,6 +196,7 @@ func (api *restAPI) listComments(c *gin.Context, r *restRequest) {
 		// Everybody who cannot moderate sees only comments of posts they may read: public posts in
 		// SQL, plus the non-public posts with comments that this user may read (none for visitors).
 		q.PublicPosts = true
+		q.ExcludePostIDs = s.gmemCommentHiddenPosts(c, u) // Memberships: comments of restricted content
 		if u != nil {
 			hidden, err := s.store.NonPublicCommentedPosts(c, q.Status)
 			if err != nil {
@@ -258,7 +259,7 @@ func (api *restAPI) getComment(c *gin.Context, r *restRequest) {
 		return
 	}
 	if !canModerate(u) {
-		if !api.postReadableWithPassword(c, p, c.Query("password")) {
+		if !api.postReadableWithPassword(c, p, c.Query("password")) || api.s.gmemHidesComments(c, u, p.ID) {
 			forbidden(c, "rest_cannot_read_post", "Sorry, you are not allowed to read the post for this comment.")
 			return
 		}

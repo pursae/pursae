@@ -402,6 +402,7 @@ func renderLatestComments(ctx context.Context, b *blocks.Block, _ string) string
 	loc := rc.s.loc()
 	var items strings.Builder
 	shown := 0
+	gmemHidden := map[int64]bool{}
 	for _, cm := range comments {
 		if shown >= want {
 			break
@@ -415,6 +416,11 @@ func renderLatestComments(ctx context.Context, b *blocks.Block, _ string) string
 		if p.Password != "" && (rc.c == nil || rc.s.passwordRequired(rc.c, p)) {
 			continue
 		}
+		if hidden, seen := gmemHidden[p.ID]; hidden || !seen && rc.s.gmemHidesComments(ctx, rc.user, p.ID) {
+			gmemHidden[p.ID] = true // Memberships: the discussion of restricted content is restricted too
+			continue
+		}
+		gmemHidden[p.ID] = false
 		shown++
 		items.WriteString(`<li class="wp-block-latest-comments__comment">`)
 		if avatar {
