@@ -112,7 +112,7 @@ altogether (each one is then read-only on the screen):
 | `PURSAE_BACKUP_S3_ACCESS_KEY` / `PURSAE_BACKUP_S3_SECRET_KEY` | credentials |
 | `PURSAE_BACKUP_S3_PATH_STYLE` | `1` for path-style requests (MinIO) |
 | `PURSAE_BACKUP_PASSPHRASE` | encryption passphrase |
-| `PURSAE_BACKUP_S3_ALLOW_PRIVATE` | `1` allows a storage server on a private address and plain `http` |
+| `PURSAE_BACKUP_S3_ALLOW_PRIVATE` | `1` allows a storage server on a private address and plain `http` (`PURSAE_ALLOW_PRIVATE_ENDPOINTS=1`, the switch shared with the CDN storage, does the same) |
 
 The endpoint must be `https` on a public address. The address is checked again when each connection is
 made, after DNS resolution, and redirects are not followed, so a host name cannot be used to reach the

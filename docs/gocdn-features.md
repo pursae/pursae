@@ -18,7 +18,7 @@ Legend: **✓** implemented · **≈** implemented differently (reason given) ·
 | Feature | | Notes |
 |---|---|---|
 | Providers: Amazon S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, MinIO / any S3 API | ✓ | One S3 client (`internal/gocdn`), provider presets fill the endpoint, region and public URL. |
-| Endpoint, region, bucket, access key, secret key | ✓ | Empty endpoint = the provider's for the region. R2 uses region `auto`. |
+| Endpoint, region, bucket, access key, secret key | ✓ | Empty endpoint = the provider's for the region. R2 uses region `auto`. The endpoint must be on a public address: a loopback or private one (a MinIO on your own network) needs `PURSAE_ALLOW_PRIVATE_ENDPOINTS=1`, or the endpoint set in `PURSAE_CDN_SETTINGS`. It is checked when saved and on every connection after DNS resolution; link-local and cloud metadata addresses are refused always. |
 | Path-style / virtual-host-style addressing | ✓ | Toggle; MinIO and R2 default to path-style in the presets' help. |
 | Key prefix ("Path in bucket") | ✓ | Default `wp-content/uploads/`, keys are `<prefix><year>/<month>/<file>`. |
 | Object ACL `public-read` | ✓ | Toggle; off for buckets with ACLs disabled (the test explains AccessDenied). |

@@ -22,7 +22,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"wpgo/internal/backupcrypt"
@@ -44,7 +43,8 @@ import (
 //     keep the value out of the database altogether.
 //   - The endpoint must be https on a public address: the connection is checked after DNS
 //     resolution (no SSRF through a host name pointing inside), redirects are not followed, and
-//     link-local / metadata addresses are refused always. PURSAE_BACKUP_S3_ALLOW_PRIVATE=1 lets a
+//     link-local / metadata addresses are refused always. PURSAE_BACKUP_S3_ALLOW_PRIVATE=1 (or
+//     PURSAE_ALLOW_PRIVATE_ENDPOINTS=1, endpoint_guard.go) lets a
 //     self-hosted MinIO on the private network (or plain http there) through; it is an environment
 //     setting so that an administrator account alone cannot point the server at internal services.
 //   - Retention keeps the newest N encrypted backups under the prefix; restoring downloads and
@@ -99,8 +99,11 @@ func bmgrRemoteLocked() map[string]string {
 	return out
 }
 
-// bmgrRemoteAllowPrivate reports PURSAE_BACKUP_S3_ALLOW_PRIVATE.
-func bmgrRemoteAllowPrivate() bool { return envTrue(config.Env("BACKUP_S3_ALLOW_PRIVATE")) }
+// bmgrRemoteAllowPrivate reports PURSAE_BACKUP_S3_ALLOW_PRIVATE, or the switch shared by every
+// admin-set endpoint (PURSAE_ALLOW_PRIVATE_ENDPOINTS).
+func bmgrRemoteAllowPrivate() bool {
+	return envTrue(config.Env("BACKUP_S3_ALLOW_PRIVATE")) || privateEndpointsAllowed()
+}
 
 func envTrue(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
@@ -230,55 +233,13 @@ func bmgrRemoteCheckEndpoint(raw string, allowPrivate bool) error {
 			return errors.New("the endpoint has an invalid port")
 		}
 	}
-	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
-	if ip := net.ParseIP(host); ip != nil {
-		return bmgrRemoteAddrOK(ip, allowPrivate)
-	}
-	if !allowPrivate && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
-		return errors.New("the endpoint points at this server or the private network")
-	}
-	return nil
+	return endpointHostOK(u, allowPrivate, "BACKUP_S3_ALLOW_PRIVATE")
 }
 
-// bmgrRemoteMetadata are cloud metadata services outside the link-local range.
-// 169.254.169.254 and the other link-local metadata addresses are refused by
-// IsLinkLocalUnicast before this list is consulted.
-var bmgrRemoteMetadata = []net.IP{
-	net.ParseIP("100.100.100.200"), // Alibaba Cloud
-	net.ParseIP("fd00:ec2::254"),   // AWS metadata, IPv6
-	net.ParseIP("168.63.129.16"),   // Azure WireServer (not link-local, not an RFC1918 address)
-}
-
-// bmgrRemoteAddrOK decides whether the storage may be reached at ip.
-// NAT64 (64:ff9b::/96) and 6to4 (2002::/16) are judged as the IPv4 address they embed, so a
-// mapped metadata or loopback address cannot skip the checks below. With the private-network
-// override, only loopback, RFC1918 and carrier-grade NAT are added; reserved, documentation
-// and metadata addresses stay refused.
+// bmgrRemoteAddrOK decides whether the storage may be reached at ip (endpointAddrOK, with the
+// backup storage's own switch named in the refusal).
 func bmgrRemoteAddrOK(ip net.IP, allowPrivate bool) error {
-	if ip == nil {
-		return errors.New("the endpoint points at a link-local or reserved address")
-	}
-	if inner := bmgrEmbeddedIPv4(ip); inner != nil {
-		return bmgrRemoteAddrOK(inner, allowPrivate)
-	}
-	if ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
-		return errors.New("the endpoint points at a link-local or reserved address")
-	}
-	for _, m := range bmgrRemoteMetadata {
-		if m.Equal(ip) {
-			return errors.New("the endpoint points at a cloud metadata service")
-		}
-	}
-	if publicIP(ip) {
-		return nil
-	}
-	if allowPrivate && (ip.IsLoopback() || ip.IsPrivate() || bmgrCGNAT(ip)) {
-		return nil
-	}
-	if !allowPrivate {
-		return errors.New("the endpoint points at this server or the private network (set " + config.EnvName("BACKUP_S3_ALLOW_PRIVATE") + "=1 for a storage server on your own network)")
-	}
-	return errors.New("the endpoint points at a link-local or reserved address")
+	return endpointAddrOK(ip, allowPrivate, "BACKUP_S3_ALLOW_PRIVATE")
 }
 
 // bmgrEmbeddedIPv4 returns the IPv4 address carried by a NAT64 or 6to4 address, or nil.
@@ -308,13 +269,7 @@ func bmgrCGNAT(ip net.IP) bool {
 // resolution, no proxy (it would hide the real destination), no redirects.
 func bmgrRemoteHTTP(allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			return bmgrRemoteAddrOK(net.ParseIP(host), allowPrivate)
-		}}
+		Control: endpointDialControl(func() bool { return allowPrivate }, "BACKUP_S3_ALLOW_PRIVATE")}
 	return &http.Client{
 		Transport: &http.Transport{
 			Proxy:                  nil,

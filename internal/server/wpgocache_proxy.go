@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -87,20 +88,35 @@ func proxyPurgeRequest(ctx context.Context, endpoint, prefix string, p cache.Pur
 	return req, nil
 }
 
-// proxyPurgeClient: the purge proxy is usually a local Varnish or nginx, so loopback and RFC1918
-// addresses are allowed; link-local (the metadata service) and other non-public addresses are refused.
+// proxyPurgeClient: the purge proxy is usually a local Varnish or nginx (127.0.0.1 or a Docker
+// network), so loopback and private addresses are allowed without a switch; link-local, metadata
+// and reserved addresses are refused at every connection (endpoint_guard.go). What it can send is
+// fixed: PURGE to the configured host only (redirects are never followed) with the purge headers.
 var proxyPurgeClient = func() *http.Client {
-	client := lanClient(5*time.Second, "the purge URL points at a private network")
-	checkRedirect := client.CheckRedirect
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if req.Method != via[0].Method {
-			// Return the redirect response when following it would turn PURGE into GET.
-			return http.ErrUseLastResponse
-		}
-		return checkRedirect(req, via)
-	}
+	client := endpointClient(5*time.Second, func() bool { return true }, privateEndpointsEnv)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return client
 }()
+
+// proxyPurgeURLProblem is the save-time check of the purge URL (Cache Settings and the REST API):
+// an http(s) URL whose host, when an IP literal, is not link-local, a metadata service or reserved.
+func proxyPurgeURLProblem(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Hostname() == "" {
+		return errors.New("the purge URL must be an http(s) URL such as http://127.0.0.1:6081")
+	}
+	if u.Fragment != "" {
+		return errors.New("the purge URL must not contain a fragment")
+	}
+	if err := endpointHostOK(u, true, privateEndpointsEnv); err != nil {
+		return fmt.Errorf("purge URL: %w", err)
+	}
+	return nil
+}
 
 func sendProxyPurge(req *http.Request) error {
 	resp, err := proxyPurgeClient.Do(req)

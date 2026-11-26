@@ -64,10 +64,38 @@ var gocdnAllowPrivate atomic.Bool
 // private addresses at connect time and on every redirect.
 var gocdnHTTP = publicClient(120*time.Second, gocdnAllowPrivate.Load, "CDN address points at a private network")
 
-// gocdnPrivateHTTP is the client for MinIO and every custom S3 endpoint (Ceph, Garage, a private
-// gateway): the bucket often sits on a private network. Link-local and other non-public,
-// non-RFC1918 addresses (the metadata service) stay refused.
-var gocdnPrivateHTTP = lanClient(120*time.Second, "CDN address points at a private network")
+// gocdnStorageHTTP is the client of the object storage (endpoint_guard.go): public addresses, plus
+// the private network (a MinIO, Ceph or Garage next to the site) only with
+// PURSAE_ALLOW_PRIVATE_ENDPOINTS=1. Link-local and metadata addresses stay refused.
+var gocdnStorageHTTP = endpointClient(120*time.Second, func() bool {
+	return gocdnAllowPrivate.Load() || privateEndpointsAllowed()
+}, privateEndpointsEnv)
+
+// gocdnEnvStorageHTTP is used when PURSAE_CDN_SETTINGS itself names the endpoint: the server's
+// operator set it, not an administrator account, so the private network is allowed.
+var gocdnEnvStorageHTTP = endpointClient(120*time.Second, func() bool { return true }, privateEndpointsEnv)
+
+// gocdnEnvEndpoint is the endpoint PURSAE_CDN_SETTINGS defines ("" when it defines none).
+func gocdnEnvEndpoint() string {
+	env, _ := gocdnEnvSettings()
+	v, _ := env["endpoint"].(string)
+	return strings.TrimRight(strings.TrimSpace(v), "/")
+}
+
+// gocdnCheckEndpoint is the save-time check of an endpoint entered on the settings screen or sent
+// through the options API: an http(s) URL without user information whose host is not on the
+// private network (unless allowed) and never link-local or a metadata service. Host names are
+// checked again when dialled.
+func gocdnCheckEndpoint(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.Hostname() == "" {
+		return errors.New("the endpoint must be a URL such as https://s3.eu-central-1.amazonaws.com")
+	}
+	if u.User != nil {
+		return errors.New("the endpoint must not contain a user name")
+	}
+	return endpointHostOK(u, gocdnAllowPrivate.Load() || privateEndpointsAllowed(), privateEndpointsEnv)
+}
 
 // gocdnCFBase is Cloudflare's API base (tests point it at a fake).
 var gocdnCFBase = "https://api.cloudflare.com/client/v4"
@@ -340,6 +368,16 @@ func gocdnLocked() map[string]bool {
 // media and asset URLs on every page may change.
 func (s *Server) gocdnSave(ctx context.Context, st gocdnSettings) error {
 	st = gocdnSanitize(st)
+	// A new endpoint is checked; an unchanged one (or one PURSAE_CDN_SETTINGS defines) is left to
+	// the dial-time check, so other tabs still save on a site whose stored endpoint is refused.
+	if ep := strings.TrimSpace(st.Endpoint); ep != "" && !gocdnLocked()["endpoint"] {
+		stored, _ := s.settings.Get(gocdnOption).(map[string]any)
+		if old, _ := stored["endpoint"].(string); strings.TrimSpace(old) != ep {
+			if err := gocdnCheckEndpoint(ep); err != nil {
+				return err
+			}
+		}
+	}
 	if st.ImgKey == "" {
 		st.ImgKey = gocdnRandomKey()
 	}
@@ -466,9 +504,9 @@ func gocdnRegion(st gocdnSettings) string {
 
 // gocdnClient is the S3 client for the settings.
 func (s *Server) gocdnClient(st gocdnSettings) (*gocdn.Client, error) {
-	httpClient := gocdnHTTP
-	if st.Provider == "minio" || st.Endpoint != "" || gocdnAllowPrivate.Load() {
-		httpClient = gocdnPrivateHTTP
+	httpClient := gocdnStorageHTTP
+	if ep := gocdnEnvEndpoint(); ep != "" && ep == gocdnEndpoint(st) {
+		httpClient = gocdnEnvStorageHTTP
 	}
 	c := &gocdn.Client{Endpoint: gocdnEndpoint(st), Region: gocdnRegion(st), Bucket: st.Bucket, AccessKey: st.AccessKey,
 		SecretKey: s.gocdnReveal(st.SecretKey), PathStyle: st.PathStyle, HTTP: httpClient}
