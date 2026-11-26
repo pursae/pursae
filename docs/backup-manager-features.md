@@ -51,7 +51,8 @@ files/uploads/…  files/themes/…  files/plugins/…
    with other names are left alone.
 4. Settings are reloaded and the page cache purged.
 
-Kept from the target site: `auth_secret`, `siteurl`, `home` and the plugin's own switch. With *Replace the old
+Kept from the target site: `auth_secret`, `siteurl`, `home`, the plugin's own switch and the trusted plugin
+signing keys (`plugin_trusted_keys`, `plugin_allow_unsigned`). With *Replace the old
 address* ticked (default when it differs) every occurrence of the archive's site URL, also in its JSON-escaped
 form (`https:\/\/…`), is rewritten to this site's address in all restored rows.
 
@@ -59,7 +60,11 @@ An archive from a newer schema than the site's is refused. Columns missing from 
 defaults; columns the site no longer has are ignored.
 
 Restoring users replaces the sessions: everyone, including the administrator running it, logs in again with the
-backup's accounts. Restoring plugins needs a restart of Pursae to load the packages.
+backup's accounts. Restoring plugins needs a restart of Pursae to load the packages. Restored packages are
+checked like an install (signed by a key this site trusts, compatible, the plugin their row names); one that
+fails is deactivated with the reason on the Plugins screen. `content:html` and `admin:scripts` stay granted
+only when this site had granted them to the same package before the restore; otherwise the Plugins screen asks
+for them again.
 
 ## Scheduled backups
 
