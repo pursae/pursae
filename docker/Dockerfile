@@ -27,7 +27,10 @@ ARG GO_TAGS=
 # A static binary (no ELF interpreter), so the same file runs on musl and glibc systems:
 # -buildmode=exe, and -tags nodynamic keeps github.com/gen2brain/avif off purego (it decodes AVIF
 # with its embedded WebAssembly build instead of a system libavif).
-RUN CGO_ENABLED=0 go build -trimpath -buildmode=exe -tags "nodynamic $GO_TAGS" -ldflags="-s -w${VERSION:+ -X wpgo/internal/server.Version=$VERSION}${ROOT_KEYS:+ -X wpgo/internal/server.rootKeysLinked=$ROOT_KEYS}" -o /out/wpgo ./cmd/wpgo
+# "paydemo" (the development-only demo bank of Pursae Commerce, which accepts http on loopback) must
+# never be in an image.
+RUN case " $GO_TAGS " in *paydemo*) echo "GO_TAGS must not contain paydemo: it is for local development only" >&2; exit 1;; esac; \
+	CGO_ENABLED=0 go build -trimpath -buildmode=exe -tags "nodynamic $GO_TAGS" -ldflags="-s -w${VERSION:+ -X wpgo/internal/server.Version=$VERSION}${ROOT_KEYS:+ -X wpgo/internal/server.rootKeysLinked=$ROOT_KEYS}" -o /out/wpgo ./cmd/wpgo
 
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 wpgo \

@@ -74,9 +74,13 @@ func gooWCAPIRoute(s *Server, c *gin.Context, path string) bool {
 		return false
 	}
 	gooNoStore(c)
-	if g, ok := gooGatewayRegistry[name].(gooAPIGateway); ok {
-		g.HandleAPI(s, c)
-		return true
+	// Only gateways that are enabled, or configured but switched off (callbacks of payments already
+	// in flight must still arrive), answer: an unconfigured gateway's handler is not reachable.
+	if def := gooGatewayRegistry[name]; def != nil {
+		if g, ok := def.(gooAPIGateway); ok && (s.gooGateway(name).Enabled() || s.gooGatewaySetupProblem(def) == "") {
+			g.HandleAPI(s, c)
+			return true
+		}
 	}
 	c.String(http.StatusBadRequest, "-1")
 	return true

@@ -1235,8 +1235,10 @@ func (s *Server) gooV3GatewayJSON(ctx context.Context, g *gooGatewayHandle, orde
 		if f.Type == "bacs_accounts" {
 			field["value"] = vals[f.ID]
 		}
-		if f.Type == "password" && gooStr(vals[f.ID]) != "" {
-			field["value"] = secretMask // API keys never leave the site; sending the mask back keeps them
+		// A credential (API key, store key, password) is never sent back, as on the settings screen:
+		// "value_set" says whether one is saved, and an update with an empty value (or the mask) keeps it.
+		if f.Type == "password" {
+			field["value"], field["value_set"] = "", gooStr(vals[f.ID]) != ""
 		}
 		settings[f.ID] = field
 	}
@@ -1246,7 +1248,10 @@ func (s *Server) gooV3GatewayJSON(ctx context.Context, g *gooGatewayHandle, orde
 			supports = append(supports, f)
 		}
 	}
+	info := gooGatewayInfoOf(g)
 	return map[string]any{"id": g.ID(), "title": g.Title(), "description": g.Description(), "order": order, "enabled": g.Enabled(),
+		"region": info.Region, "kind": info.Kind, "icon": s.gooGatewayLogoURL(ctx, g.ID()), "features": nonNilSlice(info.Features),
+		"setup_complete": s.gooGatewaySetupProblem(g) == "", "test_mode": s.gooGatewayTestMode(g.ID()),
 		"method_title": g.MethodTitle(), "method_description": g.MethodDescription(), "method_supports": nonNilSlice(supports),
 		"settings": settings, "needs_setup": false, "post_install_scripts": []any{}, "settings_url": s.links(ctx).HomeURL("/wp-admin/goocommerce?page=settings&tab=checkout&section=" + g.ID()),
 		"connection_url": nil, "setup_help_text": nil, "required_settings_keys": []any{},
@@ -1316,13 +1321,17 @@ func (s *Server) gooV3GatewayUpdate(c *gin.Context, req *restRequest) {
 			saved[k] = v
 			continue
 		}
-		if fields[k].Type == "password" && gooStr(v) == secretMask {
-			continue // the masked value of a GET: keep the stored secret
+		if fields[k].Type == "password" && (gooStr(v) == "" || gooStr(v) == secretMask) {
+			continue // the read side blanks credentials (older clients saw the mask): sending the object back must not erase them
 		}
 		saved[k] = gooStr(v)
 		if fields[k].Type == "textarea" {
 			saved[k] = gooKsesTextarea(u, gooStr(v))
 		}
+	}
+	if err := s.gooPayCheckInstallmentSettings(gooGatewayRegistry[g.ID()], saved, s.gooOptMap(g.ID()+"_settings")); err != nil {
+		restErr(c, http.StatusBadRequest, "rest_setting_value_invalid", err.Error())
+		return
 	}
 	vals := map[string]any{g.ID() + "_settings": saved}
 	if v, ok := b["order"]; ok {

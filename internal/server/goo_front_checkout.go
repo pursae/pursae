@@ -316,7 +316,7 @@ func (s *Server) gooPaymentHTML(c *gin.Context, cart *gooCart) string {
 				chk, style = ` checked='checked'`, ""
 			}
 			b.WriteString(`<li class="wc_payment_method payment_method_` + gooEsc(g.ID()) + `"><input id="payment_method_` + gooEsc(g.ID()) + `" type="radio" class="input-radio" name="payment_method" value="` +
-				gooEsc(g.ID()) + `"` + chk + ` data-order_button_text="" /><label for="payment_method_` + gooEsc(g.ID()) + `">` + gooEsc(s.gooT(ctx, g.Title())) + `</label>`)
+				gooEsc(g.ID()) + `"` + chk + ` data-order_button_text="" /><label for="payment_method_` + gooEsc(g.ID()) + `">` + gooEsc(s.gooT(ctx, g.Title())) + s.gooGatewayIconHTML(ctx, g, s.gooT(ctx, g.Title())) + `</label>`)
 			if fields := g.PaymentFields(s, c); strings.TrimSpace(fields) != "" {
 				if !strings.HasPrefix(strings.TrimSpace(fields), "<") {
 					fields = wp.Autop(fields)
@@ -723,7 +723,7 @@ func (s *Server) gooOrderPayHTML(c *gin.Context, id int64) string {
 			if i == 0 {
 				chk = ` checked='checked'`
 			}
-			b.WriteString(`<li class="wc_payment_method payment_method_` + gooEsc(g.ID()) + `"><input id="payment_method_` + gooEsc(g.ID()) + `" type="radio" class="input-radio" name="payment_method" value="` + gooEsc(g.ID()) + `"` + chk + ` /><label for="payment_method_` + gooEsc(g.ID()) + `">` + gooEsc(s.gooT(ctx, g.Title())) + `</label>`)
+			b.WriteString(`<li class="wc_payment_method payment_method_` + gooEsc(g.ID()) + `"><input id="payment_method_` + gooEsc(g.ID()) + `" type="radio" class="input-radio" name="payment_method" value="` + gooEsc(g.ID()) + `"` + chk + ` /><label for="payment_method_` + gooEsc(g.ID()) + `">` + gooEsc(s.gooT(ctx, g.Title())) + s.gooGatewayIconHTML(ctx, g, s.gooT(ctx, g.Title())) + `</label>`)
 			if f := g.PaymentFields(s, c); strings.TrimSpace(f) != "" {
 				b.WriteString(`<div class="payment_box payment_method_` + gooEsc(g.ID()) + `">` + f + `</div>`)
 			}
@@ -779,6 +779,12 @@ func (s *Server) gooPayPost(c *gin.Context) {
 		return
 	}
 	if err := gw.Validate(s, c); err != nil {
+		s.gooAddNotice(c, "error", err.Error())
+		s.gooRedirect(c, back)
+		return
+	}
+	// The installment surcharge of the chosen count (or none) is set on the order before it is paid.
+	if err := s.gooPayOrderInstallmentApply(c, o, gw.ID()); err != nil {
 		s.gooAddNotice(c, "error", err.Error())
 		s.gooRedirect(c, back)
 		return

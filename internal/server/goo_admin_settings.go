@@ -218,7 +218,10 @@ func (s *Server) gooSettingsPost(c *gin.Context, t *gooTab, section string) {
 		}
 	case "checkout":
 		if section == "" {
-			s.gooGatewaysPost(c)
+			if errMsg := s.gooGatewaysPost(c); errMsg != "" {
+				gooRedirect(c, back, saved, errMsg)
+				return
+			}
 		} else if err := s.gooGatewayPost(c, section); err != nil {
 			gooRedirect(c, back, "", err.Error())
 			return

@@ -618,6 +618,7 @@ type gooOrderEditData struct {
 	IP          string
 	ViaLine     string
 	PaymentURL  string
+	PayInfo     template.HTML // hosted-payment attempts (goo_gateway_pay_admin.go)
 
 	Lines     []*gooItemRow
 	Shipping  []*gooItemRow
@@ -886,6 +887,7 @@ func (s *Server) gooOrderEditView(c *gin.Context, o *gooOrder) *gooOrderEditData
 		d.PaidLine += "."
 	}
 	d.IP = o.CustomerIP
+	d.PayInfo = s.gooPayOrderInfo(ctx, o)
 	if o.Status == "pending" || o.Status == "failed" {
 		d.PaymentURL = s.gooOrderPayURL(ctx, o)
 	}
@@ -1079,6 +1081,7 @@ func (s *Server) gooOrderEditView(c *gin.Context, o *gooOrder) *gooOrderEditData
 			d.Actions = append(d.Actions, gooOpt{a.ID, a.Label})
 		}
 	}
+	d.Actions = append(d.Actions, s.gooPayOrderActions(ctx, o)...)
 	d.TrashURL = gooAdminURL("orders", "action", "trash", "id", itoa64(o.ID), "_wpnonce", d.Nonce)
 	// Downloads.
 	rows, err := s.store.Pool.Query(ctx, `SELECT id, download_id, product_id, downloads_remaining, access_expires, download_count
@@ -1320,6 +1323,11 @@ func (s *Server) gooOrderEditPost(c *gin.Context, o *gooOrder) (string, string) 
 	if act := c.PostForm("wc_order_action"); act != "" {
 		if err := s.gooRunOrderAction(c, o, act); err != nil {
 			return "", err.Error()
+		}
+		if m, _ := c.Get(gooOrderActionNoticeKey); m != nil && !wasNew {
+			if txt, _ := m.(string); txt != "" {
+				return txt, ""
+			}
 		}
 	}
 	if wasNew {
@@ -1890,6 +1898,9 @@ func (s *Server) gooGrantProductAccess(ctx context.Context, o *gooOrder, pid int
 func (s *Server) gooRunOrderAction(c *gin.Context, o *gooOrder, act string) error {
 	ctx := c.Request.Context()
 	by := s.gooAdminUserName(c)
+	if handled, err := s.gooPayRunOrderAction(c, o, act); handled {
+		return err
+	}
 	switch act {
 	case "send_order_details":
 		if err := s.gooTriggerEmail(ctx, "customer_invoice", o, nil); err != nil {

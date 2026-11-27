@@ -221,12 +221,139 @@
 		var first = $('input[type=text]', row);
 		if (first) { first.focus(); }
 	});
-	// Payments: reorder rows with the arrows.
+	// Payments: reorder the checkout order list with the arrows.
 	on('.wc_gateways .wc-move-up, .wc_gateways .wc-move-down', 'click', function (e, el) {
-		var tr = el.closest('tr');
-		if (el.classList.contains('wc-move-up') && tr.previousElementSibling) { tr.parentNode.insertBefore(tr, tr.previousElementSibling); }
-		if (el.classList.contains('wc-move-down') && tr.nextElementSibling) { tr.parentNode.insertBefore(tr.nextElementSibling, tr); }
+		var row = el.closest('li, tr');
+		if (el.classList.contains('wc-move-up') && row.previousElementSibling) { row.parentNode.insertBefore(row, row.previousElementSibling); }
+		if (el.classList.contains('wc-move-down') && row.nextElementSibling) { row.parentNode.insertBefore(row.nextElementSibling, row); }
 	});
+	// Payments: region tabs, filter, live counts and drag ordering (without this script all regions show one under another).
+	(function () {
+		var root = $('.goo-gw');
+		if (!root) { return; }
+		var key = 'goo_gateway_region', saved = '';
+		try { saved = window.localStorage.getItem(key) || ''; } catch (err) { saved = ''; }
+		var tabs = $$('.goo-gw-tab', root);
+		var filter = $('.goo-gw-filter', root);
+		var show = function (id, focus) {
+			tabs.forEach(function (t) {
+				var on = t.getAttribute('data-region') === id;
+				t.setAttribute('aria-selected', on ? 'true' : 'false');
+				t.tabIndex = on ? 0 : -1;
+				if (on && focus) { t.focus(); }
+			});
+			$$('.goo-gw-region', root).forEach(function (r) { r.hidden = r.getAttribute('data-region') !== id; });
+			try { window.localStorage.setItem(key, id); } catch (err) { /* private mode */ }
+		};
+		root.classList.add('goo-gw-js');
+		on('.goo-gw-tab', 'click', function (e, el) { show(el.getAttribute('data-region')); });
+		root.addEventListener('keydown', function (e) {
+			var cur = e.target.closest ? e.target.closest('.goo-gw-tab') : null;
+			if (!cur) { return; }
+			var i = tabs.indexOf(cur), rtl = window.getComputedStyle(root).direction === 'rtl', n = -1;
+			if (e.key === 'ArrowRight') { n = i + (rtl ? -1 : 1); }
+			else if (e.key === 'ArrowLeft') { n = i + (rtl ? 1 : -1); }
+			else if (e.key === 'Home') { n = 0; }
+			else if (e.key === 'End') { n = tabs.length - 1; }
+			else { return; }
+			e.preventDefault();
+			n = (n + tabs.length) % tabs.length;
+			show(tabs[n].getAttribute('data-region'), true);
+		});
+		var ids = tabs.map(function (t) { return t.getAttribute('data-region'); });
+		show(ids.indexOf(saved) >= 0 ? saved : root.getAttribute('data-default'));
+
+		// Turkish-letter tolerant, case-insensitive text for the filter.
+		var fold = function (v) {
+			return String(v).replace(/[İIı]/g, 'i').toLowerCase().replace(/ş/g, 's').replace(/ğ/g, 'g')
+				.replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c');
+		};
+		var applyFilter = function () {
+			var q = filter ? fold(filter.value.trim()) : '';
+			$$('.goo-gw-region', root).forEach(function (r) {
+				var shown = 0;
+				$$('.goo-gw-card', r).forEach(function (c) {
+					var ok = q === '' || fold(c.getAttribute('data-name') || '').indexOf(q) >= 0;
+					c.hidden = !ok;
+					if (ok) { shown++; }
+				});
+				$$('.goo-gw-sec', r).forEach(function (sec) { sec.hidden = $$('.goo-gw-card:not([hidden])', sec).length === 0; });
+				var none = $('.goo-gw-nomatch', r);
+				if (none) { none.hidden = shown > 0 || $$('.goo-gw-card', r).length === 0; }
+			});
+		};
+		if (filter) {
+			filter.addEventListener('input', applyFilter);
+			filter.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); } });
+		}
+
+		// Counts follow the toggles before the form is saved.
+		var refreshCounts = function () {
+			var all = 0;
+			$$('.goo-gw-region', root).forEach(function (r) {
+				var on = $$('.goo-gw-card input[type=checkbox]:checked', r).length, n = $$('.goo-gw-card', r).length;
+				var pill = $('.goo-gw-count', root.querySelector('.goo-gw-tab[data-region="' + r.getAttribute('data-region') + '"]'));
+				if (pill) { pill.textContent = on + '/' + n; }
+				all += on;
+			});
+			var sum = $('.goo-gw-summary', root);
+			if (sum) {
+				sum.innerHTML = '<strong>' + all + '</strong> payment method' + (all === 1 ? '' : 's') + ' enabled' +
+					(all === 0 ? ' <span class="goo-gw-hint">Switch a method on below to start accepting payments.</span>' : '');
+			}
+		};
+		root.addEventListener('change', function (e) {
+			var t = e.target;
+			if (t && t.matches && t.matches('.goo-gw-card input[type=checkbox]')) {
+				t.closest('.goo-gw-card').classList.toggle('goo-gw-on', t.checked);
+				refreshCounts();
+			}
+		});
+
+		// Checkout order: drag a row (the arrows stay the keyboard way).
+		var list = $('.goo-gw-order', root), dragging = null;
+		if (list) {
+			list.addEventListener('dragstart', function (e) {
+				var li = e.target.closest ? e.target.closest('li[data-gateway_id]') : null;
+				if (!li) { return; }
+				dragging = li;
+				li.classList.add('goo-gw-dragging');
+				if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', li.getAttribute('data-gateway_id')); } catch (err) { /* old browsers */ } }
+			});
+			list.addEventListener('dragover', function (e) {
+				if (!dragging) { return; }
+				e.preventDefault();
+				var li = e.target.closest ? e.target.closest('li[data-gateway_id]') : null;
+				if (li && li !== dragging) {
+					var rect = li.getBoundingClientRect();
+					list.insertBefore(dragging, e.clientY < rect.top + rect.height / 2 ? li : li.nextSibling);
+				}
+			});
+			list.addEventListener('drop', function (e) { if (dragging) { e.preventDefault(); } });
+			list.addEventListener('dragend', function () {
+				if (dragging) { dragging.classList.remove('goo-gw-dragging'); }
+				dragging = null;
+			});
+		}
+	})();
+	// Payments: copy the notification URL.
+	on('.goo-gw-copy', 'click', function (e, el) {
+		var input = $('.goo-gw-copyinput', el.parentNode);
+		if (!input) { return; }
+		var done = function () {
+			var old = el.getAttribute('data-label') || el.textContent;
+			el.setAttribute('data-label', old);
+			el.textContent = 'Copied';
+			window.setTimeout(function () { el.textContent = old; }, 1500);
+		};
+		var fallback = function () {
+			input.focus();
+			input.select();
+			try { if (document.execCommand('copy')) { done(); } } catch (err) { /* selected only */ }
+		};
+		if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(input.value).then(done, fallback); } else { fallback(); }
+	});
+	on('.goo-gw-copyinput', 'click', function (e, el) { el.select(); });
 	// Drag ordering of rows that carry a hidden .goo-order input (zones, methods, tax rates).
 	$$('tbody').forEach(function (tbody) {
 		var rows = $$('tr', tbody).filter(function (r) { return $('.goo-order', r); });

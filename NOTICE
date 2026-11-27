@@ -371,3 +371,19 @@ The image (docker/Dockerfile) is based on Alpine Linux 3.22 (https://alpinelinux
 ca-certificates (the Mozilla CA list, MPL-2.0) and tzdata (public domain) packages. Alpine's packages keep their own licenses (BusyBox and apk-tools GPL-2.0, musl
 libc MIT, …); their sources are published at https://gitlab.alpinelinux.org/alpine/aports. The
 image carries LICENSE, NOTICE and LICENSES/ in /usr/share/doc/pursae/.
+
+
+10. Payment provider protocols
+------------------------------
+The hosted-payment providers of Pursae Commerce (internal/pay: PayTR, iyzico, Sipay, the EST /
+Nestpay banks, Akbank, GarantiPay, QNB, VakıfBank) were written in Go for Pursae. No code of the
+projects below is included; they were the reference for provider field names, endpoints and
+signature formulas, and some of their published test vectors are used in the tests:
+
+  better-payment   https://github.com/czaydev/better-payment   MIT   Copyright (c) 2025-2026 Furkan Özay
+  mews/pos         https://github.com/mewebstudio/pos          MIT   see the project's LICENSE
+
+Provider and bank names and logos are trademarks of their owners, used only to identify the payment
+method. The logo files in web/goocommerce/assets/images/payment-gateways/ come from the companies'
+own websites or from Wikimedia Commons; README.md in that folder lists the source and the usage
+statement of each file. The offline, test and generic icons there are Pursae's own.

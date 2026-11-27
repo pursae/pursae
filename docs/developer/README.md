@@ -17,6 +17,7 @@ Start here when writing a theme or a plugin:
 | A finished HTML design kept 1:1 as its own code (code sections, design kits, `method: "code"` import, site import, the admin import wizard) | `web-builder-code-sections.md` |
 | A built-in plugin (what it does, what it leaves out) | `built-in-plugins/index.md` is generated: the sources are `../<name>-features.md` (`goocommerce`, `seo-go`, `acf-go`, `headlessgo`, `gocdn`, `gontact-form`, `golylang`, `adminsecgo`, `gooike`, `maintenance-go`, `wpgo-mail-smtp`); edit them there, `make sync-docs` publishes them |
 | REST clients / plugin routes | `rest-api/*.md` |
+| Trying a payment provider against its real test endpoint, or removing its Beta badge | `payments-sandbox.md` |
 | Running a site | `getting-started/*.md`, `operations/*.md` |
 | Shipping a core version | `operations/releases.md` (`make release`, then Manager › Core › Import) |
 | Command line (`pursae`; `wpgo` is a deprecated alias; WP-CLI style) | `operations/cli.md` |

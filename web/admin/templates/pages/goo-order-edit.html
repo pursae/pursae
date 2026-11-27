@@ -15,6 +15,7 @@
 <div class="panel-wrap woocommerce"><div id="order_data" class="panel woocommerce-order-data">
 <h2 class="woocommerce-order-data__heading">{{.Title}}</h2>
 <p class="woocommerce-order-data__meta order_number">{{.PaidLine}}{{if .IP}} Customer IP: <span class="woocommerce-Order-customerIP">{{.IP}}</span>{{end}}</p>
+{{if .PayInfo}}{{.PayInfo}}{{end}}
 <div class="order_data_column_container">
 
 <div class="order_data_column">

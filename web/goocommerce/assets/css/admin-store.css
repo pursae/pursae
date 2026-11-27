@@ -264,3 +264,70 @@ table.wc_status_table--tools .red{color:#a00}
 .goo-debug-report[hidden]{display:none}
 
 @media (max-width:960px){.goo-home-grid{grid-template-columns:1fr}.chart-with-sidebar{flex-direction:column}.chart-sidebar{width:auto;border-right:0}.wc-order-totals{width:100%}.wc-order-data-row .wc-used-coupons{width:100%;float:none}}
+.goo-gw-summary{margin:12px 0 0;font-size:14px;color:#1d2327}
+.goo-gw-hint{margin-left:8px;color:#646970;font-size:13px}
+.goo-gw-tabs{display:none;gap:4px;margin:12px 0 0;border-bottom:1px solid #c3c4c7}
+.goo-gw-js .goo-gw-tabs{display:flex;flex-wrap:wrap}
+.goo-gw-js .goo-gw-region-title{display:none}
+.goo-gw-tab{display:inline-flex;align-items:center;gap:6px;border:0;border-bottom:3px solid transparent;background:none;padding:10px 14px;font-size:14px;cursor:pointer;color:#50575e}
+.goo-gw-tab:hover{color:#1d2327}
+.goo-gw-tab:focus-visible,.goo-gw-filter:focus-visible,.goo-gw-order li:focus-within{outline:2px solid #2271b1;outline-offset:1px}
+.goo-gw-tab[aria-selected=true]{border-bottom-color:#2271b1;color:#1d2327;font-weight:600}
+.goo-gw-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:10px;background:#f0f0f1;color:#50575e;font-size:11px;font-weight:600;line-height:18px;text-align:center}
+.goo-gw-tab[aria-selected=true] .goo-gw-count{background:#dbeafe;color:#1e40af}
+.goo-gw-filterbar{margin:14px 0 4px}
+.goo-gw-filter{width:100%;max-width:320px;height:34px;padding:0 10px;border:1px solid #8c8f94;border-radius:4px;background:#fff;font-size:13px}
+.goo-gw-region[hidden],.goo-gw-card[hidden],.goo-gw-sec[hidden],.goo-gw-nomatch[hidden],.goo-gw-order li[hidden]{display:none}
+.goo-gw-section-title{margin:18px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#50575e}
+.goo-gw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-top:10px;align-items:stretch}
+.goo-gw-card{display:flex;flex-direction:column;gap:10px;box-sizing:border-box;background:#fff;border:1px solid #dcdcde;border-left:4px solid #dcdcde;border-radius:6px;padding:14px;box-shadow:0 1px 1px rgba(0,0,0,.03)}
+.goo-gw-card.goo-gw-on{border-left-color:#00a32a}
+.goo-gw-card:hover{border-color:#c3c4c7}
+.goo-gw-card.goo-gw-on:hover{border-left-color:#00a32a}
+.goo-gw-bar{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.goo-gw-logobox{display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:132px;height:56px;padding:8px;background:#fff;border:1px solid #dcdcde;border-radius:8px}
+.goo-gw-logobox .goo-gw-logo{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+.goo-gw-logobox-sm{width:72px;height:32px;padding:4px;border-radius:6px}
+.goo-gw-logobox-lg{width:176px;height:76px;padding:10px}
+.goo-gw-side{display:flex;align-items:center;gap:10px;flex:none}
+.goo-gw-ident{flex:1;min-width:0}
+.goo-gw-name{margin:0;font-size:16px;font-weight:600;line-height:1.35}
+.goo-gw-name a{text-decoration:none;color:#1d2327}
+.goo-gw-name a:hover{color:#2271b1}
+.goo-gw-name .wc-payment-gateway-method-name{font-weight:400;font-size:13px;color:#646970}
+.goo-gw-desc{margin:4px 0 0;color:#50575e;font-size:13px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.goo-gw-problem{margin:6px 0 0;font-size:12px;color:#8a2424}
+.goo-gw-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;line-height:20px;white-space:nowrap;color:#3c434a}
+.goo-gw-dot{width:8px;height:8px;border-radius:50%;background:#8c8f94;flex:none}
+.goo-gw-badge-live .goo-gw-dot{background:#00a32a}
+.goo-gw-badge-test .goo-gw-dot{background:#2271b1}
+.goo-gw-badge-setup .goo-gw-dot{background:#dba617}
+.goo-gw-badge-disabled .goo-gw-dot{background:#8c8f94}
+.goo-gw-badge-live{color:#1a6b2f}
+.goo-gw-badge-test{color:#135e96}
+.goo-gw-badge-setup{color:#8a5a00}
+.goo-gw-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto;padding-top:4px}
+.goo-gw-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.goo-gw-chip{display:inline-block;border-radius:10px;padding:0 8px;font-size:11px;line-height:20px;background:#f0f0f1;color:#50575e}
+.goo-gw-chip.goo-gw-badge-beta{background:#dbeafe;color:#1e40af;font-weight:600}
+.goo-gw-action{flex:none}
+.goo-gw-empty{color:#646970;font-style:italic}
+.goo-gw-order-title{margin-top:28px}
+.goo-gw-order{max-width:640px;margin:8px 0;padding:0;list-style:none}
+.goo-gw-order li{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:6px 10px;margin:0 0 6px;cursor:grab}
+.goo-gw-order li.goo-gw-dragging{opacity:.5}
+.goo-gw-order .goo-gw-order-name{flex:1;min-width:0;font-weight:600}
+.goo-gw-order .wc-item-reorder-nav{display:flex;flex-direction:column}
+.goo-gw-order .wc-item-reorder-nav button{border:0;background:none;color:#787c82;cursor:pointer;padding:1px 4px;font-size:10px;line-height:1}
+.goo-gw-order .wc-item-reorder-nav button:hover{color:#2271b1}
+.goo-gw-order .wc-item-reorder-nav button:focus-visible{outline:2px solid #2271b1}
+.goo-gw-order li.goo-gw-empty{cursor:default;background:none;border-style:dashed}
+.goo-gw-hero{display:flex;align-items:center;gap:20px;margin:16px 0 8px;padding:16px;background:#fff;border:1px solid #dcdcde;border-radius:8px}
+.goo-gw-hero-text h2{margin:0 0 6px;padding:0;font-size:20px}
+.goo-gw-hero-badges{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 6px}
+.goo-gw-hero-desc{margin:0 0 6px;color:#50575e;font-size:14px}
+.goo-gw-hero-text p:last-child{margin-bottom:0}
+.goo-gw-notice{margin:8px 0}
+.goo-gw-copyrow{display:flex;gap:8px;align-items:center;max-width:680px}
+.goo-gw-copyinput{flex:1;min-width:0;background:#f6f7f7;font-family:Consolas,Monaco,monospace;font-size:13px}
+@media (max-width:600px){.goo-gw-grid{grid-template-columns:1fr}.goo-gw-hero{flex-direction:column;align-items:flex-start}.goo-gw-order li{flex-wrap:wrap}}

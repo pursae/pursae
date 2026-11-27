@@ -191,6 +191,17 @@ func (s *Server) gooStripeWebhookSecret() string {
 	return strings.TrimSpace(s.gooGatewaySetting(gooStripeID, "webhook_secret"))
 }
 
+// SetupProblem is "" when the secret key of the current mode is saved.
+func (gooStripeGateway) SetupProblem(s *Server) string {
+	if s.gooStripeSecret() != "" {
+		return ""
+	}
+	if s.gooStripeTest() {
+		return "The test secret key is missing."
+	}
+	return "The live secret key is missing."
+}
+
 func (gooStripeGateway) TokenMode(s *Server) string {
 	if s.gooStripeTest() {
 		return "test"
