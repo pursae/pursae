@@ -10,6 +10,8 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-27
+
 ### Security
 
 More fixes from the internal review. Upgrade every site.
@@ -42,6 +44,15 @@ More fixes from the internal review. Upgrade every site.
   `unfiltered_html`; Web Builder form recipients set by authors are limited to the site's own addresses, and CSS
   sanitizing no longer lets an escaped quote hide a `url()`; OAuth client registration and contact form CAPTCHA
   refills are limited per network.
+
+### Added
+
+- **Pursae Commerce hosted payments (Beta):** PayTR, iyzico, Sipay, the EST / Nestpay banks (İş Bankası, Ziraat
+  Bankası, Halkbank, TEB, Şekerbank), Akbank, GarantiPay, QNB, VakıfBank and PayPal. The card is typed on the
+  provider's page and never reaches the site. Settings › Payments groups the methods by Türkiye / Worldwide /
+  Offline with logos and status; bank POS methods take a merchant-set installment plan, chosen on the checkout or
+  the Pay for order page, with the surcharge as a fee line. Every provider is marked Beta until it has been run
+  against a real test merchant.
 
 ### Changed
 
