@@ -10,11 +10,54 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Security
+
+More fixes from the internal review. Upgrade every site.
+
+- **Stored secrets:** Contact Form CAPTCHA secret keys, Pursae Pixel tokens, payment gateway secrets (Stripe secret
+  keys and webhook signing secrets), the Forum Google client secret and the license key are stored encrypted with
+  the site secret, like the SMTP, CDN and backup secrets already were. Values stored in clear by earlier versions
+  are encrypted at start-up. The payment gateways REST API no longer returns saved secrets, and Settings › License
+  shows the key masked.
+- **Admin-set endpoints:** Pursae CDN storage endpoints on loopback or private networks are refused, when saved and
+  on every connection, unless `PURSAE_ALLOW_PRIVATE_ENDPOINTS=1` is set or the endpoint comes from
+  `PURSAE_CDN_SETTINGS`. The page cache purge URL may still point at a local proxy, but not at link-local or cloud
+  metadata addresses, and purge requests no longer follow redirects. `PURSAE_ALLOW_PRIVATE_ENDPOINTS` also covers
+  backup storage (`PURSAE_BACKUP_S3_ALLOW_PRIVATE` still works).
+- **Accounts:** changing the e-mail address on My Account needs the current password, that check is throttled, and
+  the new address applies only after the confirmation link mailed to it is followed. A browser session changing its
+  own e-mail through `/wp/v2/users/me` gets the same confirmation. Changing the administration e-mail through
+  `/wp/v2/settings` needs a full-access credential.
+- **Backups:** restoring a backup verifies the restored plugins with this site's trusted keys (which a restore no
+  longer replaces) and asks again for dangerous plugin permissions this site had not granted.
+- **Pursae Headless:** update and unpublish answers show callers without draft access only what they wrote;
+  entry form saves check the user's rights on inverse relations and media; publishing locks the entry while it
+  checks the approval; `/auth/local/register` asks for the CAPTCHA when one is configured and is limited per
+  network; GraphQL introspection shows each caller only the types it may use.
+- **Requests:** requests without a signed-in user or credentials are limited to 32 MB, and forms are no longer
+  parsed before the session is known.
+- **Hardening:** Pursae Security refuses sign-in attempts that arrive in parallel with the one that locks a network
+  out; plugins cannot edit existing posts from init or activation hooks without a user; the options API asks for the
+  machine-translation key again when its provider or endpoint changes; SEO RSS before/after markup needs
+  `unfiltered_html`; Web Builder form recipients set by authors are limited to the site's own addresses, and CSS
+  sanitizing no longer lets an escaped quote hide a `url()`; OAuth client registration and contact form CAPTCHA
+  refills are limited per network.
+
+### Changed
+
+- **Memberships:** comments on restricted content are hidden from non-members on the page, in comment feeds, in the
+  Latest Comments and Comments blocks and in `wp/v2/comments`.
+- **Forum:** likes, reports, tag pages and reply mail ignore unpublished forums.
+- **Stripe:** cancelling an order closes every Checkout page opened for it, not only the last one.
+- **Pursae Headless:** the "Let visitors register" setting says that it opens sign-ups even when Membership is
+  closed; the Publish button needs `publish_posts` on reviewed types too.
+
 ### Fixed
 
-- **Pursae Security:** sign-in attempts that arrive in parallel with the one that locks a network out are refused as
-  well, so a burst of guesses cannot pass the failure limit.
 - Theme installs, release notes and the Hub client: fixes from pull request #229.
+- The options API judges raw-markup changes (maintenance custom HTML/CSS, SEO RSS text, cookie consent scripts) by
+  the Application Password or OAuth token that made the request, so full-access and `themes`-scoped tokens, MCP
+  included, can change them again.
 
 ## [0.6.0] - 2026-11-26
 
