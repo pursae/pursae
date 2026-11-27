@@ -10,6 +10,12 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pursae Commerce installments:** a payment started on the Pay for order page before the customer chose another
+  installment count is accepted on the count it was paid with (the order's surcharge line follows it) instead of
+  putting the order on hold, as long as the plan still offers that count and nothing else in the order changed.
+
 ## [0.6.1] - 2026-11-27
 
 ### Security

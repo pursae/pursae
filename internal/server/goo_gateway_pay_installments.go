@@ -503,31 +503,81 @@ func (s *Server) gooPayOrderInstallmentApply(c *gin.Context, o *gooOrder, gatewa
 				}
 			}
 		}
-		keep := make([]*gooOrderItem, 0, len(cur.Items))
-		var had []*gooOrderItem
-		for _, it := range cur.Items {
-			if _, _, ok := gooPayInstFeeOf(gxaStr(it.Meta, "_fee_id")); ok && it.Type == "fee" {
-				had = append(had, it)
-			} else {
-				keep = append(keep, it)
-			}
-		}
-		if (wantID == "" && len(had) == 0) || (len(had) == 1 && wantID != "" && gxaStr(had[0].Meta, "_fee_id") == wantID && had[0].Total == fee && had[0].TotalTax == 0) {
+		if !s.gooPayOrderSetInstFee(ctx, cur, wantID, n, fee) {
 			*o = *cur
 			return nil
 		}
-		cur.Items = keep
-		if wantID != "" {
-			cur.Items = append(cur.Items, &gooOrderItem{Type: "fee", Name: s.gooL10nf(ctx, "Installment surcharge (%s installments)", strconv.Itoa(n)),
-				Quantity: 1, Total: fee, Meta: map[string]any{"_fee_id": wantID}})
-		}
-		s.gooRecalculate(cur)
 		if err := s.gooSaveOrder(ctx, cur, true); err != nil {
 			return failed(ctx, err)
 		}
 		*o = *cur
 		return nil
 	})
+}
+
+// gooPayOrderSetInstFee makes wantID (gooPayInstFeeID; "" for none) with amount fee the order's only
+// installment surcharge line and recalculates it. It reports whether the order changed (the caller
+// saves it); o.Items must be loaded.
+func (s *Server) gooPayOrderSetInstFee(ctx context.Context, o *gooOrder, wantID string, n int, fee float64) bool {
+	keep := make([]*gooOrderItem, 0, len(o.Items))
+	var had []*gooOrderItem
+	for _, it := range o.Items {
+		if _, _, ok := gooPayInstFeeOf(gxaStr(it.Meta, "_fee_id")); ok && it.Type == "fee" {
+			had = append(had, it)
+		} else {
+			keep = append(keep, it)
+		}
+	}
+	if (wantID == "" && len(had) == 0) || (len(had) == 1 && wantID != "" && gxaStr(had[0].Meta, "_fee_id") == wantID && had[0].Total == fee && had[0].TotalTax == 0) {
+		return false
+	}
+	o.Items = keep
+	if wantID != "" {
+		o.Items = append(o.Items, &gooOrderItem{Type: "fee", Name: s.gooL10nf(ctx, "Installment surcharge (%s installments)", strconv.Itoa(n)),
+			Quantity: 1, Total: fee, Meta: map[string]any{"_fee_id": wantID}})
+	}
+	s.gooRecalculate(o)
+	return true
+}
+
+// gooPayOrderMatchAttempt handles a payment started before the customer picked another installment
+// count on the Pay for order page (which rewrote the surcharge line): when the order, with the
+// surcharge of the attempt's own count, totals exactly what the attempt was started for, the order
+// gets that surcharge line back and true is returned, so the payment can be accepted. The caller holds
+// the order lock and saves o. Anything else (another plan, other items, another currency) stays a
+// mismatch for the merchant to review.
+func (s *Server) gooPayOrderMatchAttempt(ctx context.Context, g *gooPayGateway, o *gooOrder, a *gooPayAttempt) (bool, error) {
+	if !g.storeInstallments() || !strings.EqualFold(o.Currency, a.Currency) || o.PaymentMethod != g.ID() {
+		return false, nil
+	}
+	if len(o.Items) == 0 {
+		items, err := s.gooOrderItems(ctx, o.ID)
+		if err != nil {
+			return false, err
+		}
+		o.Items = items
+	}
+	base := gooPayOrderInstBase(o)
+	wantID, fee := "", 0.0
+	if a.Installment > 1 {
+		e, ok := g.installmentEntry(s, o.Currency, base, a.Installment)
+		if !ok {
+			return false, nil
+		}
+		if fee = s.gooPayInstSurcharge(base, e); fee > 0 {
+			wantID = gooPayInstFeeID(g.ID(), a.Installment)
+		}
+	}
+	if gooPayMinor(base+fee, o.Currency) != a.Amount {
+		return false, nil
+	}
+	cp := *o
+	cp.Items = append([]*gooOrderItem(nil), o.Items...)
+	if !s.gooPayOrderSetInstFee(ctx, &cp, wantID, a.Installment, fee) || gooPayMinor(cp.Total, cp.Currency) != a.Amount {
+		return false, nil
+	}
+	*o = cp
+	return true, nil
 }
 
 // orderInstallment is the installment count to send for an order (0: single payment). A surcharge

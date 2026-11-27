@@ -15,8 +15,11 @@
 //   - "PayFlex Common Payment ISD v4.0" (Ortak Ödeme Entegrasyon Dokümanı, in both archives);
 //   - "PayFlex Sanal Pos ISD v4.0" (VPOS XML İşlem Tanımları, Cancel and Refund).
 //
-// The official material names no live hosts and its samples use Innova's test host; the hosts below
-// come from mews/pos (MIT, github.com/mewebstudio/pos, PayFlexCPV4Pos).
+// The VPOS hosts (liveVPOS, testVPOS + vposPath) are VakıfBank's own: "VakıfBank Sanal POS Entegrasyon
+// Dokümanı 2.4" (vbassets.vakifbank.com.tr/ticari/pos-uye-is-yeri-hizmetleri/, checked 2026-11-27)
+// lists https://onlineodeme[test].vakifbank.com.tr:4443/VposService/v3/Vposreq.aspx. No official
+// document found names the Common Payment hosts (the PayFlex samples use Innova's test host), so
+// liveCP and testCP come from mews/pos (MIT, github.com/mewebstudio/pos, PayFlexCPV4Pos).
 package vakifbank
 
 import (
