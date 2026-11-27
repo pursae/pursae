@@ -55,6 +55,9 @@ More fixes from the internal review. Upgrade every site.
 ### Fixed
 
 - Theme installs, release notes and the Hub client: fixes from pull request #229.
+- The options API judges raw-markup changes (maintenance custom HTML/CSS, SEO RSS text, cookie consent scripts) by
+  the Application Password or OAuth token that made the request, so full-access and `themes`-scoped tokens, MCP
+  included, can change them again.
 
 ## [0.6.0] - 2026-11-26
 
