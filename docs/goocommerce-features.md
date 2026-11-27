@@ -184,8 +184,9 @@ stock or allow backorders are not reserved.
   tax; TRY only). A plan with a mistake is refused when it is saved. Product pages show the
   installment options under the price (Settings › Products › Installment options). If the customer
   changes the installment count on the Pay for order page while an earlier payment page of the same
-  order is still open at the bank and then pays on the old page, the order is put on hold for review
-  instead of being marked paid with a different amount. The payment page (the provider's iframe or
+  order is still open at the bank and then pays on the old page, the order takes back the surcharge of
+  the count actually paid (with a note) and is marked paid; when the plan no longer offers that count
+  or the order changed otherwise, it is put on hold for review instead. The payment page (the provider's iframe or
   the redirect to the bank) is shown inside the theme. The method logos (the companies' own, sources in
   `web/goocommerce/assets/images/payment-gateways/README.md`) show in Settings › Payments, on the
   checkout and as `icon` in `wc/v3/payment_gateways`. To run a provider against its real test

@@ -388,6 +388,27 @@ func (s *Server) gooPayApplySuccess(ctx context.Context, db gooPayDB, g *gooPayG
 		}
 		return mark("paid", "")
 	}
+	if res.PaidAmount >= a.Amount && (res.Currency == "" || strings.EqualFold(res.Currency, a.Currency)) && gooPayMinor(o.Total, o.Currency) != a.Amount {
+		// The customer changed the installment count on the Pay for order page after starting this
+		// payment: when the order matches it again with this attempt's count, accept it on that count.
+		ok, err := s.gooPayOrderMatchAttempt(ctx, g, o, a)
+		if err != nil {
+			return err
+		}
+		if ok {
+			if err := s.gooSaveOrder(ctx, o, true); err != nil {
+				return err
+			}
+			note := fmt.Sprintf("The installment surcharge was set back to %d installments: %s payment %s (attempt %s) was started with that count before another one was chosen.",
+				a.Installment, title, txn, ref)
+			if a.Installment <= 1 {
+				note = fmt.Sprintf("The installment surcharge was removed: %s payment %s (attempt %s) was started as a single payment before installments were chosen.", title, txn, ref)
+			}
+			if err := s.gooAddOrderNote(ctx, o, note, false, ""); err != nil {
+				log.Printf("goocommerce: %s: order %d: note: %v", g.ID(), o.ID, err)
+			}
+		}
+	}
 	problem := ""
 	switch {
 	case res.PaidAmount <= 0:

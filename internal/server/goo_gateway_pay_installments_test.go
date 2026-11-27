@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"wpgo/internal/pay"
 )
 
 func TestGooPayCheckPlan(t *testing.T) {
@@ -284,5 +286,92 @@ func TestGooPayOrderPayInstallments(t *testing.T) {
 	}
 	if paid, _ = srv.gooGetOrder(ctx, o.ID); paid.Total != 231 || len(paid.ItemsOf("fee")) != 0 {
 		t.Errorf("paid order changed: total %v", paid.Total)
+	}
+}
+
+// A payment started on the Pay for order page before the customer picked another installment count is
+// accepted on its own count: the order's surcharge line goes back to it. Anything else stays on hold.
+func TestGooPayOrderPayStaleInstallmentAttempt(t *testing.T) {
+	_, _, srv := gooSite(t)
+	ctx := context.Background()
+	_, g := gooFakeBankRegister(t, srv, "2:0, 3:10, 6:20", "")
+	gooFakeBankShipping(t, srv)
+
+	newOrder := func(name string) *gooOrder {
+		t.Helper()
+		c := gooFakeBankShipCart(t, srv, name)
+		gooFakeBankReview(srv, c, gooFakeBankForm(gooFakeBankID, 0, false))
+		_, o, errs := gooFakeBankSubmit(srv, c, gooFakeBankForm(gooFakeBankID, 0, true))
+		if o == nil || len(errs) > 0 {
+			t.Fatalf("checkout: %v", errs)
+		}
+		return o
+	}
+	start := func(o *gooOrder, n string) *gooPayAttempt {
+		t.Helper()
+		pc := gooTestCtx()
+		pc.Request.PostForm = url.Values{"payment_method": {gooFakeBankID}, gooFakeBankID + "_installment": {n}}
+		cur, _ := srv.gooGetOrder(ctx, o.ID)
+		if err := srv.gooPayOrderInstallmentApply(pc, cur, gooFakeBankID); err != nil {
+			t.Fatalf("apply %s: %v", n, err)
+		}
+		if res, err := g.ProcessPayment(srv, pc, cur); err != nil || res.Result != "success" {
+			t.Fatalf("process: %+v %v", res, err)
+		}
+		as := gooFakePayAttempts(t, srv, o.ID)
+		return as[len(as)-1]
+	}
+	paid := func(a *gooPayAttempt, amount int64) {
+		t.Helper()
+		if err := srv.gooPayLocked(ctx, a, func(ctx context.Context, db gooPayDB, a *gooPayAttempt) error {
+			return srv.gooPayApply(ctx, db, g, a, &pay.Result{Status: pay.StatusSuccess, TxnID: "txn_" + a.Ref, PaidAmount: amount, Currency: a.Currency})
+		}); err != nil {
+			t.Fatalf("apply payment: %v", err)
+		}
+	}
+	instFee := func(o *gooOrder) (n int, fee float64) {
+		for _, it := range o.ItemsOf("fee") {
+			if _, cnt, ok := gooPayInstFeeOf(gxaStr(it.Meta, "_fee_id")); ok {
+				n, fee = cnt, fee+it.Total
+			}
+		}
+		return
+	}
+
+	// 3 installments started, then 6 chosen; the bank page of 3 is paid.
+	o := newOrder("Stale Lamp")
+	a3 := start(o, "3")
+	start(o, "6")
+	if cur, _ := srv.gooGetOrder(ctx, o.ID); cur.Total != 277.2 {
+		t.Fatalf("total after 6: %v", cur.Total)
+	}
+	paid(a3, a3.Amount)
+	got, _ := srv.gooGetOrder(ctx, o.ID)
+	if n, fee := instFee(got); !got.IsPaid() || got.Total != 254.1 || n != 3 || fee != 23.1 {
+		t.Errorf("paid on 3: paid %v status %s total %v, fee %d × %v", got.IsPaid(), got.Status, got.Total, n, fee)
+	}
+	if gooFakePayNotes(t, srv, o.ID, "set back to 3 installments") != 1 {
+		t.Error("no note about the surcharge")
+	}
+
+	// A single payment started, then 3 installments chosen: the single payment is accepted without a fee.
+	o = newOrder("Stale Rug")
+	a0 := start(o, "0")
+	start(o, "3")
+	paid(a0, a0.Amount)
+	got, _ = srv.gooGetOrder(ctx, o.ID)
+	if n, _ := instFee(got); !got.IsPaid() || got.Total != 231 || n != 0 {
+		t.Errorf("paid single: paid %v status %s total %v, fee lines %d", got.IsPaid(), got.Status, got.Total, n)
+	}
+
+	// The plan no longer offers the attempt's count: held for review, the order is not rewritten.
+	o = newOrder("Stale Chair")
+	a6 := start(o, "6")
+	start(o, "3")
+	gooFakeBankRegister(t, srv, "2:0, 3:10", "")
+	paid(a6, a6.Amount)
+	got, _ = srv.gooGetOrder(ctx, o.ID)
+	if n, _ := instFee(got); got.IsPaid() || got.Status != "on-hold" || n != 3 {
+		t.Errorf("plan changed: paid %v status %s, fee count %d", got.IsPaid(), got.Status, n)
 	}
 }
