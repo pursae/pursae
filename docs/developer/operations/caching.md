@@ -77,6 +77,13 @@ timeout. While no purge URL is set, *Front Server Lifetime* (default 300 s) caps
 `X-Accel-Expires` and `X-LiteSpeed-Cache-Control` so a changed page is stale for minutes, not days,
 and Cache Settings shows a warning.
 
+The purge URL usually names a proxy next to Pursae (Varnish or nginx on `127.0.0.1`, a Docker
+network), so loopback and private addresses are allowed without any switch. What is sent there is
+fixed: only `PURGE` requests to the configured host, with the headers above, and redirects are never
+followed (a `3xx` answer counts as a failed purge). Link-local, cloud metadata and reserved addresses
+are refused when the URL is saved (Cache Settings, `POST /pursae/v1/cache/settings`) and again on
+every connection, after DNS resolution.
+
 ## Cache Settings and Page Optimization options
 
 Besides the TTLs: *Enable Cache* (stops caching but keeps the plugin and its screens; the plugin

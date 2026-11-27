@@ -270,33 +270,3 @@ func hubCheckRedirect(req *http.Request, via []*http.Request) error {
 	}
 	return nil
 }
-
-// lanClient refuses connections (and redirects) to link-local, multicast and other non-public
-// addresses outside loopback and RFC1918: for admin-set endpoints that legitimately live on the
-// local network (purge proxy, self-hosted S3) while the cloud metadata service stays unreachable.
-func lanClient(timeout time.Duration, msg string) *http.Client {
-	d := &net.Dialer{Timeout: 30 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
-		host, _, err := net.SplitHostPort(address)
-		if err != nil {
-			return err
-		}
-		ip := net.ParseIP(host)
-		if ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
-			return nil
-		}
-		if !publicIP(ip) {
-			return errors.New(msg)
-		}
-		return nil
-	}}
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: &http.Transport{Proxy: nil, DialContext: d.DialContext, TLSHandshakeTimeout: 10 * time.Second},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
-				return errors.New(msg)
-			}
-			return nil
-		},
-	}
-}

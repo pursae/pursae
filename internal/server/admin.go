@@ -408,6 +408,9 @@ func flashNotices(c *gin.Context) []notice {
 	if m := c.Query("wpgo-cache-msg"); m != "" {
 		out = append(out, notice{Type: "success", Message: template.HTML("<strong>Pursae Cache:</strong> " + template.HTMLEscapeString(m)), Dismissible: true})
 	}
+	if m := c.Query("wpgo-cache-err"); m != "" {
+		out = append(out, notice{Type: "error", Message: template.HTML("<strong>Pursae Cache:</strong> " + template.HTMLEscapeString(m)), Dismissible: true})
+	}
 	if c.Query("settings-updated") == "true" {
 		out = append(out, notice{Type: "success", Message: "<strong>Settings saved.</strong>", Dismissible: true})
 	}

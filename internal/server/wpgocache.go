@@ -507,6 +507,12 @@ func (s *Server) cacheAction(c *gin.Context, page string) {
 				}
 			}
 		}
+		if v, ok := values["wpgo_cache_purge_url"].(string); ok {
+			if err := proxyPurgeURLProblem(v); err != nil {
+				c.Redirect(http.StatusFound, back+"&wpgo-cache-err="+url.QueryEscape(err.Error()))
+				return
+			}
+		}
 		if err := s.settings.Set(c, values); err != nil {
 			c.String(http.StatusInternalServerError, err.Error())
 			return

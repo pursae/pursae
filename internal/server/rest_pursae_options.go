@@ -124,6 +124,12 @@ func (s *Server) pursaeCacheSettings(c *gin.Context, r *restRequest) {
 				values[k] = strings.TrimSpace(sv)
 			}
 		}
+		if v, ok := values["wpgo_cache_purge_url"].(string); ok {
+			if err := proxyPurgeURLProblem(v); err != nil {
+				restErr(c, http.StatusBadRequest, "rest_invalid_param", err.Error())
+				return
+			}
+		}
 		if len(values) > 0 {
 			if err := s.settings.Set(c, values); err != nil {
 				restErr(c, http.StatusInternalServerError, "rest_cannot_update", err.Error())
