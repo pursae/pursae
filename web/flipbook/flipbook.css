@@ -1,91 +1,780 @@
-/* Pursae Flipbook viewer */
-.pfb{--pfb-bg:#1a1a1a;--pfb-height:640px;--pfb-ink:#f4f4f5;--pfb-glass:rgba(24,24,27,.72);--pfb-line:rgba(255,255,255,.12);
-	position:relative;display:flex;flex-direction:column;width:100%;height:var(--pfb-height);max-height:100vh;margin:1.5em 0;
-	background:radial-gradient(120% 90% at 50% 35%,color-mix(in srgb,var(--pfb-bg) 82%,#fff) 0%,var(--pfb-bg) 55%,color-mix(in srgb,var(--pfb-bg) 70%,#000) 100%);
-	border-radius:14px;overflow:hidden;color:var(--pfb-ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-	box-sizing:border-box;outline:none;isolation:isolate;-webkit-tap-highlight-color:transparent}
-.pfb *,.pfb *::before,.pfb *::after{box-sizing:border-box}
-.pfb:focus-visible{box-shadow:0 0 0 3px #2271b1}
-.pfb--full,.pfb.is-fullscreen{height:100vh;height:100dvh;max-height:none;margin:0;border-radius:0}
-body.pfb-page{margin:0;background:#18181b;overflow:hidden}
-
-/* Loading screen, as thecoolPDF's player draws it: a solid backdrop, a 39×45 book icon whose page
-   turns on the spine, the title 20px Arial #ddd under it; it fades out over 0.6 s (swing). */
-.pfb-loading{position:absolute;inset:0;z-index:8;background:var(--pfb-bg);color:#ddd;text-align:center;opacity:1}
-.pfb-loading.is-out{opacity:0;transition:opacity .6s cubic-bezier(.37,0,.63,1);pointer-events:none}
-.pfb-loader{position:absolute;left:50%;top:50%;width:39.2px;height:44.8px;transform:translate(-50%,-55px);perspective:200px;transform-style:preserve-3d}
-.pfb-loader i{position:absolute;left:20px;top:0;width:49px;height:56px;transform-origin:0 0;transform:rotateY(0) scale(.8);backface-visibility:visible;
-	background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 49 56'%3E%3Cpath d='M1 1h40a7 7 0 0 1 7 7v40a7 7 0 0 1-7 7H1z' fill='%231a1a1a' stroke='%23ddd' stroke-width='2'/%3E%3Cpath d='M9 10.5h30M9 18.5h30M9 28h30' stroke='%23ddd' stroke-width='2.2'/%3E%3C/svg%3E") 0 0/100% 100% no-repeat}
-.pfb-loader i:nth-child(2){transform:rotateY(180deg) scale(.8)}
-.pfb-loader i:nth-child(3){will-change:transform;animation:pfb-turn 1.2s cubic-bezier(.37,0,.63,1) infinite}
-@keyframes pfb-turn{0%,15%{transform:rotateY(0) scale(.8)}85%,100%{transform:rotateY(180deg) scale(.8)}}
-.pfb-loading-text{position:absolute;left:50%;top:50%;width:90%;margin:0;padding:0;transform:translate(-50%,10px);font:20px Arial,Helvetica,sans-serif;color:#ddd}
-.pfb.is-error .pfb-loading p{font-size:16px}
-.pfb.is-error .pfb-open{position:absolute;left:50%;top:50%;transform:translate(-50%,56px)}
-.pfb.is-booting .pfb-book,.pfb.is-booting .pfb-page canvas{transition:none}
-.pfb-open{display:inline-block;padding:8px 16px;border-radius:999px;background:#fff;color:#18181b!important;text-decoration:none;font-weight:600}
-
-.pfb-stage{position:relative;flex:1;min-height:0;overflow:hidden;padding:clamp(10px,3vw,36px) clamp(44px,6vw,84px)}
-.pfb.is-zoomed .pfb-stage{overflow:auto;padding:16px}
-.pfb-book{position:relative;width:100%;height:100%;margin:0 auto;transition:transform .45s cubic-bezier(.3,.7,.3,1)}
-.pfb.is-zoomed .pfb-book{transition:none}
-.pfb .stf__parent{margin:0 auto}
-.pfb-page{background:#fff;overflow:hidden}
-.pfb-page canvas{display:block;width:100%;height:100%;opacity:0;transition:opacity .25s}
-.pfb-page.is-drawn canvas{opacity:1}
-.pfb-page-ph{position:absolute;inset:0;background:linear-gradient(110deg,#f4f4f5 30%,#fafafa 50%,#f4f4f5 70%) 0 0/200% 100%;animation:pfb-shimmer 1.4s linear infinite}
-.pfb-page.is-drawn .pfb-page-ph{display:none}
-@keyframes pfb-shimmer{to{background-position:-200% 0}}
-.pfb .stf__block{filter:drop-shadow(0 18px 30px rgba(0,0,0,.35))}
-
-.pfb-nav{position:absolute;top:50%;z-index:4;width:44px;height:44px;margin-top:-22px;border:1px solid var(--pfb-line);border-radius:50%;
-	background:var(--pfb-glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#fff;display:grid;place-items:center;cursor:pointer;
-	opacity:0;transition:opacity .2s,transform .2s,background .2s;padding:0}
-.pfb-nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-.pfb-nav--prev{left:clamp(6px,1.5vw,20px)}.pfb-nav--next{right:clamp(6px,1.5vw,20px)}
-.pfb.is-ready .pfb-nav{opacity:.9}
-.pfb-nav:hover{background:rgba(255,255,255,.22);transform:scale(1.06)}
-.pfb.at-start .pfb-nav--prev,.pfb.at-end .pfb-nav--next{opacity:0;pointer-events:none}
-.pfb.is-zoomed .pfb-nav{display:none}
-
-.pfb-bar{position:relative;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 auto clamp(8px,1.6vw,16px);
-	padding:6px;max-width:calc(100% - 20px);border:1px solid var(--pfb-line);border-radius:999px;background:var(--pfb-glass);
-	backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);box-shadow:0 10px 30px rgba(0,0,0,.28)}
-.pfb-bar[hidden]{display:none}
-.pfb-bar-group{display:flex;align-items:center;gap:2px}
-.pfb-bar-title{max-width:220px;padding:0 10px 0 12px;font-weight:600;font-size:13px;opacity:.92}
-.pfb-bar-title span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.pfb-btn{display:inline-grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit!important;cursor:pointer;transition:background .15s;text-decoration:none!important}
-.pfb-btn:hover,.pfb-btn:focus-visible{background:rgba(255,255,255,.14);outline:none}
-.pfb-btn svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-.pfb-pager{display:flex;align-items:center;gap:4px;margin:0 4px;font-variant-numeric:tabular-nums;font-size:13px}
-.pfb-page-input{width:4.2em;height:28px;padding:0 6px;border:1px solid var(--pfb-line);border-radius:8px;background:rgba(0,0,0,.25);color:#fff;text-align:center;font:inherit}
-.pfb-page-input:focus{outline:2px solid rgba(255,255,255,.5);outline-offset:0}
-.pfb-total{opacity:.7;white-space:nowrap}
-.pfb-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-
-.pfb-thumbs{position:absolute;left:0;right:0;bottom:0;z-index:6;max-height:62%;display:flex;flex-direction:column;
-	background:rgba(18,18,20,.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--pfb-line);animation:pfb-up .22s ease}
-.pfb-thumbs[hidden]{display:none}
-@keyframes pfb-up{from{transform:translateY(24px);opacity:0}}
-.pfb-thumbs-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 4px 18px}
-.pfb-thumbs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:14px;padding:8px 18px 18px;overflow:auto}
-.pfb-thumb{position:relative;padding:0;border:2px solid transparent;border-radius:6px;background:#3f3f46;cursor:pointer;overflow:hidden}
-.pfb-thumb canvas{display:block;width:100%;height:100%;opacity:0;transition:opacity .2s}
-.pfb-thumb.is-drawn canvas{opacity:1}
-.pfb-thumb span{position:absolute;left:50%;bottom:4px;transform:translateX(-50%);padding:1px 7px;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font-size:11px}
-.pfb-thumb:hover{border-color:rgba(255,255,255,.5)}
-.pfb-thumb.is-current{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.18)}
-
-.pfb-toast{position:absolute;left:50%;top:16px;z-index:7;transform:translate(-50%,-12px);padding:8px 16px;border-radius:999px;background:#fff;color:#18181b;font-weight:600;font-size:13px;opacity:0;pointer-events:none;transition:.2s}
-.pfb-toast.is-on{opacity:1;transform:translate(-50%,0)}
-
-@media (max-width:640px){
-	.pfb{border-radius:10px}
-	.pfb-stage{padding:10px 8px}
-	.pfb-nav{display:none}
-	.pfb-bar-title,.pfb-hide-sm{display:none}
-	.pfb-bar{border-radius:16px;max-width:calc(100% - 12px)}
-	.pfb-btn{width:34px;height:34px}
+/*
+ * Pursae Flipbook. The book's styles (.fc-*) are thecoolPDF's player styles, see flipbook.js; the
+ * .pfb box around them is how the book sits in a post or fills the full-screen page.
+ */
+.pfb {
+  --pfb-bg: #1a1a1a;
+  --pfb-height: 640px;
+  position: relative;
+  display: block;
+  width: 100%;
+  height: var(--pfb-height);
+  max-height: 100vh;
+  max-height: 100dvh;
+  margin: 1.5em 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--pfb-bg);
+  box-sizing: border-box;
+  outline: none;
+  isolation: isolate;
+  contain: layout paint;
 }
-@media (prefers-reduced-motion:reduce){.pfb-loader i,.pfb-page-ph{animation:none!important}}
+.pfb:focus-visible { box-shadow: 0 0 0 3px #2271b1; }
+.pfb--full,
+.pfb.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  /* !important: themes cap the width of blocks (.alignwide) and centre them with margins */
+  width: auto !important;
+  max-width: none !important;
+  height: auto;
+  max-height: none;
+  margin: 0 !important;
+  border-radius: 0;
+  z-index: 2147483000;
+}
+body.pfb-page { margin: 0; background: #1a1a1a; overflow: hidden; }
+
+/* The site's theme must not restyle the book's controls. */
+.fc-app *, .fc-app *::before, .fc-app *::after { box-sizing: content-box; }
+.fc-app button, .fc-app input {
+  min-width: 0;
+  min-height: 0;
+  box-shadow: none;
+  text-transform: none;
+  text-shadow: none;
+  line-height: 1.3;
+}
+.fc-app canvas { max-width: none; border: 0; border-radius: 0; box-shadow: none; }
+.fc-app .fc-thumb canvas, .fc-app .fc-tip canvas { object-fit: contain; }
+
+/* A book in a post lets the page scroll under a vertical swipe; zoomed or full screen it keeps
+   every gesture. */
+.pfb:not(.pfb--full):not(.is-fullscreen) .fc-app:not(.fc-zoomed) .fc-stage { touch-action: pan-y; }
+
+.fc-loading p { margin: 0; }
+
+/* Share panel: "open full screen" switch (share.js). */
+.fc-share-fs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 16px;
+  color: #ccc;
+  font-size: 13px;
+  cursor: pointer;
+}
+.fc-share-fs input { width: 16px; height: 16px; margin: 0; accent-color: #fff; }
+.fc-pdf-link {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #fff;
+  color: #18181b !important;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.fc-app {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--pfb-bg, #1a1a1a);
+  color: #eee;
+  font: 14px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+.fc-app [hidden] { display: none !important; }
+
+/* ---- Book ---- */
+
+.fc-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.fc-zoom {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+}
+.fc-zoom.fc-anim { transition: transform .3s cubic-bezier(.2, .7, .2, 1); }
+.fc-zoomed .fc-stage { cursor: grab; }
+.fc-grabbing .fc-stage { cursor: grabbing; }
+
+.fc-book { position: absolute; }
+
+.fc-slot {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+.fc-bshadow {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  box-shadow: 0 0 5px rgba(40, 40, 40, .7);
+}
+.fc-slot.fc-empty { visibility: hidden; }
+
+.fc-holder,
+.fc-page,
+.fc-gutter {
+  position: absolute;
+  inset: 0;
+}
+.fc-page {
+  overflow: hidden;
+  background: #fff center / contain no-repeat;
+}
+.fc-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity .2s ease;
+  pointer-events: none;
+}
+.fc-page canvas.ok { opacity: 1; }
+
+/* Binding shade near the spine: a soft highlight that falls into shadow.
+   Left-hand pages also carry a faint gloss in their outer top corner. */
+.fc-gutter { pointer-events: none; }
+.fc-double .fc-pl .fc-gutter {
+  background:
+    linear-gradient(to right,
+      rgba(255, 255, 255, 0) 77.9%,
+      rgba(255, 255, 255, .035) 80.5%,
+      rgba(255, 255, 255, .071) 83.1%,
+      rgba(255, 255, 255, .106) 85.7%,
+      rgba(255, 255, 255, .082) 88.3%,
+      rgba(255, 255, 255, .035) 90.9%,
+      rgba(0, 0, 0, 0) 93.5%,
+      rgba(0, 0, 0, .041) 94.8%,
+      rgba(0, 0, 0, .112) 96.1%,
+      rgba(0, 0, 0, .188) 97.4%,
+      rgba(0, 0, 0, .253) 98.7%,
+      rgba(0, 0, 0, .29) 100%),
+    linear-gradient(118deg, rgba(0, 0, 0, .205) 0, rgba(0, 0, 0, 0) calc(var(--fc-pw, 600px) * .28));
+}
+.fc-double .fc-pr .fc-gutter {
+  background: linear-gradient(to right,
+    rgba(0, 0, 0, .3) 0,
+    rgba(0, 0, 0, .267) .65%,
+    rgba(0, 0, 0, .214) 1.3%,
+    rgba(0, 0, 0, .157) 1.95%,
+    rgba(0, 0, 0, .1) 2.6%,
+    rgba(0, 0, 0, .048) 3.25%,
+    rgba(0, 0, 0, .005) 3.9%,
+    rgba(255, 255, 255, .022) 4.5%,
+    rgba(255, 255, 255, .022) 7.8%,
+    rgba(255, 255, 255, 0) 8.5%);
+}
+.fc-app:not(.fc-double) .fc-pr .fc-gutter {
+  background: linear-gradient(to left, rgba(0, 0, 0, 0) 90%, rgba(0, 0, 0, .28) 100%);
+}
+.fc-app .fc-solo .fc-gutter { background: none; }
+.fc-double .fc-pl.fc-solo .fc-gutter {
+  background: linear-gradient(118deg, rgba(0, 0, 0, .205) 0, rgba(0, 0, 0, 0) calc(var(--fc-pw, 600px) * .28));
+}
+
+/* Page stack thickness beside the open pages (shades are set in JS). */
+.fc-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: none;
+  box-shadow: 0 0 5px rgba(40, 40, 40, .7);
+}
+
+/* The turning page, folded flat along a straight line. */
+.fc-turn {
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 2;
+  pointer-events: none;
+}
+.fc-tfront,
+.fc-uclip {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+.fc-uclip { overflow: hidden; }
+/* Shadow on the page being uncovered, darkest along the fold. */
+.fc-ushade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.fc-ushade {
+  background: linear-gradient(to right,
+    rgba(0, 0, 0, .31) 0,
+    rgba(0, 0, 0, .248) 24%,
+    rgba(0, 0, 0, .164) 48%,
+    rgba(0, 0, 0, .068) 72%,
+    rgba(0, 0, 0, .031) 84%,
+    rgba(0, 0, 0, 0) 100%);
+}
+/* The folded-over part: the back of the sheet. */
+.fc-flap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+/* Light and shade where the paper bends over: a broad sheen beyond a
+   narrow shadow (band), and right at the fold a fine crease (crease). */
+.fc-band,
+.fc-crease {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.fc-band {
+  background: linear-gradient(to right,
+    rgba(0, 0, 0, 0) 7%,
+    rgba(0, 0, 0, .013) 7.5%,
+    rgba(0, 0, 0, .053) 9%,
+    rgba(0, 0, 0, .067) 10.5%,
+    rgba(0, 0, 0, .047) 13%,
+    rgba(0, 0, 0, .007) 15%,
+    rgba(255, 255, 255, .038) 17%,
+    rgba(255, 255, 255, .171) 21%,
+    rgba(255, 255, 255, .276) 25%,
+    rgba(255, 255, 255, .343) 29%,
+    rgba(255, 255, 255, .352) 32.5%,
+    rgba(255, 255, 255, .324) 36%,
+    rgba(255, 255, 255, .257) 40%,
+    rgba(255, 255, 255, .2) 43%,
+    rgba(255, 255, 255, .162) 45%,
+    rgba(255, 255, 255, .124) 47%,
+    rgba(255, 255, 255, .095) 49%,
+    rgba(255, 255, 255, .08) 53%,
+    rgba(255, 255, 255, .067) 67%,
+    rgba(255, 255, 255, .048) 77%,
+    rgba(255, 255, 255, .029) 87%,
+    rgba(255, 255, 255, .01) 97%,
+    rgba(255, 255, 255, 0) 100%);
+}
+.fc-crease {
+  background: linear-gradient(to right,
+    rgba(255, 255, 255, .25) 0,
+    rgba(0, 0, 0, .15) 5%,
+    rgba(0, 0, 0, .18) 12%,
+    rgba(0, 0, 0, .13) 19%,
+    rgba(0, 0, 0, .033) 26%,
+    rgba(255, 255, 255, .076) 34%,
+    rgba(255, 255, 255, .18) 41%,
+    rgba(255, 255, 255, .229) 48%,
+    rgba(255, 255, 255, .219) 55%,
+    rgba(255, 255, 255, .176) 62%,
+    rgba(255, 255, 255, .133) 69%,
+    rgba(255, 255, 255, .105) 76%,
+    rgba(255, 255, 255, .067) 84%,
+    rgba(255, 255, 255, .038) 91%,
+    rgba(255, 255, 255, 0) 98%);
+}
+/* A single page shows its own print through the back of the paper. */
+.fc-mirror {
+  position: absolute;
+  inset: 0;
+  display: none;
+  background: #fff center / contain no-repeat;
+  transform: scaleX(-1);
+}
+.fc-mirror::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, .81);
+}
+.fc-back-mirror .fc-mirror { display: block; }
+
+/* ---- Buttons ---- */
+
+.fc-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: #eee;
+  font: inherit;
+  cursor: pointer;
+}
+.fc-svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+  overflow: visible;
+  pointer-events: none;
+  transition: transform .15s ease;
+}
+
+/* ---- Desktop toolbar ---- */
+
+.fc-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  height: 42px;
+  z-index: 4;
+}
+.fc-bar-l,
+.fc-bar-r {
+  position: absolute;
+  top: 0;
+  height: 42px;
+  white-space: nowrap;
+}
+.fc-bar-l { left: 26px; width: calc(76px + 36px * var(--fc-nl, 4)); }
+.fc-bar-r { right: 26px; }
+.fc-bar .fc-btn {
+  width: 36px;
+  height: 36px;
+  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: top;
+  border-radius: 10px;
+  transition: background-color .15s ease;
+}
+.fc-bar .fc-btn:hover,
+.fc-bar .fc-btn[aria-pressed="true"] { background: rgba(255, 255, 255, .1); }
+.fc-bar .fc-btn:active > .fc-svg { transform: scale(.92); }
+.fc-btn:focus-visible { outline: 2px solid rgba(255, 255, 255, .55); outline-offset: 1px; }
+.fc-bar .fc-svg { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .45)); }
+
+.fc-pagenum {
+  position: absolute;
+  right: -1px;
+  top: 10px;
+  width: 74px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #eee;
+  font: 500 14px Arial, Helvetica, sans-serif;
+  letter-spacing: .01em;
+  text-align: right;
+  outline: none;
+}
+.fc-pagenum:focus {
+  background: rgba(255, 255, 255, .12);
+  text-align: center;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.fc-slider {
+  position: absolute;
+  left: calc(108px + 36px * var(--fc-nl, 4));
+  right: calc(72px + 36px * var(--fc-nr, 4));
+  top: 0;
+  height: 42px;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+.fc-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 19px;
+  height: 2px;
+  border-radius: 1px;
+  background: #eee;
+}
+.fc-knob {
+  position: absolute;
+  top: 14px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: #eee;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  transition: transform .15s ease;
+}
+.fc-slider:hover .fc-knob,
+.fc-slider:focus-visible .fc-knob { transform: scale(1.25); }
+.fc-tip {
+  position: absolute;
+  bottom: 34px;
+  display: none;
+  transform: translateX(-50%);
+  padding: 6px 6px 4px;
+  border-radius: 8px;
+  background: rgba(22, 22, 22, .92);
+  border: 1px solid rgba(255, 255, 255, .12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+  text-align: center;
+  pointer-events: none;
+}
+.fc-tip.fc-show { display: block; }
+.fc-tip canvas { display: block; height: 90px; width: auto; margin: 0 auto 4px; border-radius: 2px; }
+.fc-tip span { font: 500 12px Arial, Helvetica, sans-serif; color: #eee; white-space: nowrap; }
+
+/* ---- Previous / next arrows ---- */
+
+.fc-arrow {
+  position: absolute;
+  z-index: 3;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(22, 22, 22, .55);
+  border: 1px solid rgba(255, 255, 255, .14);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .35);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition: background-color .18s ease, transform .18s ease, border-color .18s ease, opacity .18s ease;
+}
+.fc-arrow-prev { left: 24px; }
+.fc-arrow-next { right: 24px; }
+.fc-arrow:hover {
+  background: rgba(255, 255, 255, .18);
+  border-color: rgba(255, 255, 255, .3);
+  transform: scale(1.06);
+}
+.fc-arrow:active { transform: scale(.96); }
+.fc-arrow:focus-visible { outline: 2px solid rgba(255, 255, 255, .6); outline-offset: 3px; }
+.fc-arrow .fc-svg { width: 26px; height: 26px; color: #fff; stroke-width: 2.2; }
+.fc-arrow-prev .fc-svg { margin-left: -2px; }
+.fc-arrow-next .fc-svg { margin-left: 2px; }
+.fc-arrow.fc-off { opacity: 0; pointer-events: none; }
+.fc-zoomed .fc-arrow { opacity: 0; pointer-events: none; }
+
+.fc-narrow .fc-arrow { width: 46px; height: 46px; margin-top: 4px; }
+.fc-narrow .fc-arrow-prev { left: 12px; }
+.fc-narrow .fc-arrow-next { right: 12px; }
+
+/* ---- Thumbnails (desktop strip) ---- */
+
+.fc-thumbs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 58px;
+  height: 106px;
+  z-index: 3;
+  display: none;
+}
+.fc-thumbs.fc-open { display: block; }
+.fc-thumbs-view {
+  position: absolute;
+  left: 102px;
+  right: 102px;
+  top: 10px;
+  height: 80px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.fc-thumbs-view::-webkit-scrollbar { display: none; }
+.fc-thumb {
+  position: relative;
+  display: inline-block;
+  height: 80px;
+  margin: 0 12px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: top;
+}
+.fc-thumb:last-child { margin-right: 0; }
+.fc-thumb-imgs { display: flex; height: 100%; }
+.fc-thumb canvas {
+  display: block;
+  height: 80px;
+  width: auto;
+  background: #2a2a2a;
+}
+.fc-thumb-label { display: none; }
+.fc-thumb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 3px solid transparent;
+  transition: border-color .15s ease;
+}
+.fc-thumb:hover::after { border-color: rgba(255, 255, 255, .35); }
+.fc-thumb.fc-cur::after { border-color: #fdc606; }
+.fc-thumb:focus-visible { outline: 2px solid rgba(255, 255, 255, .6); outline-offset: 2px; }
+.fc-thumbs-nav {
+  position: absolute;
+  top: 10px;
+  width: 40px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8d8d8d;
+  border-radius: 8px;
+}
+.fc-thumbs-nav:hover { color: #eee; background: rgba(255, 255, 255, .06); }
+.fc-thumbs-nav-prev { left: 60px; }
+.fc-thumbs-nav-next { right: 60px; }
+.fc-thumbs-nav .fc-svg { width: 20px; height: 20px; }
+
+/* ---- Phone / tablet ---- */
+
+.fc-ptop,
+.fc-pbottom { display: none; }
+
+.fc-is-phone .fc-bar,
+.fc-is-phone .fc-arrow { display: none; }
+
+.fc-is-phone .fc-ptop {
+  display: flex;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  z-index: 4;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  background: #2e2e2e;
+}
+.fc-ptop-l,
+.fc-ptop-r { display: flex; align-items: center; }
+.fc-pnum {
+  padding: 0 8px;
+  font: 500 14px Arial, Helvetica, sans-serif;
+  letter-spacing: .01em;
+  color: #eee;
+}
+.fc-is-phone .fc-pbottom {
+  display: flex;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  z-index: 4;
+  align-items: center;
+  justify-content: space-around;
+  background: #2e2e2e;
+}
+.fc-pbtn {
+  width: 44px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+.fc-pbtn[aria-pressed="true"] { background: rgba(255, 255, 255, .12); }
+.fc-pbtn .fc-svg { width: 24px; height: 24px; }
+
+.fc-is-phone .fc-thumbs {
+  top: 40px;
+  bottom: 60px;
+  height: auto;
+  background: rgba(26, 26, 26, .97);
+  z-index: 5;
+}
+.fc-is-phone .fc-thumbs-nav { display: none; }
+.fc-is-phone .fc-thumbs-view {
+  inset: 0;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  white-space: normal;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 16px 12px;
+  align-content: start;
+  padding: 14px;
+  -webkit-overflow-scrolling: touch;
+}
+.fc-is-phone .fc-thumb { height: auto; margin: 0; }
+.fc-is-phone .fc-thumb-imgs { justify-content: center; height: auto; }
+.fc-is-phone .fc-thumb canvas { height: auto; width: 100%; max-width: 100%; }
+.fc-is-phone.fc-double .fc-thumb canvas { width: 50%; }
+.fc-is-phone .fc-thumb::after { bottom: 20px; }
+.fc-is-phone .fc-thumb-label {
+  display: block;
+  margin-top: 4px;
+  font: 500 12px Arial, Helvetica, sans-serif;
+  color: #bbb;
+}
+.fc-is-phone .fc-thumb.fc-cur .fc-thumb-label { color: #fdc606; }
+
+/* ---- Loading ---- */
+
+.fc-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--pfb-bg, #1a1a1a);
+  color: #ddd;
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  text-align: center;
+  transition: opacity .35s ease;
+}
+.fc-loading.fc-hide { opacity: 0; pointer-events: none; }
+.fc-spin {
+  width: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  border: 3px solid rgba(255, 255, 255, .15);
+  border-top-color: #eee;
+  border-radius: 50%;
+  animation: fc-spin .8s linear infinite;
+}
+@keyframes fc-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-zoom.fc-anim, .fc-arrow, .fc-page canvas { transition: none; }
+}
+
+/* ---- Share panel (share.js) ---- */
+.fc-share[hidden] { display: none !important; }
+.fc-share {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #eee;
+  -webkit-font-smoothing: antialiased;
+}
+.fc-share *, .fc-share *::before, .fc-share *::after { box-sizing: border-box; }
+.fc-share-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.fc-share-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  max-height: 100%;
+  overflow: auto;
+  padding: 20px;
+  border-radius: 16px;
+  background: #222;
+  border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+  opacity: 0;
+  transform: translateY(8px) scale(.98);
+  transition: opacity .18s ease, transform .18s ease;
+}
+.fc-share.open .fc-share-backdrop,
+.fc-share.open .fc-share-card { opacity: 1; transform: none; }
+
+.fc-share svg { width: 18px; height: 18px; flex: none; }
+.fc-share button, .fc-share a { font: inherit; color: inherit; }
+
+.fc-share-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.fc-share-head h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.fc-share-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; margin: -6px -6px 0 0;
+  border: 0; border-radius: 10px; background: transparent; cursor: pointer; color: #aaa;
+}
+.fc-share-x:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+
+.fc-share-seg {
+  display: flex; gap: 4px; padding: 4px; margin-bottom: 12px;
+  border-radius: 10px; background: rgba(255, 255, 255, .06);
+}
+.fc-share-seg button {
+  flex: 1; padding: 7px 10px; border: 0; border-radius: 7px;
+  background: transparent; cursor: pointer; color: #aaa; font-size: 13px;
+}
+.fc-share-seg button[aria-pressed="true"] { background: rgba(255, 255, 255, .14); color: #fff; }
+.fc-share-seg button:disabled { opacity: .4; cursor: default; }
+
+.fc-share-link { display: flex; gap: 8px; margin-bottom: 16px; }
+.fc-share-link input {
+  flex: 1; min-width: 0; padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, .12); border-radius: 10px;
+  background: rgba(0, 0, 0, .25); color: #eee; font: inherit; font-size: 13px; outline: none;
+}
+.fc-share-link input:focus { border-color: rgba(255, 255, 255, .35); }
+.fc-share-copy {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 14px;
+  border: 0; border-radius: 10px; background: #fff; color: #111 !important;
+  font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap;
+  transition: background-color .15s ease;
+}
+.fc-share-copy:hover { background: #e6e6e6; }
+.fc-share-copy.done { background: #3ecf6e; color: #06260f !important; }
+
+.fc-share-qr {
+  display: flex; gap: 16px; align-items: center; padding: 14px; margin-bottom: 16px;
+  border-radius: 12px; background: rgba(255, 255, 255, .05);
+}
+.fc-share-qr-img { flex: none; padding: 8px; border-radius: 10px; background: #fff; line-height: 0; }
+.fc-share-qr-img img { width: 152px; height: 152px; display: block; image-rendering: pixelated; }
+.fc-share-qr-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fc-share-qr-side p { margin: 0 0 4px; color: #aaa; font-size: 13px; }
+.fc-share-btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, .14); border-radius: 9px;
+  text-decoration: none; font-size: 13px; cursor: pointer;
+}
+.fc-share-btn:hover { background: rgba(255, 255, 255, .08); }
+
+.fc-share-targets { display: flex; flex-wrap: wrap; gap: 8px; }
+.fc-share-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, .14); border-radius: 999px;
+  background: transparent; text-decoration: none; font-size: 13px; cursor: pointer;
+}
+.fc-share-pill:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .28); }
+.fc-share-native { background: rgba(255, 255, 255, .1); }
+.fc-share button:focus-visible, .fc-share a:focus-visible { outline: 2px solid rgba(255, 255, 255, .6); outline-offset: 2px; }
+
+@media (max-width: 420px) {
+  .fc-share { align-items: flex-end; padding: 0; }
+  .fc-share-card { max-width: none; border-radius: 16px 16px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+  .fc-share-qr { flex-direction: column; text-align: center; }
+  .fc-share-qr-side { align-items: center; }
+}
+.fc-share-qr[hidden] { display: none !important; }
+.fc-share-btn[hidden] { display: none !important; }

@@ -272,10 +272,9 @@ template, private: true); see the project's licensing notes before redistributin
 * PDF.js 4.10.38 (pdf.min.mjs, pdf.worker.min.mjs), Copyright 2024 Mozilla Foundation, Apache
   License 2.0 (LICENSE.pdfjs.txt in that directory; LICENSES/Apache-2.0.txt).
   https://github.com/mozilla/pdf.js
-* StPageFlip (page-flip) 2.0.7 (page-flip.module.js), Copyright (c) 2020 Nodlik, MIT
-  (LICENSE.page-flip.txt in that directory). https://github.com/Nodlik/StPageFlip
-The plugin's behaviour follows the thecoolPDF WordPress plugin; thecoolPDF's player files are not
-used.
+The viewer itself (web/flipbook/flipbook.js, flipbook.css, share.js) is thecoolPDF's own player
+(template/player), written by the author of Pursae and adapted here to draw pages with PDF.js; it
+contains no third-party code. https://github.com/boracomet/pdf-main
 
 
 7. Maps, geolocation data and translations

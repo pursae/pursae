@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -104,23 +105,84 @@ func TestFlipbookAdminAndRoute(t *testing.T) {
 		t.Fatalf("admin's book changed: %+v %v", b, ok)
 	}
 
-	// The full-screen page, with the worker allowed; other /flipbook/ addresses go to the site.
-	resp, err := http.Get(base + "/flipbook/" + strconv.Itoa(adminBook))
-	if err != nil {
-		t.Fatal(err)
+	// The book's own page is the preview of its editors: never a visitor's or another author's, and
+	// kept out of search engines. Its QR codes wait for the shortcode to be published.
+	bookURL := base + "/flipbook/" + strconv.Itoa(adminBook)
+	qrQuery := "?u=" + url.QueryEscape("/catalog/")
+	for _, u := range []string{bookURL, bookURL + "/qr.svg" + qrQuery, bookURL + "/qr.png" + qrQuery} {
+		if code, _, _ := get(t, http.DefaultClient, u); code != http.StatusNotFound {
+			t.Errorf("unpublished book answered a visitor: %s %d", u, code)
+		}
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "worker-src 'self'") {
-		t.Fatalf("full page: %d %q", resp.StatusCode, resp.Header.Get("Content-Security-Policy"))
+	if code, _, _ := get(t, ac, bookURL); code != http.StatusNotFound {
+		t.Errorf("the preview answered another author: %d", code)
 	}
+	preview := func() {
+		t.Helper()
+		resp, err := c.Get(bookURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("X-Robots-Tag") != "noindex, nofollow" || !strings.Contains(string(body), `content="noindex, nofollow"`) ||
+			!strings.Contains(resp.Header.Get("Cache-Control"), "no-store") || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "worker-src 'self'") ||
+			strings.Contains(string(body), "data-share") || strings.Contains(string(body), "canonical") {
+			t.Fatalf("editor preview: %d robots=%q cache=%q", resp.StatusCode, resp.Header.Get("X-Robots-Tag"), resp.Header.Get("Cache-Control"))
+		}
+	}
+	preview()
+
+	// A draft holding the shortcode does not publish the book; a published post does. The page
+	// stays the editors' even then; the QR codes open, for a path of this site only.
+	holder := wbrPost(t, srv, "post", "Catalog", "draft", 1)
+	setContent := func(status string) {
+		t.Helper()
+		if _, err := srv.store.Pool.Exec(ctx, `UPDATE posts SET content = $2, status = $3 WHERE id = $1`, holder.ID,
+			`<p>[pursae_flipbook id="`+strconv.Itoa(adminBook)+`"]</p>`, status); err != nil {
+			t.Fatal(err)
+		}
+		flipbookMisses.Delete(adminBook)
+		srv.purgeAll(ctx) // saving a post in the admin does this
+	}
+	setContent("draft")
+	if code, _, _ := get(t, http.DefaultClient, bookURL+"/qr.svg"+qrQuery); code != http.StatusNotFound {
+		t.Errorf("a draft published the book: %d", code)
+	}
+	setContent("publish")
+	if code, body, _ := get(t, http.DefaultClient, bookURL+"/qr.svg"+qrQuery+"&p=3"); code != http.StatusOK || !strings.HasPrefix(body, "<svg") {
+		t.Errorf("qr.svg: %d", code)
+	}
+	if code, body, _ := get(t, http.DefaultClient, bookURL+"/qr.png"+qrQuery); code != http.StatusOK || !strings.HasPrefix(body, "\x89PNG") {
+		t.Errorf("qr.png: %d", code)
+	}
+	if b, _ := srv.flipbookGet(adminBook); !b.Published {
+		t.Error("the book was not marked published")
+	}
+	for _, bad := range []string{"", "?u=" + url.QueryEscape("https://evil.example/"), "?u=" + url.QueryEscape("//evil.example/"), "?u=catalog"} {
+		if code, _, _ := get(t, http.DefaultClient, bookURL+"/qr.svg"+bad); code != http.StatusBadRequest {
+			t.Errorf("qr.svg%s: %d, want 400", bad, code)
+		}
+	}
+	if code, _, _ := get(t, http.DefaultClient, bookURL+"/qr.gif"+qrQuery); code != http.StatusNotFound {
+		t.Errorf("qr.gif: %d", code)
+	}
+	for _, cl := range []*http.Client{http.DefaultClient, ac} {
+		if code, _, _ := get(t, cl, bookURL); code != http.StatusNotFound {
+			t.Errorf("a published book's preview answered someone who cannot edit it: %d", code)
+		}
+	}
+	preview()
+
+	// Other /flipbook/ addresses go to the site; while the plugin is off, so does the preview.
 	if code, _, _ := get(t, http.DefaultClient, base+"/flipbook/999/"); code != http.StatusNotFound {
 		t.Errorf("missing book: %d", code)
 	}
 	if err := srv.settings.Set(ctx, map[string]any{flipbookSetting: false}); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := get(t, http.DefaultClient, base+"/flipbook/"+strconv.Itoa(adminBook)); code != http.StatusNotFound {
-		t.Errorf("full page while off: %d", code)
+	if code, _, _ := get(t, c, bookURL); code != http.StatusNotFound {
+		t.Errorf("preview while off: %d", code)
 	}
 	if err := srv.settings.Set(ctx, map[string]any{flipbookSetting: true}); err != nil {
 		t.Fatal(err)
@@ -147,13 +209,29 @@ func TestFlipbookEmbedHTMLEscapes(t *testing.T) {
 	if strings.Contains(out, "<script>x") {
 		t.Fatalf("title not escaped: %s", out)
 	}
-	for _, want := range []string{`data-pdf="/wp-content/uploads/a.pdf"`, `data-full="/flipbook/7"`, `data-share="/flipbook/7"`, `data-download="1"`, "--pfb-height:640px", "alignwide"} {
+	for _, want := range []string{`data-id="7"`, `data-pdf="/wp-content/uploads/a.pdf"`, `data-share="1"`, `data-qr="/flipbook/7/qr"`, `data-download="1"`, `data-file="a.pdf"`, "--pfb-height:640px", "alignwide", "fc-loading"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("embed lacks %s", want)
 		}
 	}
-	if full := flipbookEmbedHTML(b, true); strings.Contains(full, "data-full=") || strings.Contains(full, "--pfb-height") || !strings.Contains(full, "pfb--full") {
+	if strings.Contains(out, "/flipbook/7\"") {
+		t.Errorf("the embed links to the book's own page: %s", out)
+	}
+	if full := flipbookEmbedHTML(b, true); strings.Contains(full, "data-share") || strings.Contains(full, "--pfb-height") || !strings.Contains(full, "pfb--full") {
 		t.Errorf("full page markup: %s", full)
+	}
+	b.Share = false
+	if out := flipbookEmbedHTML(b, false); strings.Contains(out, "data-share") || strings.Contains(out, "data-qr") {
+		t.Errorf("share off still offers the link: %s", out)
+	}
+	for in, want := range map[string]string{`[pursae_flipbook id="7"]`: "7", `[pursae_flipbook height="500" id=&#8220;12&#8221;]`: "12", `[pursae_flipbook id=3]`: "3", `[pursae_flipbook_x id="7"]`: ""} {
+		got := ""
+		if m := flipbookShortcodeIDRe.FindStringSubmatch(in); m != nil {
+			got = m[1]
+		}
+		if got != want {
+			t.Errorf("shortcode id of %s = %q, want %q", in, got, want)
+		}
 	}
 	if flipbookShortcodeText(7) != `[pursae_flipbook id="7"]` {
 		t.Error("shortcode text")

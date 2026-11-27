@@ -10,6 +10,20 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Changed
+
+- **Pursae Flipbook has a new viewer.** Pages now fold and turn like paper: click, drag a page across, or lift and
+  peel a corner, with light and shade along the fold. New in the toolbar: a page slider with previews, a thumbnail
+  strip, single/two-page view, auto flip, page-turn sound, pinch and double-tap zoom, and a share panel (link from
+  the start or from the page showing, optionally opening full screen, a QR code to download as PNG or SVG, social
+  targets). The viewer is Pursae's own code; StPageFlip is no longer bundled.
+- **A flipbook has no public address of its own any more.** `/flipbook/N` is the preview of the people who may edit
+  the book (always `noindex`); visitors get 404 there and see the book only where its shortcode is placed, so
+  search engines index your page, not a bare copy of the catalog. Links shared from the book point at that page.
+  If you handed out `/flipbook/N` links before, share the page that holds the book instead.
+- **Flipbook memory use is bounded:** a book loads when it comes near the screen, fetches the PDF in ranges
+  instead of whole, keeps at most 12 drawn pages, and releases everything when it leaves the page.
+
 ### Fixed
 
 - **Pursae Commerce installments:** a payment started on the Pay for order page before the customer chose another

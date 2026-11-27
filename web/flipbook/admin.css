@@ -95,3 +95,5 @@ html.pfb-noscroll{overflow:hidden}
 @keyframes pfb-fade{from{opacity:0}}
 .pfb-copy-icon{padding:0 8px!important}
 .pfb-copy-icon.is-copied .dashicons::before{content:"\f147"}
+.pfb-state{color:#996800}
+.pfb-state--on{color:#007017}

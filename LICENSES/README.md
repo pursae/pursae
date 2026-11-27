@@ -26,7 +26,7 @@ stand for the copyright lines NOTICE gives for each component.
 
 Components whose own license file ships next to them keep it there: `web/wp-includes/js/tinymce/license.txt`,
 `web/wp-includes/js/plupload/license.txt`, `web/wp-includes/images/crystal/license.txt`,
-`web/flipbook/vendor/LICENSE.pdfjs.txt` and `LICENSE.page-flip.txt`. The Pursae Web Builder's bundled npm
+`web/flipbook/vendor/LICENSE.pdfjs.txt`. The Pursae Web Builder's bundled npm
 packages carry their notices in full in `web/web-builder/THIRD_PARTY_LICENSES.txt` (written by
 `builder/scripts/licenses.mjs`). Public-domain and CC0 material (JSON2, Natural Earth, element-closest,
 Twenty Twenty-Five's photographs) needs no license text.

@@ -1,8 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"strings"
 )
 
@@ -416,4 +420,33 @@ func (q *qrCode) SVG(px int) string {
 	}
 	sb.WriteString(`"/></svg>`)
 	return sb.String()
+}
+
+// PNG draws the symbol with a four-module quiet zone, each module scale pixels wide, as a
+// two-colour image (for downloads; pages show the SVG).
+func (q *qrCode) PNG(scale int) []byte {
+	const quiet = 4
+	if scale < 1 {
+		scale = 1
+	}
+	dim := (q.size + quiet*2) * scale
+	img := image.NewPaletted(image.Rect(0, 0, dim, dim), color.Palette{color.White, color.Black})
+	for y := 0; y < q.size; y++ {
+		for x := 0; x < q.size; x++ {
+			if !q.mod[y][x] {
+				continue
+			}
+			for dy := 0; dy < scale; dy++ {
+				row := img.Pix[((y+quiet)*scale+dy)*img.Stride+(x+quiet)*scale:]
+				for dx := 0; dx < scale; dx++ {
+					row[dx] = 1
+				}
+			}
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil
+	}
+	return buf.Bytes()
 }
