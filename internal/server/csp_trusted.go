@@ -168,10 +168,20 @@ func containsFold(s, sub string) bool {
 
 const errNeedsUnfiltered = "Changing raw HTML or script code needs the unfiltered_html capability."
 
+// optionsActor is the user a settings check judges: the REST caller (an Application Password or OAuth
+// token, already narrowed to its scopes) when the request came through the API, else the signed-in user.
+// currentUser alone is only the cookie session, so a token request would be refused even with full access.
+func optionsActor(c *gin.Context) *store.User {
+	if u := restCurrent(c); u != nil {
+		return u
+	}
+	return currentUser(c)
+}
+
 // maintCheckRaw: the custom HTML only with unfiltered_html; the content and footer filtered (kses)
 // otherwise, as on the Maintenance screen.
 func (s *Server) maintCheckRaw(c *gin.Context, old, st maintSettings) []string {
-	if currentUser(c).Can("unfiltered_html", nil) {
+	if optionsActor(c).Can("unfiltered_html", nil) {
 		return nil
 	}
 	raw := func(cur, prev string) bool { return cur != prev && wp.KsesPost(cur) != cur }
@@ -185,7 +195,7 @@ func (s *Server) maintCheckRaw(c *gin.Context, old, st maintSettings) []string {
 // seogoCheckRaw: the RSS texts are HTML in every feed item; markup KSES would change needs
 // unfiltered_html, as the SEO screen filters it otherwise.
 func (s *Server) seogoCheckRaw(c *gin.Context, old, st *seogoOptions) []string {
-	if currentUser(c).Can("unfiltered_html", nil) {
+	if optionsActor(c).Can("unfiltered_html", nil) {
 		return nil
 	}
 	raw := func(cur, prev string) bool { return cur != prev && wp.KsesPost(cur) != cur }
@@ -197,7 +207,7 @@ func (s *Server) seogoCheckRaw(c *gin.Context, old, st *seogoOptions) []string {
 
 // gooikeCheckRaw: the code of custom (non-service) scripts only with unfiltered_html.
 func (s *Server) gooikeCheckRaw(c *gin.Context, old, st gooikeSettings) []string {
-	if currentUser(c).Can("unfiltered_html", nil) {
+	if optionsActor(c).Can("unfiltered_html", nil) {
 		return nil
 	}
 	prev := map[string]string{}
