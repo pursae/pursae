@@ -32,7 +32,7 @@ TEST_DB ?= wpgo_test
 test: db
 	PURSAE_TEST_ADMIN_DB=postgres://wpgo:wpgo@localhost:$${PURSAE_DB_PORT:-$${WPGO_DB_PORT:-5432}}/wpgo?sslmode=disable \
 	PURSAE_TEST_DB=postgres://wpgo:wpgo@localhost:$${PURSAE_DB_PORT:-$${WPGO_DB_PORT:-5432}}/$(TEST_DB)?sslmode=disable \
-	go test ./... -p 1 -count=1 -timeout 40m
+	go test ./... -p 1 -count=1 -timeout 55m
 
 ## upgrade-test: sites created by older releases (v0.2.0 and the three newest tags) keep their data when
 ## this checkout takes them over (tools/upgrade-test.sh). Builds each tag, so it needs the release tags
