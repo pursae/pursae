@@ -13,7 +13,7 @@ package garanti
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // G505: SHA-1 is what the bank protocol signs with, not our choice
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/xml"
@@ -146,7 +146,7 @@ func securityData(password, terminalID string) string {
 	if n := len(terminalID); n < 9 {
 		terminalID = strings.Repeat("0", 9-n) + terminalID
 	}
-	return upperHash(sha1.New(), password+terminalID)
+	return upperHash(sha1.New(), password+terminalID) //nolint:gosec // G401: SecurityData is SHA-1 by the Garanti protocol
 }
 
 // formHash is secure3dhash: SHA512(terminalid + orderid + txnamount + txncurrencycode + successurl +
@@ -191,7 +191,7 @@ func verifyCallback(get func(string) string, storeKey string) bool {
 	}
 	sent = strings.ToUpper(sent)
 	return pay.Equal(upperHash(sha512.New(), val.String()+storeKey), sent) ||
-		pay.Equal(upperHash(sha1.New(), val.String()+storeKey), sent)
+		pay.Equal(upperHash(sha1.New(), val.String()+storeKey), sent) //nolint:gosec // G401: older terminals sign the callback with SHA-1
 }
 
 func (p *provider) Start(ctx context.Context, r pay.StartRequest) (*pay.StartResult, error) {

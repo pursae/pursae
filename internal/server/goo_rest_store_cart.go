@@ -27,7 +27,7 @@ import (
 const gooStoreAPINonce = "wc_store_api"
 
 // gooStoreAPIKey marks a request handled by the Store API (gin context key).
-const gooStoreAPIKey = "goo_store_api"
+const gooStoreAPIKey = "goo_store_api" //nolint:gosec // G101: a request-context key, not a credential
 
 func (s *Server) registerGooStoreCartREST() {
 	r := func(pattern string, m map[string]restHandler) {

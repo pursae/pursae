@@ -461,7 +461,7 @@ func (p *provider) call(ctx context.Context, txnCode, orderID string, amt *amoun
 	res, status, err := p.process(ctx, txnCode, orderID, amt)
 	if err != nil {
 		if errors.Is(err, pay.ErrUnknownOutcome) || status != 0 {
-			return nil, fmt.Errorf("%w: %v", pay.ErrUnknownOutcome, err)
+			return nil, fmt.Errorf("%w: %w", pay.ErrUnknownOutcome, err)
 		}
 		return nil, err
 	}

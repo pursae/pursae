@@ -142,7 +142,9 @@ func Do(ctx context.Context, c *http.Client, req *http.Request) (int, []byte, er
 	if c == nil {
 		return 0, nil, errors.New("pay: no HTTP client")
 	}
-	res, err := c.Do(req.WithContext(ctx))
+	// The host of the request is the fixed endpoint of a provider (Config.Origin), never a setting or a
+	// callback value.
+	res, err := c.Do(req.WithContext(ctx)) //nolint:gosec // G704: see above
 	if err != nil {
 		var op *net.OpError
 		if errors.As(err, &op) && op.Op == "dial" {
@@ -152,12 +154,12 @@ func Do(ctx context.Context, c *http.Client, req *http.Request) (int, []byte, er
 		if errors.As(err, &dns) {
 			return 0, nil, err
 		}
-		return 0, nil, fmt.Errorf("%w: %v", ErrUnknownOutcome, err)
+		return 0, nil, fmt.Errorf("%w: %w", ErrUnknownOutcome, err)
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(res.Body, MaxBody+1))
 	if err != nil {
-		return res.StatusCode, nil, fmt.Errorf("%w: %v", ErrUnknownOutcome, err)
+		return res.StatusCode, nil, fmt.Errorf("%w: %w", ErrUnknownOutcome, err)
 	}
 	if len(body) > MaxBody {
 		return res.StatusCode, nil, errors.New("pay: provider response too large")

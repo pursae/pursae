@@ -192,7 +192,7 @@ func Start(t *testing.T, specs ...pay.Spec) {
 				}
 				if dir := os.Getenv("PAY_SANDBOX_OUT_DIR"); dir != "" {
 					path := filepath.Join(dir, spec.ID+"-start.html")
-					if err := os.WriteFile(path, []byte(formPage(res.Form)), 0o600); err != nil {
+					if err := os.WriteFile(path, []byte(formPage(res.Form)), 0o600); err != nil { //nolint:gosec // G703: a directory the developer running the sandbox test names
 						t.Errorf("writing %s: %v", path, err)
 					} else {
 						t.Logf("a self-submitting page with the full form was written to %s (open it in a browser)", path)
@@ -294,7 +294,7 @@ func Complete(t *testing.T, specs ...pay.Spec) {
 				t.Skip("no captured callback: set " + Env(spec, "CALLBACK") + " (file), " + Env(spec, "REF") + ", " + Env(spec, "AMOUNT") + " and " + Env(spec, "PROVIDER_REF"))
 			}
 			p, _ := provider(t, spec)
-			body, err := os.ReadFile(file)
+			body, err := os.ReadFile(file) //nolint:gosec // G703: a file the developer running the sandbox test names
 			if err != nil {
 				t.Fatalf("reading the captured callback: %v", err)
 			}

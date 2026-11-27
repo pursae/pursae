@@ -383,7 +383,7 @@ func refundErr(err error) error {
 	if errors.Is(err, pay.ErrUnknownOutcome) || errors.Is(err, errNotSent) {
 		return err
 	}
-	return fmt.Errorf("%w: %v", pay.ErrUnknownOutcome, err)
+	return fmt.Errorf("%w: %w", pay.ErrUnknownOutcome, err)
 }
 
 var errNotSent = errors.New("pay: EST request not sent")
@@ -404,7 +404,7 @@ func (p *provider) apiExtra(ctx context.Context, fields, extra []kv) (*response,
 		if errors.Is(err, pay.ErrUnknownOutcome) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("%w: %v", errNotSent, err)
+		return nil, fmt.Errorf("%w: %w", errNotSent, err)
 	}
 	if status < 200 || status > 299 {
 		return nil, fmt.Errorf("pay: EST API answered HTTP %d", status)

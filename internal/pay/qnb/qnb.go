@@ -14,7 +14,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // G505: SHA-1 is what the bank protocol signs with, not our choice
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
@@ -88,7 +88,7 @@ func newProvider(c pay.Config) (pay.Provider, error) {
 
 // sha1Base64 is PayFor's hash: Base64(SHA1(s)).
 func sha1Base64(s string) string {
-	h := sha1.Sum([]byte(s))
+	h := sha1.Sum([]byte(s)) //nolint:gosec // G401: PayFor hashes are SHA-1 by the bank protocol
 	return base64.StdEncoding.EncodeToString(h[:])
 }
 
@@ -304,7 +304,7 @@ func refundErr(err error) error {
 	if errors.Is(err, pay.ErrUnknownOutcome) || errors.Is(err, errNotSent) {
 		return err
 	}
-	return fmt.Errorf("%w: %v", pay.ErrUnknownOutcome, err)
+	return fmt.Errorf("%w: %w", pay.ErrUnknownOutcome, err)
 }
 
 var errNotSent = errors.New("pay: QNB request not sent")
@@ -378,7 +378,7 @@ func (p *provider) api(ctx context.Context, fields [][2]string) (map[string]stri
 		if errors.Is(err, pay.ErrUnknownOutcome) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("%w: %v", errNotSent, err)
+		return nil, fmt.Errorf("%w: %w", errNotSent, err)
 	}
 	if status < 200 || status > 299 {
 		return nil, fmt.Errorf("pay: QNB API answered HTTP %d", status)

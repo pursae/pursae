@@ -378,13 +378,13 @@ func (g *gooPayGateway) ProcessPayment(s *Server, c *gin.Context, o *gooOrder) (
 		return gooPaymentResult{Result: "success", Redirect: s.gooOrderReceivedURL(ctx, o)}, nil
 	}
 	if !g.currencyOK(o.Currency) {
-		log.Printf("goocommerce: %s: order %d: currency %q is not supported", g.ID(), o.ID, o.Currency)
+		log.Printf("goocommerce: %s: order %d: currency %q is not supported", g.ID(), o.ID, o.Currency) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		return fail(pay.CodeInvalidRequest)
 	}
 	test := s.gooGatewayTestMode(g.ID())
 	p, err := g.provider(s, test)
 	if err != nil {
-		log.Printf("goocommerce: %s: order %d: provider not configured: %q", g.ID(), o.ID, err.Error())
+		log.Printf("goocommerce: %s: order %d: provider not configured: %q", g.ID(), o.ID, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		return fail(pay.CodeConfiguration)
 	}
 	if len(o.Items) == 0 {
@@ -408,11 +408,11 @@ func (g *gooPayGateway) ProcessPayment(s *Server, c *gin.Context, o *gooOrder) (
 			delete(o.Meta, "_goo_pay_installment")
 		}
 		if err := s.gooSaveOrder(ctx, o, false); err != nil {
-			log.Printf("goocommerce: %s: order %d: storing the installment count: %v", g.ID(), o.ID, err)
+			log.Printf("goocommerce: %s: order %d: storing the installment count: %q", g.ID(), o.ID, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		}
 	}
 	if err := s.gooPayInsertAttempt(ctx, a); err != nil {
-		log.Printf("goocommerce: %s: order %d: recording the attempt: %v", g.ID(), o.ID, err)
+		log.Printf("goocommerce: %s: order %d: recording the attempt: %q", g.ID(), o.ID, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		return fail(pay.CodeUnknown)
 	}
 	ttl := s.gooOptInt("hold_stock_minutes")
@@ -462,7 +462,7 @@ func (g *gooPayGateway) ProcessPayment(s *Server, c *gin.Context, o *gooOrder) (
 		} else {
 			s.gooPayEndAttempt(ctx, a, string(code), "", "")
 		}
-		log.Printf("goocommerce: %s: order %d attempt %s: start failed: %q", g.ID(), o.ID, a.Ref, err.Error())
+		log.Printf("goocommerce: %s: order %d attempt %s: start failed: %q", g.ID(), o.ID, a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		return fail(code)
 	}
 	var start []byte
@@ -470,7 +470,7 @@ func (g *gooPayGateway) ProcessPayment(s *Server, c *gin.Context, o *gooOrder) (
 		start, _ = json.Marshal(gooPayStart{Form: res.Form, Embed: res.Embed})
 	}
 	if err := s.gooPayStarted(ctx, a, res.ProviderRef, start); err != nil {
-		log.Printf("goocommerce: %s: order %d attempt %s: %v", g.ID(), o.ID, a.Ref, err)
+		log.Printf("goocommerce: %s: order %d attempt %s: %q", g.ID(), o.ID, a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		return fail(pay.CodeUnknown)
 	}
 	if res.Redirect != "" {

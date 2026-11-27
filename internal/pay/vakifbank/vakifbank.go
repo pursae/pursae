@@ -97,7 +97,8 @@ func supported(cur string) bool {
 
 // leaves reads the text of every leaf element of an XML answer by name (first occurrence wins).
 func leaves(body []byte) (map[string]string, error) {
-	d := xml.NewDecoder(bytes.NewReader(body))
+	// encoding/xml expands no external entities and the body is size-limited by pay.Do.
+	d := xml.NewDecoder(bytes.NewReader(body)) //nolint:gosec // G709: see above
 	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	out := map[string]string{}
 	var name string
@@ -105,7 +106,7 @@ func leaves(body []byte) (map[string]string, error) {
 	root := false
 	for {
 		tok, err := d.Token()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -346,7 +347,7 @@ func (p *provider) vposRequest(fields [][2]string) url.Values {
 			continue
 		}
 		b.WriteString("<" + kv[0] + ">")
-		xml.EscapeText(&b, []byte(kv[1]))
+		_ = xml.EscapeText(&b, []byte(kv[1])) // a strings.Builder never fails to write
 		b.WriteString("</" + kv[0] + ">")
 	}
 	b.WriteString("</VposRequest>")
@@ -359,7 +360,7 @@ func (p *provider) money(ctx context.Context, fields [][2]string) (map[string]st
 	f, status, err := p.post(ctx, p.vpos(), p.vposRequest(fields))
 	if err != nil {
 		if errors.Is(err, pay.ErrUnknownOutcome) || status != 0 {
-			return nil, fmt.Errorf("%w: %v", pay.ErrUnknownOutcome, err)
+			return nil, fmt.Errorf("%w: %w", pay.ErrUnknownOutcome, err)
 		}
 		return nil, err
 	}

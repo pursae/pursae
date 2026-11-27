@@ -126,7 +126,7 @@ func (s *Server) gooPayGoPage(c *gin.Context, g *gooPayGateway, a *gooPayAttempt
 		return
 	}
 	if err := g.checkStart(res); err != nil {
-		log.Printf("goocommerce: %s: attempt %s: %v", g.ID(), a.Ref, err)
+		log.Printf("goocommerce: %s: attempt %s: %q", g.ID(), a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		s.gooPayBadRequest(c)
 		return
 	}

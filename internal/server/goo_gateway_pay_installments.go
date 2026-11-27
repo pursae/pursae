@@ -385,9 +385,9 @@ func (g *gooPayGateway) installmentSelect(s *Server, c *gin.Context) string {
 	}
 	ctx := c.Request.Context()
 	type opt struct {
-		n            int
-		label        string
-		selected, ok bool
+		n     int
+		label string
+		ok    bool
 	}
 	var opts []opt
 	price := func(v float64, cur string) string { return html.UnescapeString(s.gooPricePlain(v, cur)) }
@@ -477,7 +477,7 @@ func gooPayOrderInstBase(o *gooOrder) float64 {
 // still awaits payment; o is refreshed with the saved order, so the payment starts with its total.
 func (s *Server) gooPayOrderInstallmentApply(c *gin.Context, o *gooOrder, gateway string) error {
 	failed := func(ctx context.Context, err error) error {
-		log.Printf("goocommerce: order %d: setting the installment surcharge: %v", o.ID, err)
+		log.Printf("goocommerce: order %d: setting the installment surcharge: %q", o.ID, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		return errors.New(s.gooPayT(ctx, "There was an error processing your order. Please try again."))
 	}
 	return gooWithOrderLock(c.Request.Context(), o.ID, func(ctx context.Context) error {
@@ -544,7 +544,7 @@ func (g *gooPayGateway) orderInstallment(s *Server, c *gin.Context, o *gooOrder)
 			return 0
 		}
 		if _, ok := g.installmentEntry(s, o.Currency, base, n); !ok {
-			log.Printf("goocommerce: %s: order %d carries a surcharge for %d installments the plan no longer offers; paying in one", g.ID(), o.ID, n)
+			log.Printf("goocommerce: %s: order %d carries a surcharge for %d installments the plan no longer offers; paying in one", g.ID(), o.ID, n) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 			return 0
 		}
 		return n

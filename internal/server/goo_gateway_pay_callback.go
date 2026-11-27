@@ -271,7 +271,7 @@ func (s *Server) gooPayCallback(c *gin.Context, g *gooPayGateway, kind pay.Callb
 	}
 	p, err := g.provider(s, a.Test)
 	if err != nil {
-		log.Printf("goocommerce: %s: callback for attempt %s: provider not configured: %q", g.ID(), a.Ref, err.Error())
+		log.Printf("goocommerce: %s: callback for attempt %s: provider not configured: %q", g.ID(), a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		s.gooPayBadRequest(c)
 		return
 	}
@@ -282,20 +282,20 @@ func (s *Server) gooPayCallback(c *gin.Context, g *gooPayGateway, kind pay.Callb
 			if err == nil {
 				err = errors.New("no result")
 			}
-			return fmt.Errorf("%w: %v", errGooPayVerify, err)
+			return fmt.Errorf("%w: %w", errGooPayVerify, err)
 		}
 		ack = res.Ack
 		if res.Status == pay.StatusPending && kind != pay.CallbackNotify && a.Status == "started" && g.has(pay.FeatureQuery) {
 			if q, err := p.Query(ctx, a.toPay()); err == nil && q != nil {
 				res = q
 			} else if err != nil {
-				log.Printf("goocommerce: %s: query of attempt %s: %q", g.ID(), a.Ref, err.Error())
+				log.Printf("goocommerce: %s: query of attempt %s: %q", g.ID(), a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 			}
 		}
 		return s.gooPayApply(ctx, db, g, a, res)
 	})
 	if errors.Is(err, errGooPayVerify) {
-		log.Printf("goocommerce: %s: %s callback for attempt %s refused: %q", g.ID(), kind, a.Ref, err.Error())
+		log.Printf("goocommerce: %s: %s callback for attempt %s refused: %q", g.ID(), kind, a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		if kind != pay.CallbackNotify {
 			// Nothing changed. The customer (who holds the order key) lands on the result page, which
 			// shows the order's real state; a notification or the resolver settles a payment whose
@@ -518,13 +518,13 @@ func (g *gooPayGateway) refundLocked(s *Server, ctx context.Context, o *gooOrder
 	}
 	p, err := g.provider(s, a.Test)
 	if err != nil {
-		return fmt.Errorf("%s is not configured: %v", g.spec.Title, err)
+		return fmt.Errorf("%s is not configured: %w", g.spec.Title, err)
 	}
 	{
 		res, err := p.Refund(ctx, pay.RefundRequest{Attempt: a.toPay(), Amount: minor, Full: minor == a.Amount && a.Refunded == 0,
 			RefundRef: gooPayRef(), Reason: pay.Trunc(reason, 200)})
 		if errors.Is(err, pay.ErrUnknownOutcome) {
-			log.Printf("goocommerce: %s: refund of attempt %s: %q", g.ID(), a.Ref, err.Error())
+			log.Printf("goocommerce: %s: refund of attempt %s: %q", g.ID(), a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 			return fmt.Errorf("The outcome of the %s refund is unknown (the provider did not answer in time). Check the payment in the %s panel before trying again.", g.spec.Title, g.spec.Title)
 		}
 		if err != nil {
@@ -532,7 +532,7 @@ func (g *gooPayGateway) refundLocked(s *Server, ctx context.Context, o *gooOrder
 			if errors.As(err, &pe) {
 				return fmt.Errorf("%s refund failed: %s (%s)", g.spec.Title, pay.Message(pe.Code), strings.TrimSpace(pe.ProviderCode+" "+pay.Trunc(pe.ProviderMessage, 200)))
 			}
-			log.Printf("goocommerce: %s: refund of attempt %s: %q", g.ID(), a.Ref, err.Error())
+			log.Printf("goocommerce: %s: refund of attempt %s: %q", g.ID(), a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 			return fmt.Errorf("%s refund failed.", g.spec.Title)
 		}
 		if res == nil || res.Status != pay.StatusSuccess {
@@ -543,7 +543,7 @@ func (g *gooPayGateway) refundLocked(s *Server, ctx context.Context, o *gooOrder
 			return fmt.Errorf("%s refund failed. %s", g.spec.Title, detail)
 		}
 		if _, err := s.store.Pool.Exec(ctx, `UPDATE goo_payment_attempts SET refunded_minor = refunded_minor + $2, updated_at = now() WHERE id = $1`, a.ID, minor); err != nil {
-			log.Printf("goocommerce: %s: refund of attempt %s succeeded but was not recorded on the attempt: %v", g.ID(), a.Ref, err)
+			log.Printf("goocommerce: %s: refund of attempt %s succeeded but was not recorded on the attempt: %q", g.ID(), a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 		}
 		_ = s.gooAddOrderNote(ctx, o, fmt.Sprintf("Refunded %s %s through %s (attempt %s, transaction %s).", gooEsc(pay.FormatMinor(minor, a.Currency)),
 			gooEsc(a.Currency), gooEsc(g.spec.Title), gooEsc(a.Ref), gooEsc(res.TxnID)), false, "")
@@ -597,7 +597,7 @@ func (s *Server) gooPayResolve(ctx context.Context) {
 				return s.gooPayApply(ctx, db, g, a, res)
 			})
 			if err != nil && !errors.Is(err, pay.ErrNotSupported) {
-				log.Printf("goocommerce: %s: resolving attempt %s: %q", a.Gateway, a.Ref, err.Error())
+				log.Printf("goocommerce: %s: resolving attempt %s: %q", a.Gateway, a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text
 			}
 		}
 	}

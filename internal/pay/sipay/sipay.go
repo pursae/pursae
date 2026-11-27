@@ -15,7 +15,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // G505: the hash_key of Sipay derives its AES key with SHA-1, not our choice
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -36,7 +36,7 @@ const (
 	liveOrigin = "https://app.sipay.com.tr"
 	testOrigin = "https://provisioning.sipay.com.tr"
 
-	pathToken  = "/ccpayment/api/token"
+	pathToken  = "/ccpayment/api/token" //nolint:gosec // G101: an API path, not a credential
 	pathLink   = "/ccpayment/purchase/link"
 	pathStatus = "/ccpayment/api/checkstatus"
 	pathRefund = "/ccpayment/api/refund"
@@ -103,7 +103,7 @@ func (p *provider) origin() string { return p.cfg.Origin(liveOrigin, testOrigin)
 // aesKey is the AES-256 key of a hash key: the first 32 hex characters of
 // SHA-256(hex(SHA-1(app_secret)) + salt), used as ASCII bytes.
 func aesKey(appSecret, salt string) []byte {
-	s1 := sha1.Sum([]byte(appSecret))
+	s1 := sha1.Sum([]byte(appSecret)) //nolint:gosec // G401: the key derivation Sipay documents for hash_key
 	s2 := sha256.Sum256([]byte(hex.EncodeToString(s1[:]) + salt))
 	return []byte(hex.EncodeToString(s2[:])[:32])
 }
@@ -156,7 +156,9 @@ func (p *provider) getToken(ctx context.Context, renew bool) (string, error) {
 	status, raw, err := pay.PostBody(ctx, p.cfg.HTTP, p.origin()+pathToken, "application/json", body, jsonAccept)
 	if err != nil {
 		// Asking for a token changes nothing at Sipay: an unknown outcome is a plain failure here.
-		return "", fmt.Errorf("sipay: token request failed: %v", err)
+		// Not wrapped: a token request charges nothing, so a timeout here must not read as an unknown
+		// payment outcome (pay.ErrUnknownOutcome) further up.
+		return "", fmt.Errorf("sipay: token request failed: %s", err.Error())
 	}
 	var res struct {
 		StatusCode        json.RawMessage `json:"status_code"`
