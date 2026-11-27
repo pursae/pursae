@@ -147,6 +147,9 @@ func TestGooPayProviderTextsTurkish(t *testing.T) {
 		}
 	}
 	for _, sp := range all.Specs() {
+		if sp.ID == "demo" {
+			continue // the development-only demo bank (build tag paydemo) is not translated
+		}
 		check(sp.ID+" description", sp.Description)
 		check(sp.ID+" enable label", "Enable "+sp.Title)
 		for _, f := range sp.Fields {

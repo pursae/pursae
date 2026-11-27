@@ -179,11 +179,18 @@ stock or allow backorders are not reserved.
   <provider>" (asks the provider now, for an order stuck in pending) and lists the order's payment
   attempts. Installments: PayTR, iyzico and Sipay offer them on their own page (a maximum can be
   set). For the bank POS methods the merchant enters a plan (`count:rate`, e.g. `3:2.5, 6:5.9`);
-  the customer picks the count on the checkout and the surcharge is a fee line of the order
-  (computed on the items after discounts, not on shipping; TRY only). On the Pay for order page only
-  the entries without a surcharge are offered. The method logos (the companies' own, sources in
+  the customer picks the count on the checkout or on the Pay for order page and the surcharge is a
+  fee line of the order, computed on the whole amount (items after discounts, fees and shipping, with
+  tax; TRY only). A plan with a mistake is refused when it is saved. Product pages show the
+  installment options under the price (Settings › Products › Installment options). If the customer
+  changes the installment count on the Pay for order page while an earlier payment page of the same
+  order is still open at the bank and then pays on the old page, the order is put on hold for review
+  instead of being marked paid with a different amount. The payment page (the provider's iframe or
+  the redirect to the bank) is shown inside the theme. The method logos (the companies' own, sources in
   `web/goocommerce/assets/images/payment-gateways/README.md`) show in Settings › Payments, on the
-  checkout and as `icon` in `wc/v3/payment_gateways`.
+  checkout and as `icon` in `wc/v3/payment_gateways`. To run a provider against its real test
+  environment see `docs/developer/payments-sandbox.md`; a development-only demo bank (build tag
+  `paydemo`, refused in Docker images) shows the whole flow locally without a merchant account.
 - Geolocate uses the country from the request headers when available (CDN or proxy header) and falls
   back to the store base country; there is no GeoIP database lookup.
 
