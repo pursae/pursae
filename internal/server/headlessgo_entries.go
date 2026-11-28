@@ -195,7 +195,7 @@ func (h *hgCoercer) mediaAllowed(a *store.Attachment) bool {
 	case h.auth != nil:
 		return h.s.hgMediaReadable(h.ctx, h.auth, h.user, a)
 	case h.admin != nil:
-		return mediaLibraryReader(h.admin) || h.s.attachmentPublic(h.ctx, a)
+		return mediaLibraryReader(h.admin) || h.s.attachmentPublicFor(h.ctx, h.admin, a)
 	}
 	return true
 }
@@ -919,6 +919,9 @@ func (h *hgCoercer) relTarget(f *hgField, x any) (any, bool) {
 		}
 		if _, err := h.s.store.UserByID(ctx, id); err != nil {
 			return nil, false
+		}
+		if h.s.hgHidesUsers(h.auth) && !h.s.hgUserPublished(ctx, id) {
+			return nil, false // the same answer as a missing user: no account oracle for visitors
 		}
 		return float64(id), true
 	}

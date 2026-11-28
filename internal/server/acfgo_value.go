@@ -192,6 +192,28 @@ type acfWrite struct {
 	set   map[string]any
 	del   map[string]bool
 	terms map[string][]int64 // taxonomy fields with save_terms
+	over  bool               // the save outgrew acfgoMaxKeys: nothing is stored
+}
+
+// Bounds of one save: rows per repeater / flexible content field (input and stored counts alike,
+// so a forged row count cannot make a save loop for ever) and meta keys written or deleted in all
+// (nested repeaters multiply). ACF has no limit; real field groups stay far below both.
+const (
+	acfgoMaxRows = 1000
+	acfgoMaxKeys = 50000
+)
+
+// full reports (and remembers) whether the save has reached acfgoMaxKeys.
+func (w *acfWrite) full() bool {
+	if len(w.set)+len(w.del) >= acfgoMaxKeys {
+		w.over = true
+	}
+	return w.over
+}
+
+// acfgoStoredRows is a stored repeater row count, capped at acfgoMaxRows.
+func acfgoStoredRows(v any) int {
+	return min(max(int(acfgoInt(v)), 0), acfgoMaxRows)
 }
 
 func newACFWrite() *acfWrite {
@@ -205,6 +227,9 @@ func (w *acfWrite) put(name, key string, v any) {
 
 // acfgoCommit stores the collected changes in the object's meta.
 func (s *Server) acfgoCommit(ctx context.Context, o *acfObject, w *acfWrite) error {
+	if w.over {
+		return fmt.Errorf("acf-go: too many values in one save (more than %d)", acfgoMaxKeys)
+	}
 	var dels []string
 	for k := range w.del {
 		if _, ok := w.set[k]; !ok {
@@ -259,7 +284,14 @@ func (s *Server) acfgoCommit(ctx context.Context, o *acfObject, w *acfWrite) err
 	if dels == nil {
 		dels = []string{}
 	}
-	if _, err := s.store.Pool.Exec(ctx, `UPDATE `+table+` SET meta = (coalesce(meta, '{}'::jsonb) - $2::text[]) || $3::jsonb WHERE id = $1`, o.ID, dels, string(setJSON)); err != nil {
+	// jsonb - text[] compares every key with every deleted name (quadratic for a large repeater);
+	// many deletes rebuild the object with a hashed anti-join instead, linear in keys + deletes.
+	q := `UPDATE ` + table + ` SET meta = (coalesce(meta, '{}'::jsonb) - $2::text[]) || $3::jsonb WHERE id = $1`
+	if len(dels) > 64 {
+		q = `UPDATE ` + table + ` t SET meta = coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(coalesce(t.meta, '{}'::jsonb)) e
+			WHERE e.key NOT IN (SELECT unnest($2::text[]))), '{}'::jsonb) || $3::jsonb WHERE id = $1`
+	}
+	if _, err := s.store.Pool.Exec(ctx, q, o.ID, dels, string(setJSON)); err != nil {
 		return err
 	}
 	if o.meta != nil {
@@ -337,11 +369,17 @@ func acfgoRows(in any) []map[string]any {
 			}
 		}
 	}
+	if len(out) > acfgoMaxRows {
+		out = out[:acfgoMaxRows]
+	}
 	return out
 }
 
 // acfgoUpdate stores one field's input under base+name (update_field()).
 func (s *Server) acfgoUpdate(ctx context.Context, o *acfObject, w *acfWrite, f acfField, base string, in any, unfiltered bool) {
+	if w.full() {
+		return
+	}
 	name := base + acfgoStr(f["name"])
 	key := acfgoStr(f["key"])
 	switch acfgoStr(f["type"]) {
@@ -350,7 +388,7 @@ func (s *Server) acfgoUpdate(ctx context.Context, o *acfObject, w *acfWrite, f a
 	case "repeater":
 		rows := acfgoRows(in)
 		old, _ := s.acfgoGet(o, name)
-		for i := len(rows); i < int(acfgoInt(old)); i++ {
+		for i := len(rows); i < acfgoStoredRows(old); i++ {
 			for _, sf := range acfgoSubFields(f) {
 				s.acfgoDeleteTree(o, w, sf, fmt.Sprintf("%s_%d_", name, i))
 			}
@@ -366,6 +404,9 @@ func (s *Server) acfgoUpdate(ctx context.Context, o *acfObject, w *acfWrite, f a
 		rows := acfgoRows(in)
 		old, _ := s.acfgoGet(o, name)
 		for i, ln := range acfgoStrList(old) {
+			if i >= acfgoMaxRows {
+				break
+			}
 			if l := acfgoLayout(f, ln); l != nil {
 				for _, sf := range acfgoLayoutSubs(l) {
 					s.acfgoDeleteTree(o, w, sf, fmt.Sprintf("%s_%d_", name, i))
@@ -425,11 +466,14 @@ func (s *Server) acfgoUpdate(ctx context.Context, o *acfObject, w *acfWrite, f a
 
 // acfgoDeleteTree removes a field's stored value(s) (old repeater rows).
 func (s *Server) acfgoDeleteTree(o *acfObject, w *acfWrite, f acfField, base string) {
+	if w.full() {
+		return
+	}
 	name := base + acfgoStr(f["name"])
 	switch acfgoStr(f["type"]) {
 	case "repeater":
 		old, _ := s.acfgoGet(o, name)
-		for i := 0; i < int(acfgoInt(old)); i++ {
+		for i := 0; i < acfgoStoredRows(old); i++ {
 			for _, sf := range acfgoSubFields(f) {
 				s.acfgoDeleteTree(o, w, sf, fmt.Sprintf("%s_%d_", name, i))
 			}
@@ -437,6 +481,9 @@ func (s *Server) acfgoDeleteTree(o *acfObject, w *acfWrite, f acfField, base str
 	case "flexible_content":
 		old, _ := s.acfgoGet(o, name)
 		for i, ln := range acfgoStrList(old) {
+			if i >= acfgoMaxRows {
+				break
+			}
 			if l := acfgoLayout(f, ln); l != nil {
 				for _, sf := range acfgoLayoutSubs(l) {
 					s.acfgoDeleteTree(o, w, sf, fmt.Sprintf("%s_%d_", name, i))
@@ -1067,8 +1114,17 @@ func (s *Server) acfgoFormat(ctx context.Context, f acfField, v any) any {
 			if err != nil || p.Status == "trash" {
 				continue
 			}
+			// Drafts, private and future posts stay hidden from whoever may not read them: on REST
+			// (the requester) and on the front end alike (the visitor of the page, anonymous when the
+			// render does not say), or get_field() would hand a theme other users' unpublished posts.
 			rv := acfgoRESTViewerFrom(ctx)
-			if rv != nil && !rv.canReadPost(p) { // REST: drafts, private and future posts stay hidden
+			if rv == nil {
+				rv = &acfgoRESTViewer{}
+				if rc := renderFrom(ctx); rc != nil {
+					rv.u = rc.user
+				}
+			}
+			if !rv.canReadPost(p) {
 				continue
 			}
 			switch {
@@ -1078,8 +1134,10 @@ func (s *Server) acfgoFormat(ctx context.Context, f acfField, v any) any {
 				out = append(out, id)
 			default:
 				m := s.acfgoPostMap(ctx, p)
-				if rv != nil && p.Password != "" && !(rv.u != nil && rv.u.Can("edit_post", p)) {
+				if p.Password != "" && !(rv.u != nil && rv.u.Can("edit_post", p)) {
 					m["post_content"], m["post_excerpt"] = "", "" // password protected
+				} else if !(rv.u != nil && rv.u.Can("edit_post", p)) && s.gmemHidesPost(ctx, rv.u, p.ID) {
+					m["post_content"], m["post_excerpt"] = "", "" // Memberships: restricted for this viewer
 				}
 				out = append(out, m)
 			}

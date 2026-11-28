@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"strings"
 )
@@ -11,8 +12,9 @@ import (
 // Credentials of the built-in plugins kept in options are stored sealed (AES-256-GCM under a key
 // derived from siteSecret(), like the SMTP and CDN credentials): the Contact Form reCAPTCHA and
 // Turnstile secret keys, the Pursae Pixel server-side API tokens, the payment gateways' password
-// fields (Stripe secret keys and webhook signing secrets), the Forum Google client secret and the
-// license key. Reading accepts a plain value (a site from before sealing, a value set by hand);
+// fields (Stripe secret keys and webhook signing secrets), the Forum Google client secret, the
+// license key, and the Commerce and Headless webhook secrets and custom header values (rows of
+// goo_webhooks and hg_webhooks). Reading accepts a plain value (a site from before sealing, a value set by hand);
 // sealStoredSecrets seals those once at start-up and after a restore. A backup restore onto a site
 // with another secret re-encrypts them (bmgrSealKinds).
 
@@ -110,10 +112,61 @@ func (s *Server) sealStoredSecrets(ctx context.Context) {
 			}
 		}
 	}
+	s.sealWebhookSecrets(ctx)
 	if len(vals) == 0 {
 		return
 	}
 	if err := s.settings.Set(ctx, vals); err != nil {
 		slog.Warn("sealing stored secrets", "err", err)
+	}
+}
+
+// sealWebhookSecrets seals the plain webhook secrets left in goo_webhooks (Pursae Commerce) and
+// hg_webhooks (Pursae Headless, also the custom header values such as an Authorization token).
+// A row changed meanwhile is left for the next start (the UPDATE matches the value it read).
+func (s *Server) sealWebhookSecrets(ctx context.Context) {
+	type row struct {
+		id     int64
+		secret string
+		hdr    []byte
+	}
+	read := func(q string, withHeaders bool) []row {
+		rows, err := s.store.Pool.Query(ctx, q)
+		if err != nil {
+			return nil
+		}
+		defer rows.Close()
+		var out []row
+		for rows.Next() {
+			var r row
+			dst := []any{&r.id, &r.secret}
+			if withHeaders {
+				dst = append(dst, &r.hdr)
+			}
+			if rows.Scan(dst...) == nil {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	for _, r := range read(`SELECT id, secret FROM goo_webhooks WHERE secret <> '' AND secret NOT LIKE 'sec:v1:%'`, false) {
+		if _, err := s.store.Pool.Exec(ctx, `UPDATE goo_webhooks SET secret = $2 WHERE id = $1 AND secret = $3`, r.id, s.sealSecret(r.secret), r.secret); err != nil {
+			slog.Warn("sealing a Commerce webhook secret", "err", err)
+		}
+	}
+	for _, r := range read(`SELECT id, secret, headers FROM hg_webhooks`, true) {
+		hdr := map[string]string{}
+		_ = json.Unmarshal(r.hdr, &hdr)
+		plain := r.secret != "" && !secretLooksSealed(r.secret)
+		for _, v := range hdr {
+			plain = plain || v != "" && !secretLooksSealed(v)
+		}
+		if !plain {
+			continue
+		}
+		if _, err := s.store.Pool.Exec(ctx, `UPDATE hg_webhooks SET secret = $2, headers = $3 WHERE id = $1 AND secret = $4 AND headers = $5::jsonb`,
+			r.id, s.sealSecret(r.secret), s.hgSealHeaders(hdr), r.secret, r.hdr); err != nil {
+			slog.Warn("sealing a Headless webhook secret", "err", err)
+		}
 	}
 }

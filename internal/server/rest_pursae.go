@@ -161,7 +161,11 @@ func (s *Server) pursaePluginInstall(c *gin.Context, r *restRequest) {
 		restErr(c, http.StatusBadRequest, "rest_invalid_param", err.Error())
 		return
 	}
-	m, _, err := s.installAndReload(c.Request.Context(), data, pluginSourceUpload, "", false)
+	m, _, err := s.installAndReload(withExtActor(c.Request.Context(), restCurrent(c)), data, pluginSourceUpload, "", false)
+	if errors.Is(err, errPluginReloadDenied) {
+		restErr(c, http.StatusForbidden, "rest_cannot_activate_plugin", err.Error())
+		return
+	}
 	if err != nil {
 		restErr(c, http.StatusBadRequest, "rest_plugin_install_failed", err.Error())
 		return
@@ -275,12 +279,24 @@ func (s *Server) pursaeThemeActivate(c *gin.Context, r *restRequest) {
 
 // pursaeThemeInstall installs a theme package (docs/theme-package.md) sent as base64 ("package").
 func (s *Server) pursaeThemeInstall(c *gin.Context, r *restRequest) {
+	// Activating is switch_themes' job (/themes/<slug>/activate): install_themes alone must not change the
+	// live site. Refused before anything is installed.
+	if act, _ := r.Bool(c, "activate"); act {
+		if u := restCurrent(c); u == nil || !u.Can("switch_themes", nil) {
+			restErr(c, http.StatusForbidden, "rest_cannot_switch_themes", "Sorry, you are not allowed to switch themes.")
+			return
+		}
+	}
 	data, err := restBase64(c, r, "package")
 	if err != nil {
 		restErr(c, http.StatusBadRequest, "rest_invalid_param", err.Error())
 		return
 	}
-	t, err := s.installThemePackage(c.Request.Context(), data)
+	t, err := s.installThemePackage(withExtActor(c.Request.Context(), restCurrent(c)), data)
+	if errors.Is(err, errThemeUpdateDenied) {
+		restErr(c, http.StatusForbidden, "rest_cannot_update_themes", err.Error())
+		return
+	}
 	if err != nil {
 		restErr(c, http.StatusBadRequest, "rest_theme_install_failed", err.Error())
 		return

@@ -126,3 +126,47 @@
 	<input type="hidden" name="woocommerce-order-tracking-nonce" value="{{.Nonce}}" />
 </form>
 {{end}}
+
+{{define "goo/form-lost-password"}}
+<form method="post" class="woocommerce-ResetPassword lost_reset_password" action="{{.Action}}">
+	<p>Lost your password? Please enter your username or email address. You will receive a link to create a new password via email.</p>
+	<p class="woocommerce-form-row woocommerce-form-row--first form-row form-row-first">
+		<label for="user_login">Username or email&nbsp;<span class="required" aria-hidden="true">*</span><span class="screen-reader-text">Required</span></label>
+		<input class="woocommerce-Input woocommerce-Input--text input-text" type="text" name="user_login" id="user_login" autocomplete="username" required aria-required="true" />
+	</p>
+	<div class="clear"></div>
+	{{if .Captcha}}<div class="form-row goo-captcha">{{html .Captcha}}</div>{{end}}
+	<p class="woocommerce-form-row form-row">
+		<input type="hidden" name="wc_reset_password" value="true" />
+		<button type="submit" class="woocommerce-Button button" value="Reset password">Reset password</button>
+	</p>
+	<input type="hidden" name="woocommerce-lost-password-nonce" value="{{.Nonce}}" />
+</form>
+{{end}}
+
+{{define "goo/lost-password-confirmation"}}
+<div class="woocommerce-message" role="alert">Password reset email has been sent.</div>
+<p>A password reset email has been sent to the email address on file for your account, but may take several minutes to show up in your inbox. Please wait at least 10 minutes before attempting another reset.</p>
+{{end}}
+
+{{define "goo/form-reset-password"}}
+<form method="post" class="woocommerce-ResetPassword lost_reset_password" action="{{.Action}}">
+	<p>Enter a new password below.</p>
+	<p class="woocommerce-form-row woocommerce-form-row--first form-row form-row-first">
+		<label for="password_1">New password&nbsp;<span class="required" aria-hidden="true">*</span><span class="screen-reader-text">Required</span></label>
+		<input type="password" class="woocommerce-Input woocommerce-Input--text input-text" name="password_1" id="password_1" autocomplete="new-password" required aria-required="true" />
+	</p>
+	<p class="woocommerce-form-row woocommerce-form-row--last form-row form-row-last">
+		<label for="password_2">Re-enter new password&nbsp;<span class="required" aria-hidden="true">*</span><span class="screen-reader-text">Required</span></label>
+		<input type="password" class="woocommerce-Input woocommerce-Input--text input-text" name="password_2" id="password_2" autocomplete="new-password" required aria-required="true" />
+	</p>
+	<input type="hidden" name="reset_key" value="{{.Key}}" />
+	<input type="hidden" name="reset_login" value="{{.Login}}" />
+	<div class="clear"></div>
+	<p class="woocommerce-form-row form-row">
+		<input type="hidden" name="wc_reset_password" value="true" />
+		<button type="submit" class="woocommerce-Button button" value="Save">Save</button>
+	</p>
+	<input type="hidden" name="woocommerce-reset-password-nonce" value="{{.Nonce}}" />
+</form>
+{{end}}

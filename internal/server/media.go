@@ -71,7 +71,9 @@ func (s *Server) imageEditorOptions(ctx context.Context, file, mime string) medi
 			out[k] = to
 		}
 	}
-	return media.Options{OutputFormat: out}
+	// Settings › Media "Remove location and camera data": on unless the site owner turned it off
+	// (PURSAE_KEEP_EXIF=1 keeps the metadata server-wide, see media.Options.KeepEXIF).
+	return media.Options{OutputFormat: out, KeepEXIF: !s.settings.Bool("pursae_strip_exif")}
 }
 
 // createImageSubsizes is wp_create_image_subsizes() for a new attachment: its dimensions, the

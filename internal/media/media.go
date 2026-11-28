@@ -348,6 +348,10 @@ type Options struct {
 	// main file would not be smaller than the upload: the conversion is dropped and the sizes are
 	// written in the upload's format (Media › Optimization).
 	OnlyIfSmaller bool
+	// KeepEXIF keeps a JPEG's EXIF/XMP metadata (GPS position, camera serial) in the stored
+	// original: Settings › Media "Remove location and camera data" turned off. PURSAE_KEEP_EXIF=1
+	// keeps it server-wide whatever this says.
+	KeepEXIF bool
 }
 
 // Focal is a focal point in fractions of the (upright) image: X 0 = left edge, 1 = right edge;
@@ -426,9 +430,12 @@ func ProcessImageWith(uploadsDir, relPath string, sizes []Size, opts Options) (*
 	if err != nil {
 		return nil, err
 	}
-	cfg, _, cerr := image.DecodeConfig(f)
+	cfg, cfmt, cerr := image.DecodeConfig(f)
 	if cerr == nil && int64(cfg.Width)*int64(cfg.Height) > MaxImagePixels {
 		f.Close()
+		if cfmt == "jpeg" {
+			stripJPEGFile(full, opts.KeepEXIF)
+		}
 		info := &ImageInfo{RelPath: relPath, Width: cfg.Width, Height: cfg.Height}
 		if st, serr := os.Stat(full); serr == nil {
 			info.FileSize = st.Size()
@@ -468,6 +475,7 @@ func ProcessImageWith(uploadsDir, relPath string, sizes []Size, opts Options) (*
 	// sizes and the stored dimensions follow what the browser shows.
 	rotated := false
 	if format == "jpeg" {
+		stripJPEGFile(full, opts.KeepEXIF) // no GPS or camera data in the original served to visitors
 		if rf, err := os.Open(full); err == nil {
 			if o := JPEGOrientation(rf); o > 1 {
 				img, rotated = Orient(img, o), true

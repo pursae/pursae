@@ -317,6 +317,17 @@ func (s *Server) gooStoreProductJSON(ctx context.Context, p *gooProduct, terms m
 	if p.Type == gooTypeVariation {
 		desc2 = p.Description
 	}
+	desc2, short = s.gmemStoreProductText(ctx, p, desc2, short) // Memberships "view" restriction
+	if parent := p.Post; p.Type == gooTypeVariation && p.ParentID != 0 {
+		if pp, err := s.gooGetProduct(ctx, p.ParentID); err == nil {
+			parent = pp.Post
+		}
+		if s.gooPassLocked(ctx, parent) {
+			desc2, short = "", ""
+		}
+	} else if s.gooPassLocked(ctx, parent) {
+		desc2, short = "", "" // a protected product's text stays behind its password, as on its page
+	}
 	return map[string]any{
 		"id": p.ID, "name": p.Name, "slug": p.Slug, "parent": p.ParentID, "type": p.Type, "variation": s.gooVariationSummary(ctx, p),
 		"permalink": s.gooPermalink(ctx, p), "sku": p.SKU, "short_description": short, "description": desc2,
@@ -482,7 +493,7 @@ func (s *Server) gooStoreRespond(c *gin.Context, status int, v any) {
 }
 
 func (s *Server) gooStoreProducts(c *gin.Context, req *restRequest) {
-	ctx := c.Request.Context()
+	ctx := withPluginUser(c.Request.Context(), currentUser(c)) // the viewer, for Memberships
 	q := s.gooStoreQuery(c)
 	if skus := c.Query("sku"); strings.Contains(skus, ",") {
 		q.SKU = ""
@@ -535,7 +546,7 @@ func (s *Server) gooRESTProductTerms(ctx context.Context, list []*gooProduct) ma
 }
 
 func (s *Server) gooStoreProduct(c *gin.Context, req *restRequest) {
-	ctx := c.Request.Context()
+	ctx := withPluginUser(c.Request.Context(), currentUser(c)) // the viewer, for Memberships
 	p, err := s.gooGetProduct(ctx, req.ID())
 	if err == nil && s.gooHiddenProduct(c, p.ID) { // Memberships "hide completely"
 		err = errNotFound

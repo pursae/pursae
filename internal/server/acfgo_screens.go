@@ -182,6 +182,11 @@ func (s *Server) acfgoSaveScreen(c *gin.Context, screen string) {
 	if !strings.Contains(c.ContentType(), "form") {
 		return
 	}
+	// The Backup Manager upload streams its multipart body itself (bmgrUpload); parsing it here
+	// would consume the body (and spool a multi-GB archive to disk) before the handler runs.
+	if screen == "admin" && c.Query("page") == bmgrSlug && c.Query("action") == "upload" {
+		return
+	}
 	_ = c.PostForm("_wpnonce") // parses the (multipart) form
 	in := acfgoParseForm(c.Request.PostForm, "acf")
 	if len(in) == 0 {

@@ -523,8 +523,10 @@ func (s *Server) renderMenuEditItem(c *gin.Context, r menuEditRow) template.HTML
 	return template.HTML(sb.String())
 }
 
-// Front end: resolve menu item URLs/labels and mark the current item (wp_nav_menu_objects).
-func (s *Server) resolveMenu(ctx context.Context, items []*store.MenuItem, lb *links.Builder, q *siteQuery) {
+// Front end: resolve menu item URLs/labels and mark the current item (wp_nav_menu_objects). It returns
+// the list without the items whose target is gone or not public (WordPress marks those _invalid and
+// skips them), so a draft, private, scheduled or trashed page's title and link never reach the menu.
+func (s *Server) resolveMenu(ctx context.Context, items []*store.MenuItem, lb *links.Builder, q *siteQuery) []*store.MenuItem {
 	// The menu's posts and terms in one query each.
 	var postIDs, termIDs []int64
 	var collect func(list []*store.MenuItem)
@@ -558,6 +560,24 @@ func (s *Server) resolveMenu(ctx context.Context, items []*store.MenuItem, lb *l
 	if err != nil {
 		terms = map[int64]*store.Term{}
 	}
+	// Menus are cached for every visitor, so only public targets count (no per-viewer exceptions).
+	var prune func(list []*store.MenuItem) []*store.MenuItem
+	prune = func(list []*store.MenuItem) []*store.MenuItem {
+		out := make([]*store.MenuItem, 0, len(list))
+		for _, it := range list {
+			if it.Kind == "post_type" {
+				cacheDep(ctx, "post:"+itoa64(it.TargetID)) // Pursae Cache: publishing it brings it back
+				p := posts[it.TargetID]
+				if p == nil || (p.Status != "publish" && !(p.Type == "attachment" && p.Status == "inherit")) {
+					continue
+				}
+			}
+			it.Children = prune(it.Children)
+			out = append(out, it)
+		}
+		return out
+	}
+	items = prune(items)
 	var walk func(list []*store.MenuItem) bool
 	walk = func(list []*store.MenuItem) bool {
 		any := false
@@ -603,6 +623,7 @@ func (s *Server) resolveMenu(ctx context.Context, items []*store.MenuItem, lb *l
 		return any
 	}
 	walk(items)
+	return items
 }
 
 // autoAddPage is _wp_auto_add_pages_to_menu(): a newly published top-level page joins menus with "auto add".

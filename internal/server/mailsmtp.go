@@ -22,6 +22,7 @@ import (
 	"time"
 
 	gomail "wpgo/internal/mail"
+	"wpgo/internal/netguard"
 )
 
 // WPGO Mail SMTP is the native clone of WP Mail SMTP (Lite + Pro): it reconfigures wp_mail() to
@@ -45,6 +46,12 @@ var msTestBase string
 // msHTTP is the client of the API mailers and the alert channels. It refuses private
 // addresses at connect time (and on redirects). Tests set msTestBase and may dial loopback.
 var msHTTP = publicClient(30*time.Second, func() bool { return msTestBase != "" }, "the address points at a private network")
+
+// msSMTPDialControl guards the admin-set "Other SMTP" host: every connection's resolved address
+// must be public, so the mailer cannot probe the server's internal network (DNS rebinding
+// included). A self-hosted MTA on loopback or the LAN needs PURSAE_ALLOW_PRIVATE_ENDPOINTS=1;
+// PURSAE_SMTP_HOST (the operator's env config, internal/mail Mailer) is not affected.
+var msSMTPDialControl = netguard.DialControl(func() bool { return privateEndpointsAllowed() || msTestBase != "" })
 
 // msWebhookURL accepts only http(s) webhook targets. A literal private address is refused
 // unless a test has pointed the providers at a local server (msTestBase).
@@ -643,7 +650,8 @@ func (s *Server) msSendVia(ctx context.Context, o *msOptions, conn *msConn, base
 			rcpt = append(rcpt, a.Address)
 		}
 		c := &gomail.SMTP{Host: opts["host"], Port: opts["port"], Encryption: opts["encryption"], AutoTLS: opts["autotls"] != "",
-			Auth: opts["auth"] != "", User: opts["user"], Pass: opts["pass"], LocalName: hostOf(s.settings.String("home")), Debug: debug}
+			Auth: opts["auth"] != "", User: opts["user"], Pass: opts["pass"], LocalName: hostOf(s.settings.String("home")), Debug: debug,
+			Control: msSMTPDialControl}
 		res.MessageID, res.Err = c.Send(ctx, envelope, rcpt, raw)
 		return res
 	}

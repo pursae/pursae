@@ -277,6 +277,7 @@ func (s *Server) gooWebhooksView(c *gin.Context, d *gooSettingsData) {
 			var created time.Time
 			if err := s.store.Pool.QueryRow(ctx, `SELECT id, name, status, topic, delivery_url, secret, created_at FROM goo_webhooks WHERE id = $1`, id).
 				Scan(&h.ID, &h.Name, &h.Status, &h.Topic, &h.URL, &h.Secret, &created); err == nil {
+				h.Secret = s.revealSecret(h.Secret) // stored sealed (secret_seal.go)
 				h.Created = created.In(s.loc()).Format("January 2, 2006 @ 3:04 pm")
 				if ev, ok := strings.CutPrefix(h.Topic, "action."); ok {
 					h.Topic, h.ActionEvent = "action", ev
@@ -371,9 +372,9 @@ func (s *Server) gooWebhooksPost(c *gin.Context) {
 		uid = u.ID
 	}
 	if id > 0 {
-		_, _ = s.store.Pool.Exec(ctx, `UPDATE goo_webhooks SET name=$2, status=$3, topic=$4, delivery_url=$5, secret=$6 WHERE id=$1`, id, name, status, topic, delivery, secret)
+		_, _ = s.store.Pool.Exec(ctx, `UPDATE goo_webhooks SET name=$2, status=$3, topic=$4, delivery_url=$5, secret=$6 WHERE id=$1`, id, name, status, topic, delivery, s.sealSecret(secret))
 	} else if err := s.store.Pool.QueryRow(ctx, `INSERT INTO goo_webhooks (name, status, topic, delivery_url, secret, user_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		name, status, topic, delivery, secret, uid).Scan(&id); err != nil {
+		name, status, topic, delivery, s.sealSecret(secret), uid).Scan(&id); err != nil {
 		gooRedirect(c, back, "", err.Error())
 		return
 	}

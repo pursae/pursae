@@ -63,6 +63,31 @@ var (
 
 const gooThrottledMsg = "Too many attempts. Please try again in a few minutes."
 
+// gooGuestCheckoutThrottles holds each server's per-IP limit on orders placed by guests (10 in 10
+// minutes): a guest checkout needs no account, so without it one client can flood the orders table
+// and the stock holds. Kept per server so one test's checkouts do not use up another's.
+var gooGuestCheckoutThrottles sync.Map // *Server -> *gooThrottle
+
+func (s *Server) gooGuestCheckoutThrottle() *gooThrottle {
+	if t, ok := gooGuestCheckoutThrottles.Load(s); ok {
+		return t.(*gooThrottle)
+	}
+	t, _ := gooGuestCheckoutThrottles.LoadOrStore(s, newGooThrottle(10, 10*time.Minute))
+	return t.(*gooThrottle)
+}
+
+// gooGiftCardThrottles is the per-IP limit on gift card codes that did not match (balance checks
+// and applying one), so codes cannot be enumerated.
+var gooGiftCardThrottles sync.Map // *Server -> *gooThrottle
+
+func (s *Server) gooGiftCardThrottle() *gooThrottle {
+	if t, ok := gooGiftCardThrottles.Load(s); ok {
+		return t.(*gooThrottle)
+	}
+	t, _ := gooGiftCardThrottles.LoadOrStore(s, newGooThrottle(10, 10*time.Minute))
+	return t.(*gooThrottle)
+}
+
 // gooApplyCouponLimited is cart.ApplyCoupon with a per-IP limit on failed attempts, so coupon codes
 // cannot be guessed (classic form, AJAX and Store API all come through here).
 func (s *Server) gooApplyCouponLimited(c *gin.Context, cart *gooCart, code string) error {

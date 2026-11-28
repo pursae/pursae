@@ -186,6 +186,10 @@ func registerQueryBlocks(s *Server) {
 		if p.Password != "" && (rc.c == nil || rc.s.passwordRequired(rc.c, p)) {
 			return ""
 		}
+		// Memberships: the inner post's own plans apply, as on its page (its the_content is bypassed).
+		if msg, hidden := rc.s.gmemNestedRestricted(ctx, rc.user, p.ID, false); hidden {
+			return `<div ` + wrapperClass(b, "entry-content") + `>` + msg + `</div>`
+		}
 		if !rc.enterNested() {
 			return ""
 		}
@@ -198,7 +202,7 @@ func registerQueryBlocks(s *Server) {
 			rc.depth--
 			delete(rc.seenPosts, p.ID)
 		}()
-		return `<div ` + wrapperClass(b, "entry-content") + `>` + blocks.Render(ctx, rc.s.cspTrustPostContent(ctx, p)) + `</div>`
+		return `<div ` + wrapperClass(b, "entry-content") + `>` + blocks.Render(ctx, rc.s.gmemNestedShortcodes(ctx, rc.user, rc.s.cspTrustPostContent(ctx, p))) + `</div>`
 	})
 	blocks.RegisterDynamic("core/read-more", func(ctx context.Context, b *blocks.Block, _ string) string {
 		rc, p := loopPost(ctx)

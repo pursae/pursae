@@ -746,9 +746,14 @@ func (q *hgQuery) relation(f *hgField, m map[string]any, expr string) (string, e
 			return "", err
 		}
 		visible := ""
-		if q.a != nil && !q.a.canUpload() {
-			// Like the media fields (hgMediaReadable): files of drafts and protected posts are not filterable.
-			visible = " AND (" + a + ".post_id IS NULL OR " + a + ".post_id IN (SELECT id FROM posts WHERE status = 'publish' AND coalesce(password, '') = ''))"
+		if q.a != nil && !q.a.fullAccess() {
+			// Like the media fields (hgMediaReadable): files of drafts and protected posts are not
+			// filterable, except a token's own uploads.
+			own := ""
+			if q.a.Kind == "token" && q.a.Token != nil {
+				own = " OR " + a + ".meta->>'" + hgUploadTokenMeta + "' = " + q.sql.arg(strconv.FormatInt(q.a.Token.ID, 10))
+			}
+			visible = " AND (" + a + ".post_id IS NULL OR " + a + ".post_id IN (SELECT id FROM posts WHERE status = 'publish' AND coalesce(password, '') = '')" + own + ")"
 		}
 		return "EXISTS (SELECT 1 FROM media " + a + " WHERE " + a + ".id IN (SELECT (" + ids + ")::bigint)" + visible + " AND " + inner + ")", nil
 	}

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"html"
 	"io"
 	"io/fs"
@@ -18,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"wpgo/internal/caps"
 	"wpgo/internal/store"
 )
 
@@ -628,5 +630,26 @@ func TestThemeInstallKeepsNewerStagedVersion(t *testing.T) {
 	}
 	if registered := s.themeFor("starter"); installed.Version != "1.2.0" || registered == nil || registered.Version != "1.2.0" {
 		t.Fatalf("older package replaced newer version: disk=%s registry=%+v", installed.Version, registered)
+	}
+}
+
+// Overwriting an installed theme needs update_themes, not only install_themes.
+func TestThemeUpdateNeedsUpdateThemes(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PURSAE_THEMES_DIR", dir)
+	ts, c, s := testServerBuilderOff(t)
+	installAndLogin(t, ts, c)
+	t.Cleanup(func() { unregisterTheme("starter") })
+	installer := &store.User{ID: 99, Login: "installer", Caps: caps.Grants{"install_themes": true}}
+	ctx := withExtActor(t.Context(), installer)
+	if _, err := s.installThemePackage(ctx, themeVersionArchive(t, "1.0.0")); err != nil {
+		t.Fatalf("fresh install: %v", err)
+	}
+	if _, err := s.installThemePackage(ctx, themeVersionArchive(t, "1.1.0")); !errors.Is(err, errThemeUpdateDenied) {
+		t.Fatalf("update without update_themes: %v", err)
+	}
+	installer.Caps["update_themes"] = true
+	if _, err := s.installThemePackage(ctx, themeVersionArchive(t, "1.1.0")); err != nil {
+		t.Fatalf("update with update_themes: %v", err)
 	}
 }

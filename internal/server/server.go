@@ -507,7 +507,8 @@ func (s *Server) securityHeaders() gin.HandlerFunc {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		p := c.Request.URL.Path
 		mode := s.cspMode()
-		if strings.HasPrefix(p, "/wp-admin") || strings.HasPrefix(p, "/wp-login") {
+		// Whole segments: /wp-adminx or /wp-loginfoo are site pages and keep the stricter site policy (#34).
+		if pathUnder(p, "/wp-admin") || p == "/wp-admin.php" || p == "/wp-login" || p == "/wp-login.php" {
 			// wp-admin's Backbone/underscore templates (media library, customizer, …) compile with new Function(),
 			// and the block editor previews uploads through blob: URLs.
 			h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; "+
@@ -605,7 +606,10 @@ func (s *Server) requireLogin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		u := currentUser(c)
 		if u == nil {
-			c.Redirect(http.StatusFound, s.loginPath()+"?redirect_to="+urlEscape(c.Request.URL.RequestURI())+"&reauth=1")
+			// "/wp-login", not loginPath(): the hide-login writer (asWriter.finalize) points it at the secret slug
+			// except on the wp-admin endpoints visitors may reach (admin-post, admin-ajax, install), which must not
+			// reveal it (#21).
+			c.Redirect(http.StatusFound, "/wp-login?redirect_to="+urlEscape(c.Request.URL.RequestURI())+"&reauth=1")
 			c.Abort()
 			return
 		}

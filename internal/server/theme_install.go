@@ -20,6 +20,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"wpgo/internal/store"
 )
 
 // Installing theme packages (docs/theme-package.md, "Packaging"): a zip of theme.json, templates/
@@ -260,6 +262,11 @@ func (s *Server) installThemePackageFrom(ctx context.Context, data []byte, sourc
 	event := "theme_install"
 	if current != nil {
 		event = "theme_update"
+		// Overwriting an installed theme is an update (WordPress: update_themes), not only an install.
+		if u, ok := ctx.Value(extActorCtx{}).(*store.User); ok && !u.Can("update_themes", nil) {
+			cleanup()
+			return nil, errThemeUpdateDenied
+		}
 	}
 	final := filepath.Join(dir, m.Slug)
 	old := ""
@@ -463,7 +470,7 @@ func (s *Server) themeInstall(c *gin.Context) {
 		}
 		data, _ := io.ReadAll(io.LimitReader(f, themeZipMaxBytes+1))
 		f.Close()
-		t, err := s.installThemePackage(c, data)
+		t, err := s.installThemePackage(withExtActor(c.Request.Context(), currentUser(c)), data)
 		if err != nil {
 			fail("Installation failed: " + err.Error())
 			return
@@ -638,7 +645,7 @@ func (s *Server) themeInstallAction(c *gin.Context) {
 	updated := false
 	if installed == nil || semverLess(installed.Version, lt.Manifest.Version) {
 		updated = installed != nil
-		t, err := s.installLibraryTheme(c, lt)
+		t, err := s.installLibraryTheme(withExtActor(c.Request.Context(), u), lt)
 		if err != nil {
 			fail("Installation failed: " + err.Error())
 			return

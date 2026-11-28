@@ -111,7 +111,7 @@ func (s *Server) forumOAuthDecode(raw string, now time.Time) (*forumOAuthState, 
 // forumOAuthSetCookie writes (or with value "" deletes) the flow cookie, scoped to /forum-auth/.
 func (s *Server) forumOAuthSetCookie(c *gin.Context, value string) {
 	ck := &http.Cookie{Name: forumOAuthCookie, Value: value, Path: forumAuthPrefix + "/", HttpOnly: true,
-		Secure: c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https", SameSite: http.SameSiteLaxMode, MaxAge: int(forumOAuthTTL.Seconds())}
+		Secure: s.requestHTTPS(c.Request), SameSite: http.SameSiteLaxMode, MaxAge: int(forumOAuthTTL.Seconds())}
 	if value == "" {
 		ck.MaxAge = -1
 	}

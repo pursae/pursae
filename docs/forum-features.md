@@ -122,6 +122,7 @@ While registration is closed, Google cannot create accounts.
   are refused.
 - **Blocking** takes `forum_participate` away (a per-user deny), so the member keeps the account but
   cannot post. Administrators cannot be blocked, and only an administrator can block a moderator.
+  Blocking a member, or changing their forum role, ends their open sessions (0.6.3+).
 - **Editing**: members edit their own posts within the edit window (30 minutes, 0 to turn it off,
   up to a week); moderators always can. Edited posts say so.
 

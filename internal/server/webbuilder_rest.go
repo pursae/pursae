@@ -1056,7 +1056,21 @@ func (s *Server) wbRESTLibrary(c *gin.Context, _ *restRequest) {
 	}
 	refs := s.wbUserRefs(c)
 	out := make([]wbLibraryJSON, 0, len(items))
+	privileged := map[int64]bool{}
 	for _, it := range items {
+		// A component saved by a user without unfiltered_html before form recipients were privileged
+		// may still name its own: they are not handed to whoever inserts it.
+		ok, seen := privileged[it.AuthorID]
+		if !seen {
+			au, err := s.store.UserByID(c, it.AuthorID)
+			ok = err == nil && au != nil && au.Can("unfiltered_html", nil)
+			privileged[it.AuthorID] = ok
+		}
+		if !ok {
+			cp := *it
+			cp.Data = webbuilder.StripFormRecipients(it.Data)
+			it = &cp
+		}
 		out = append(out, wbLibraryOut(it, refs))
 	}
 	c.Header("Cache-Control", "no-store")

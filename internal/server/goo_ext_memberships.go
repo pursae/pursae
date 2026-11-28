@@ -613,11 +613,94 @@ func (s *Server) gmemMessage(ctx context.Context, kind string, plans []*gooMembe
 }
 
 var (
-	gmemMembersOnlyRe = regexp.MustCompile(`(?s)\[goocommerce_members_only([^\]]*)\](.*?)\[/goocommerce_members_only\]`)
-	gmemNonMembersRe  = regexp.MustCompile(`(?s)\[goocommerce_non_members([^\]]*)\](.*?)\[/goocommerce_non_members\]`)
-	gmemDiscountRe    = regexp.MustCompile(`\[goocommerce_member_discount([^\]]*)\]`)
-	gmemPlansAttrRe   = regexp.MustCompile(`plans?\s*=\s*["']([^"']*)["']`)
+	gmemDiscountRe  = regexp.MustCompile(`\[goocommerce_member_discount([^\]]*)\]`)
+	gmemPlansAttrRe = regexp.MustCompile(`plans?\s*=\s*["']([^"']*)["']`)
 )
+
+// gmemReplaceEnclosing replaces each outermost [tag attrs]inner[/tag] with fn(attrs, inner). The
+// opening and closing tags are matched by depth, so a nested block does not close its parent early
+// and leave the parent's tail visible. An opening tag without a matching close fails closed: it and
+// everything after it are dropped (WordPress would print the tag as text, but here the text after it
+// is members-only).
+func gmemReplaceEnclosing(text, tag string, fn func(attrs, inner string) string) string {
+	open, closeTag := "["+tag, "[/"+tag+"]"
+	isOpen := func(i int) (attrsEnd int, ok bool) {
+		if !strings.HasPrefix(text[i:], open) {
+			return 0, false
+		}
+		j := i + len(open)
+		if j < len(text) && text[j] != ']' && text[j] != ' ' && text[j] != '\t' && text[j] != '\n' && text[j] != '\r' {
+			return 0, false // another tag sharing the prefix
+		}
+		end := strings.IndexByte(text[j:], ']')
+		if end < 0 {
+			return 0, false
+		}
+		return j + end, true
+	}
+	var b strings.Builder
+	i := 0
+	for i < len(text) {
+		k := strings.Index(text[i:], open)
+		if k < 0 {
+			b.WriteString(text[i:])
+			break
+		}
+		start := i + k
+		attrsEnd, ok := isOpen(start)
+		if !ok {
+			b.WriteString(text[i : start+len(open)])
+			i = start + len(open)
+			continue
+		}
+		b.WriteString(text[i:start])
+		depth, j, innerEnd := 1, attrsEnd+1, -1
+		for j < len(text) {
+			if strings.HasPrefix(text[j:], closeTag) {
+				depth--
+				if depth == 0 {
+					innerEnd = j
+					break
+				}
+				j += len(closeTag)
+				continue
+			}
+			if e, ok := isOpen(j); ok {
+				depth++
+				j = e + 1
+				continue
+			}
+			j++
+		}
+		if innerEnd < 0 {
+			return b.String() // unbalanced: fail closed
+		}
+		b.WriteString(fn(text[start+len(open):attrsEnd], text[attrsEnd+1:innerEnd]))
+		i = innerEnd + len(closeTag)
+	}
+	return b.String()
+}
+
+// gmemApplyShortcodes resolves [goocommerce_members_only] and [goocommerce_non_members] for u
+// (nested blocks included); member reports whether u belongs to the named plans.
+func gmemApplyShortcodes(text string, member func(attrs string) bool, manager bool) string {
+	var apply func(string) string
+	apply = func(t string) string {
+		t = gmemReplaceEnclosing(t, "goocommerce_members_only", func(attrs, inner string) string {
+			if manager || member(attrs) {
+				return apply(inner)
+			}
+			return ""
+		})
+		return gmemReplaceEnclosing(t, "goocommerce_non_members", func(attrs, inner string) string {
+			if member(attrs) {
+				return ""
+			}
+			return apply(inner)
+		})
+	}
+	return apply(text)
+}
 
 // gmemShortcodePlans are the plans named by a shortcode's plans="" attribute (nil = any plan).
 func (s *Server) gmemShortcodePlans(ctx context.Context, attrs string) []*gooMembershipPlan {
@@ -663,20 +746,9 @@ func gmemFilterContent(s *Server, ctx context.Context, content string) string {
 	}
 	u := gxaUser(ctx)
 	if strings.Contains(content, "[goocommerce_") {
-		content = gmemMembersOnlyRe.ReplaceAllStringFunc(content, func(m string) string {
-			sm := gmemMembersOnlyRe.FindStringSubmatch(m)
-			if s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, sm[1])) || gmemIsManager(u) {
-				return sm[2]
-			}
-			return ""
-		})
-		content = gmemNonMembersRe.ReplaceAllStringFunc(content, func(m string) string {
-			sm := gmemNonMembersRe.FindStringSubmatch(m)
-			if s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, sm[1])) {
-				return ""
-			}
-			return sm[2]
-		})
+		content = gmemApplyShortcodes(content, func(attrs string) bool {
+			return s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, attrs))
+		}, gmemIsManager(u))
 		content = gmemDiscountRe.ReplaceAllStringFunc(content, func(string) string { return s.gmemDiscountsHTML(ctx, u) })
 	}
 	var postID int64
@@ -698,8 +770,9 @@ func gmemStripShortcodes(text string) string {
 	if !strings.Contains(text, "[goocommerce_") {
 		return text
 	}
-	text = gmemMembersOnlyRe.ReplaceAllString(text, "")
-	text = gmemNonMembersRe.ReplaceAllString(text, "")
+	drop := func(string, string) string { return "" }
+	text = gmemReplaceEnclosing(text, "goocommerce_members_only", drop)
+	text = gmemReplaceEnclosing(text, "goocommerce_non_members", drop)
 	return gmemDiscountRe.ReplaceAllString(text, "")
 }
 
@@ -710,20 +783,9 @@ func (s *Server) gmemShortcodesFor(ctx context.Context, u *store.User, text stri
 	if !strings.Contains(text, "[goocommerce_") {
 		return text
 	}
-	text = gmemMembersOnlyRe.ReplaceAllStringFunc(text, func(m string) string {
-		sm := gmemMembersOnlyRe.FindStringSubmatch(m)
-		if gmemIsManager(u) || s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, sm[1])) {
-			return sm[2]
-		}
-		return ""
-	})
-	text = gmemNonMembersRe.ReplaceAllStringFunc(text, func(m string) string {
-		sm := gmemNonMembersRe.FindStringSubmatch(m)
-		if s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, sm[1])) {
-			return ""
-		}
-		return sm[2]
-	})
+	text = gmemApplyShortcodes(text, func(attrs string) bool {
+		return s.gmemIsMemberOf(ctx, u, s.gmemShortcodePlans(ctx, attrs))
+	}, gmemIsManager(u))
 	return gmemDiscountRe.ReplaceAllString(text, "")
 }
 
@@ -743,6 +805,81 @@ func (s *Server) gooRESTRestrict(ctx context.Context, u *store.User, p *store.Po
 	return gmemFilterContent(s, ctx, rendered), excerpt
 }
 
+// gmemListingExcerpt is the excerpt rule of gooRESTRestrict for listings that print an excerpt
+// without the_content (feeds, search results, the Latest Posts block): a non-member gets the
+// restriction message instead of the excerpt unless the plan shows excerpts. hidden is false when
+// the excerpt may be shown.
+func (s *Server) gmemListingExcerpt(ctx context.Context, u *store.User, postID int64) (msg string, hidden bool) {
+	if !s.gooOn() || !s.gooExtOn(gmemKey) || postID == 0 {
+		return "", false
+	}
+	plans := s.gmemPostPlans(ctx, postID)
+	ok, at := s.gmemPostAccess(ctx, u, postID, plans)
+	if ok || (s.gooExtBool(gmemKey, "show_excerpts") && at == nil) {
+		return "", false
+	}
+	// gmemRestrictedContent adds an excerpt itself when show_excerpts is on; here it is off (or the
+	// content is not yet dripped), so only the message is wanted.
+	return `<div class="woocommerce"><div class="woocommerce-info wc-memberships-restriction-message wc-memberships-message wc-memberships-content-restricted-message">` +
+		s.gmemMessage(ctx, "content", plans, u) + `</div></div>`, true
+}
+
+// gmemNestedRestricted is the check for a post rendered inside another (Latest Posts, the Query
+// Loop's Post Content, a synced pattern), which bypasses the_content of that post: an excerpt
+// follows gmemListingExcerpt, the full content is replaced for a non-member by the restriction
+// message, like on the post's own page.
+func (s *Server) gmemNestedRestricted(ctx context.Context, u *store.User, postID int64, excerpt bool) (string, bool) {
+	if excerpt {
+		return s.gmemListingExcerpt(ctx, u, postID)
+	}
+	if !s.gooOn() || !s.gooExtOn(gmemKey) || postID == 0 {
+		return "", false
+	}
+	plans := s.gmemPostPlans(ctx, postID)
+	if ok, at := s.gmemPostAccess(ctx, u, postID, plans); !ok {
+		return s.gmemRestrictedContent(ctx, postID, plans, u, at), true
+	}
+	return "", false
+}
+
+// gmemNestedShortcodes resolves the members shortcodes of a nested post's raw content for u.
+func (s *Server) gmemNestedShortcodes(ctx context.Context, u *store.User, content string) string {
+	if !s.gooOn() || !s.gooExtOn(gmemKey) {
+		return content
+	}
+	return s.gmemShortcodesFor(ctx, u, content)
+}
+
+// gmemStoreProductText is Memberships for the Store API's product description and short
+// description: a product the visitor may not view (its "view" plans, or plans restricting the post)
+// gets the restriction message instead of its description, and its short description only when the
+// plan shows excerpts, as on the product page. Allowed text has the members shortcodes resolved.
+func (s *Server) gmemStoreProductText(ctx context.Context, p *gooProduct, desc, short string) (string, string) {
+	if !s.gooOn() || !s.gooExtOn(gmemKey) || p == nil {
+		return desc, short
+	}
+	u := gxaUser(ctx)
+	prod := p
+	if p.Type == gooTypeVariation && p.ParentID != 0 {
+		if parent, err := s.gooGetProduct(ctx, p.ParentID); err == nil {
+			prod = parent
+		}
+	}
+	plans := s.gmemProductPlans(ctx, prod, "view")
+	plans = append(plans, s.gmemPostPlans(ctx, prod.ID)...)
+	if ok, at := s.gmemPostAccess(ctx, u, prod.ID, plans); !ok || at != nil {
+		msg := `<div class="woocommerce"><div class="woocommerce-info wc-memberships-restriction-message wc-memberships-message wc-memberships-product-viewing-restricted-message">` +
+			s.gmemMessage(ctx, "view", plans, u) + `</div></div>`
+		if !s.gooExtBool(gmemKey, "show_excerpts") {
+			short = ""
+		} else {
+			short = gmemStripShortcodes(short)
+		}
+		return msg, short
+	}
+	return s.gmemShortcodesFor(ctx, u, desc), s.gmemShortcodesFor(ctx, u, short)
+}
+
 // gmemRestrictsPost reports whether Memberships hides a post's content from the current visitor.
 // Paths that bypass the_content (the Web Builder snapshot) use it to fall back to the theme, whose
 // content filter shows the restriction message.
@@ -758,7 +895,13 @@ func (s *Server) gmemRestrictsPost(c *gin.Context, postID int64) bool {
 // gmemHidesComments reports whether Memberships hides a post's comments from u: they belong to the
 // restricted content, so a non-member sees them nowhere (comment lists, feeds, the REST API).
 func (s *Server) gmemHidesComments(ctx context.Context, u *store.User, postID int64) bool {
-	if !s.gooOn() || !s.gooExtOn(gmemKey) || gmemIsManager(u) {
+	return s.gmemHidesPost(ctx, u, postID)
+}
+
+// gmemHidesPost reports whether Memberships keeps a post's content from u. Everything that is part
+// of the content (its custom fields, footnotes, linked-post bodies, comments) follows the same rule.
+func (s *Server) gmemHidesPost(ctx context.Context, u *store.User, postID int64) bool {
+	if postID == 0 || !s.gooOn() || !s.gooExtOn(gmemKey) || gmemIsManager(u) {
 		return false
 	}
 	ok, _ := s.gmemPostAccess(ctx, u, postID, s.gmemPostPlans(ctx, postID))
@@ -794,7 +937,7 @@ func (s *Server) gmemRestrictedContent(ctx context.Context, postID int64, plans 
 		if p, err := s.store.GetPost(ctx, postID); err == nil {
 			ex := strings.TrimSpace(p.Excerpt)
 			if ex == "" {
-				words := strings.Fields(gxaStripTags(p.Content))
+				words := strings.Fields(gxaStripTags(gmemStripShortcodes(p.Content))) // members-only blocks are not excerpted
 				if len(words) > 55 {
 					words = append(words[:55], "&hellip;")
 				}

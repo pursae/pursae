@@ -168,3 +168,31 @@ func (m *Manager) BeginAppPasswordAttempt(ctx context.Context, ip, login string,
 	}
 	return id, false, nil
 }
+
+// ResetBucket prefixes the ip and login columns of password reset requests stored in login_attempts:
+// their own bucket, never counted as sign-ins (they are stored as completed successes, and no sign-in
+// network or login carries the prefix). The scheduler purges them with the other attempts.
+const ResetBucket = "password-reset "
+
+// AllowResetRequest counts a password reset request for login from ip and reports whether it is within
+// max per window, both per client network and per account. Like BeginLogin, the request is stored first
+// and the counts include it, so parallel requests (or several processes) cannot all pass; a refused
+// request is removed again so it does not extend the block.
+func (m *Manager) AllowResetRequest(ctx context.Context, ip, login string, max int, window time.Duration) (bool, error) {
+	net, acct := ResetBucket+ClientNet(ip), ResetBucket+strings.ToLower(strings.TrimSpace(login))
+	var id int64
+	if err := m.pool.QueryRow(ctx, `INSERT INTO login_attempts(ip, login, success, pending) VALUES ($1,$2,true,false) RETURNING id`, net, acct).Scan(&id); err != nil {
+		return false, err
+	}
+	var byNet, byAcct int
+	if err := m.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE ip = $1), count(*) FILTER (WHERE login = $2)
+		FROM login_attempts WHERE starts_with(ip, $3) AND (ip = $1 OR login = $2) AND attempted_at > now() - $4::interval`,
+		net, acct, ResetBucket, interval(window)).Scan(&byNet, &byAcct); err != nil {
+		return false, err
+	}
+	if byNet > max || byAcct > max {
+		_, _ = m.pool.Exec(ctx, `DELETE FROM login_attempts WHERE id = $1`, id)
+		return false, nil
+	}
+	return true, nil
+}

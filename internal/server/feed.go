@@ -136,9 +136,17 @@ func (s *Server) feedContent(ctx context.Context, c *gin.Context, p *store.Post,
 	return s.seogoFeedContent(ctx, p, s.theContent(ctx, c, p, true, lb)) // Pursae SEO RSS before/after
 }
 
-func (s *Server) feedExcerpt(p *store.Post) string {
+func (s *Server) feedExcerpt(ctx context.Context, c *gin.Context, p *store.Post) string {
 	if p.Password != "" {
 		return "There is no excerpt because this is a protected post."
+	}
+	// Memberships: a restricted post's excerpt follows the plan's show_excerpts like its page.
+	var u *store.User
+	if c != nil {
+		u = currentUser(c)
+	}
+	if msg, hidden := s.gmemListingExcerpt(ctx, u, p.ID); hidden {
+		return msg
 	}
 	if p.Excerpt != "" {
 		return wp.KsesPost(p.Excerpt) // stored excerpts may predate save-time filtering
@@ -187,9 +195,9 @@ func (s *Server) rssFeed(ctx context.Context, c *gin.Context, q *siteQuery, lb *
 		}
 		fmt.Fprintf(&sb, "\t\t<guid isPermaLink=\"false\">%s</guid>\n", html.EscapeString(lb.HomeURL("/?p="+itoa64(p.ID))))
 		if s.settings.Bool("rss_use_excerpt") {
-			fmt.Fprintf(&sb, "\t\t<description>%s</description>\n", cdata(s.feedExcerpt(p)))
+			fmt.Fprintf(&sb, "\t\t<description>%s</description>\n", cdata(s.feedExcerpt(ctx, c, p)))
 		} else {
-			fmt.Fprintf(&sb, "\t\t<description>%s</description>\n\t\t<content:encoded>%s</content:encoded>\n", cdata(s.feedExcerpt(p)), cdata(s.feedContent(ctx, c, p, lb)))
+			fmt.Fprintf(&sb, "\t\t<description>%s</description>\n\t\t<content:encoded>%s</content:encoded>\n", cdata(s.feedExcerpt(ctx, c, p)), cdata(s.feedContent(ctx, c, p, lb)))
 		}
 		if p.CommentCount > 0 || s.commentsOpen(p) {
 			hash := "#respond"
@@ -251,7 +259,7 @@ func (s *Server) atomFeed(ctx context.Context, c *gin.Context, q *siteQuery, lb 
 		for _, t := range append(cats, tags...) {
 			fmt.Fprintf(&sb, "\t\t<category scheme=\"%s\" term=\"%s\" />\n", html.EscapeString(home), html.EscapeString(t.Name))
 		}
-		fmt.Fprintf(&sb, "\t\t<summary type=\"html\">%s</summary>\n", cdata(s.feedExcerpt(p)))
+		fmt.Fprintf(&sb, "\t\t<summary type=\"html\">%s</summary>\n", cdata(s.feedExcerpt(ctx, c, p)))
 		if !s.settings.Bool("rss_use_excerpt") && p.Password == "" {
 			fmt.Fprintf(&sb, "\t\t<content type=\"html\" xml:base=\"%s\">%s</content>\n", html.EscapeString(link), cdata(s.feedContent(ctx, c, p, lb)))
 		}

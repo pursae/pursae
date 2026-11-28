@@ -29,6 +29,8 @@ var processStateForgets = []processStateForget{
 	syncMapForget("acfgoBlockCaches", &acfgoBlockCaches),
 	syncMapForget("acfgoCaches", &acfgoCaches),
 	syncMapForget("fwLimiters", &fwLimiters),
+	syncMapForget("gooGiftCardThrottles", &gooGiftCardThrottles),
+	syncMapForget("gooGuestCheckoutThrottles", &gooGuestCheckoutThrottles),
 	syncMapForget("gocdnRuntimes", &gocdnRuntimes),
 	syncMapForget("hgBrokers", &hgBrokers),
 	syncMapForget("hgEngines", &hgEngines),

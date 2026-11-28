@@ -136,7 +136,9 @@ function LoopFields({ b, save }: FieldsProps) {
     setTitles(null)
     const type = q.postType || 'post'
     const route = type === 'post' ? '/wp/v2/posts' : type === 'page' ? '/wp/v2/pages' : `/wp/v2/${type}`
-    const query: Record<string, string> = { per_page: q.perPage || '6', orderby: q.orderBy === 'menu_order' ? 'menu_order' : q.orderBy === 'title' ? 'title' : q.orderBy === 'modified' ? 'modified' : 'date', order: q.order || 'desc', _fields: 'id,title' }
+    // The REST API answers 400 outside 1..100 (like WordPress); the preview only needs a sample.
+    const n = parseInt(q.perPage || '', 10)
+    const query: Record<string, string> = { per_page: String(n >= 1 ? Math.min(n, 100) : 6), orderby: q.orderBy === 'menu_order' ? 'menu_order' : q.orderBy === 'title' ? 'title' : q.orderBy === 'modified' ? 'modified' : 'date', order: q.order || 'desc', _fields: 'id,title' }
     if (q.offset) query.offset = q.offset
     if (q.parent) query.parent = q.parent
     host.rest

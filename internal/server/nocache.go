@@ -19,15 +19,18 @@ const noStoreCacheControl = "no-store, private"
 // (loadUser) and the REST credentials (restAuthUser) are known.
 type noStoreWriter struct {
 	gin.ResponseWriter
-	c     *gin.Context
-	admin bool // a wp-admin or wp-login path
-	done  bool
+	c      *gin.Context
+	admin  bool // a wp-admin or wp-login path
+	static bool // a static asset file (fwStaticRequest) under the asset trees
+	done   bool
 }
 
 func newNoStoreWriter(c *gin.Context) *noStoreWriter {
 	p := c.Request.URL.Path
 	admin := p == "/wp-admin" || strings.HasPrefix(p, "/wp-admin/") || p == "/wp-login" || strings.HasPrefix(p, "/wp-login.")
-	return &noStoreWriter{ResponseWriter: c.Writer, c: c, admin: admin}
+	static := fwStaticRequest(c.Request) && (strings.HasPrefix(p, "/wp-content/") || strings.HasPrefix(p, "/wp-includes/") ||
+		strings.HasPrefix(p, "/assets/") || strings.HasPrefix(p, "/wp-admin/css/") || strings.HasPrefix(p, "/wp-admin/js/") || strings.HasPrefix(p, "/wp-admin/images/"))
+	return &noStoreWriter{ResponseWriter: c.Writer, c: c, admin: admin && !static, static: static}
 }
 
 func (w *noStoreWriter) apply() {
@@ -38,6 +41,9 @@ func (w *noStoreWriter) apply() {
 	h := w.ResponseWriter.Header()
 	if h.Get("Cache-Control") != "" {
 		return
+	}
+	if w.static {
+		return // the same file for everybody: a signed-in visitor's browser may cache it like anyone's (B9)
 	}
 	if w.admin || currentUser(w.c) != nil || restCurrent(w.c) != nil {
 		h.Set("Cache-Control", noStoreCacheControl)

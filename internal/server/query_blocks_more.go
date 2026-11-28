@@ -175,7 +175,7 @@ func registerMoreQueryBlocks(s *Server) {
 			return ""
 		}
 		prev := attrStr(b, "type", "next") == "previous"
-		adj, err := rc.s.store.Adjacent(ctx, p, prev)
+		adj, err := rc.s.gooAdjacent(ctx, p, prev) // Memberships "hide completely": hidden posts are skipped
 		if err != nil || adj == nil {
 			return ""
 		}
@@ -584,7 +584,7 @@ func renderNavigationBlock(ctx context.Context, b *blocks.Block, _ string) strin
 			menu, _ = rc.s.store.MenuAt(ctx, "primary")
 		}
 		if len(menu) > 0 {
-			rc.s.resolveMenu(ctx, menu, rc.lb, rc.q)
+			menu = rc.s.resolveMenu(ctx, menu, rc.lb, rc.q)
 			items = tt5NavItems(menu)
 		} else {
 			items = tt5PageListItems(renderPageListBlock(ctx, pageListFallbackBlock(), ""))

@@ -121,6 +121,12 @@ func (s *Server) gontactFormsScreen(c *gin.Context) {
 			c.String(http.StatusNotFound, "You attempted to edit an item that does not exist. Perhaps it was deleted?")
 			return
 		}
+		// The editor shows the form's mail and webhook settings (webhook_secret among them): it needs the
+		// capability that saving needs, like CF7's wpcf7_edit_contact_form (publish_pages).
+		if !u.Can("publish_pages", nil) {
+			c.String(http.StatusForbidden, "You are not allowed to edit this item.")
+			return
+		}
 		s.gontactEditor(c, f, false)
 		return
 	}

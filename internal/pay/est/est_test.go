@@ -445,3 +445,17 @@ func TestXMLEscaping(t *testing.T) {
 		t.Fatal("parsed garbage")
 	}
 }
+
+// A decimal CAPTURE_AMT is compared in minor units, not skipped; an unreadable one fails closed.
+func TestCaptureAmountDecimal(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want int64
+		ok   bool
+	}{{"", 0, false}, {"10050", 10050, true}, {"100.50", 10050, true}, {"100,50", 10050, true}, {"1.005", -1, true}, {"abc", -1, true}} {
+		got, ok := captureAmount(&response{Extra: map[string]string{"CAPTURE_AMT": c.in}}, "TRY")
+		if got != c.want || ok != c.ok {
+			t.Errorf("captureAmount(%q) = %d, %v; want %d, %v", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}

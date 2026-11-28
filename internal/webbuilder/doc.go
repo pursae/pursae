@@ -240,13 +240,14 @@ type normalizer struct {
 
 // storedParts are the privileged parts of the stored docs by section id.
 type storedParts struct {
-	priv map[string]map[string]any // html and code sections
-	html map[string]string         // content.html of other sections
-	css  map[string]string         // style.css
+	priv map[string]map[string]any    // html and code sections
+	html map[string]string            // content.html of other sections
+	css  map[string]string            // style.css
+	rcpt map[string]map[string]string // a form's recipients (FormRecipientKeys)
 }
 
 func newStoredParts(docs []json.RawMessage) *storedParts {
-	sp := &storedParts{priv: map[string]map[string]any{}, html: map[string]string{}, css: map[string]string{}}
+	sp := &storedParts{priv: map[string]map[string]any{}, html: map[string]string{}, css: map[string]string{}, rcpt: map[string]map[string]string{}}
 	seen := map[string]bool{}
 	var walk func(s map[string]any)
 	walk = func(s map[string]any) {
@@ -260,6 +261,14 @@ func newStoredParts(docs []json.RawMessage) *storedParts {
 			if c, ok := s["content"].(map[string]any); ok {
 				if h, ok := c["html"].(string); ok {
 					sp.html[id] = h
+				}
+				for _, k := range FormRecipientKeys {
+					if v, ok := c[k].(string); ok && v != "" {
+						if sp.rcpt[id] == nil {
+							sp.rcpt[id] = map[string]string{}
+						}
+						sp.rcpt[id][k] = v
+					}
 				}
 			}
 			if st, ok := s["style"].(map[string]any); ok {
@@ -405,6 +414,7 @@ func (n *normalizer) section(s map[string]any) bool {
 		}
 	}
 	if !n.opts.UnfilteredHTML {
+		n.keepRecipients(s, id)
 		if h, ok := n.storedHTML(id); ok { // the stored content.html stays
 			content, _ := s["content"].(map[string]any)
 			if content == nil {
@@ -464,6 +474,83 @@ func (n *normalizer) storedHTML(id string) (string, bool) {
 	}
 	h, ok := n.stored.html[id]
 	return h, ok
+}
+
+// FormRecipientKeys are the section content keys naming where a form's submissions are mailed.
+// They are privileged like content.html: an author could otherwise route a form to themselves
+// through a page or a library component that an administrator later publishes, so without
+// UnfilteredHTML the stored values (by section id) stay and new ones are dropped.
+var FormRecipientKeys = []string{FormKeyTo, FormKeyCc}
+
+// StrippedRecipients names form recipients removed from a save (FormRecipientKeys).
+const StrippedRecipients = "form-recipients"
+
+// keepRecipients puts the stored recipients of section id back into s (none when nothing is stored).
+func (n *normalizer) keepRecipients(s map[string]any, id string) {
+	content, _ := s["content"].(map[string]any)
+	var kept map[string]string
+	if n.stored != nil && id != "" {
+		kept = n.stored.rcpt[id]
+	}
+	for _, k := range FormRecipientKeys {
+		str, _ := content[k].(string)
+		if str != kept[k] && strings.TrimSpace(str) != "" {
+			n.strip(StrippedRecipients)
+		}
+		if content != nil {
+			delete(content, k)
+		}
+		if kept[k] != "" {
+			if content == nil {
+				content = map[string]any{}
+				s["content"] = content
+			}
+			content[k] = kept[k] // plain text: not markup that would make the snapshot privileged (n.kept)
+		}
+	}
+}
+
+// StripFormRecipients removes FormRecipientKeys from every section of a stored section or doc
+// (a library component saved before recipients were privileged).
+func StripFormRecipients(raw json.RawMessage) json.RawMessage {
+	var root map[string]any
+	if json.Unmarshal(raw, &root) != nil {
+		return raw
+	}
+	changed := false
+	var walk func(s map[string]any)
+	walk = func(s map[string]any) {
+		if c, ok := s["content"].(map[string]any); ok {
+			for _, k := range FormRecipientKeys {
+				if _, ok := c[k]; ok {
+					delete(c, k)
+					changed = true
+				}
+			}
+		}
+		items, _ := s["items"].([]any)
+		for _, it := range items {
+			if im, ok := it.(map[string]any); ok {
+				if sub, ok := im["sub"].(map[string]any); ok {
+					walk(sub)
+				}
+			}
+		}
+	}
+	if list, ok := root["sections"].([]any); ok {
+		for _, s := range list {
+			if sm, ok := s.(map[string]any); ok {
+				walk(sm)
+			}
+		}
+	} else {
+		walk(root)
+	}
+	if !changed {
+		return raw
+	}
+	out, _ := json.Marshal(root)
+	return out
 }
 
 // storedCSS is the stored style.css of the section id.

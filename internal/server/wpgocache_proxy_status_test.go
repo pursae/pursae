@@ -12,6 +12,8 @@ import (
 )
 
 func TestCLICachePurgeReportsProxyFailure(t *testing.T) {
+	// The test proxy listens on 127.0.0.1: a private purge target needs the operator switch.
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
 	ts, client, srv := newTestServer(t, false)
 	installAndLogin(t, ts, client)
 	cfg := srv.cfg
@@ -62,6 +64,8 @@ func TestCLICachePurgeReportsProxyFailure(t *testing.T) {
 }
 
 func TestCLICacheURLPurgeAcceptsUncachedPage(t *testing.T) {
+	// The test proxy listens on 127.0.0.1: a private purge target needs the operator switch.
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
 	ts, client, srv := newTestServer(t, false)
 	installAndLogin(t, ts, client)
 	cfg := srv.cfg

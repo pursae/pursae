@@ -327,12 +327,21 @@ const secretMask = "********"
 
 var secretKey = regexp.MustCompile(`(?i)(pass(word)?|secret|token|api[_-]?key|access[_-]?key|private|license|client[_-]?id|signing|webhook|smtp_auth|key$)`)
 
+// secretURLKey names the URL fields of a secret-looking object (a webhook's urls).
+var secretURLKey = regexp.MustCompile(`(?i)^(urls?|endpoints?)$`)
+
 // maskSecrets replaces non-empty string values whose key looks secret.
 func maskSecrets(v any, key string) any {
 	switch t := v.(type) {
 	case map[string]any:
+		secretParent := key != "" && secretKey.MatchString(key)
 		for k, x := range t {
-			t[k] = maskSecrets(x, k)
+			ck := k
+			if secretParent && secretURLKey.MatchString(k) {
+				// The URL of a webhook (alert_slack_webhook.urls, …) is its credential: whoever has it can post.
+				ck = key
+			}
+			t[k] = maskSecrets(x, ck)
 		}
 		return t
 	case []any:
@@ -357,11 +366,29 @@ func dropMasked(v any) any {
 				delete(t, k)
 				continue
 			}
+			if allMasked(x) { // a masked list (webhook urls) sent back unchanged
+				delete(t, k)
+				continue
+			}
 			t[k] = dropMasked(x)
 		}
 		return t
 	}
 	return v
+}
+
+// allMasked reports whether v is a non-empty list of masks only.
+func allMasked(v any) bool {
+	l, ok := v.([]any)
+	if !ok || len(l) == 0 {
+		return false
+	}
+	for _, x := range l {
+		if xs, _ := x.(string); xs != secretMask {
+			return false
+		}
+	}
+	return true
 }
 
 // --- Pursae SEO redirects --------------------------------------------------------------------

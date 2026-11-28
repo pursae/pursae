@@ -271,6 +271,12 @@ func (s *Server) saveUser(c *gin.Context, target *store.User) {
 		c.Redirect(http.StatusFound, back)
 		return
 	}
+	// At the Pursae Security gate (forced password change) the profile screen is open only to fix the
+	// password: a new Application Password would keep API access without ever meeting the requirement.
+	if _, ok := c.GetPostForm("do_new_application_password"); ok && s.adminsecBlocked(c, u) != "" {
+		c.String(http.StatusForbidden, "Change your password before creating application passwords.")
+		return
+	}
 	if _, ok := c.GetPostForm("do_new_application_password"); ok || c.PostForm("revoke_application_password") != "" || c.PostForm("revoke_all_application_passwords") != "" {
 		s.appPasswordsForm(c, target, back)
 		return
@@ -389,6 +395,7 @@ func (s *Server) saveUser(c *gin.Context, target *store.User) {
 			}
 		}
 	}
+	access := s.userAccessKey(c, target.ID)
 	if !self && u.Can("promote_users", nil) {
 		if primary, ok := c.GetPostForm("role"); ok {
 			before := strings.Join(target.Roles, ",")
@@ -410,6 +417,7 @@ func (s *Server) saveUser(c *gin.Context, target *store.User) {
 		}
 		_ = s.store.SetUserCapExceptions(c, target.ID, exc)
 	}
+	s.endSessionsAfterAccessChange(c, c, target.ID, access)
 	s.purgeAll(c) // names and avatars appear in bylines and comment lists across the site
 	c.Redirect(http.StatusFound, back)
 }

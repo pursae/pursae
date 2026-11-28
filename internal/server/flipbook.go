@@ -378,9 +378,25 @@ func (s *Server) flipbookContent(ctx context.Context, content string) string {
 		if !ok || b.PDFURL == "" {
 			return "<!-- pursae_flipbook: no flipbook with id " + html.EscapeString(strconv.Itoa(id)) + " -->"
 		}
-		// Shown to a visitor: the shortcode is published, so the book's own page opens to everyone.
-		if rc := renderFrom(ctx); !b.Published && rc != nil && rc.c != nil && rc.user == nil {
-			s.flipbookPublish(ctx, id)
+		// An unpublished book shows only where its owner (or an editor) put it: the author of the
+		// post that embeds it, or the logged-in user previewing it, must be able to edit the book.
+		// Otherwise any author could publish another user's draft book by embedding its id.
+		if !b.Published {
+			rc := renderFrom(ctx)
+			var author *store.User
+			if rc != nil && rc.postID > 0 {
+				if p, err := s.store.GetPost(ctx, rc.postID); err == nil && p.AuthorID > 0 {
+					author, _ = s.store.UserByID(ctx, p.AuthorID)
+				}
+			}
+			authorCan := author != nil && flipbookCan(author, b, "edit_others_posts")
+			if !authorCan && (rc == nil || rc.user == nil || !flipbookCan(rc.user, b, "edit_others_posts")) {
+				return "<!-- pursae_flipbook: flipbook " + html.EscapeString(strconv.Itoa(id)) + " is not published -->"
+			}
+			// Shown to a visitor: the shortcode is published, so the book's own page opens to everyone.
+			if authorCan && rc != nil && rc.c != nil && rc.user == nil {
+				s.flipbookPublish(ctx, id)
+			}
 		}
 		if h, err := strconv.Atoi(attrs["height"]); err == nil && h >= 240 && h <= 2000 {
 			b.Height = h

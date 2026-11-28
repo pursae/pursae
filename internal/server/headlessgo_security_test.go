@@ -376,7 +376,7 @@ func TestHeadlessGoRelationsNoProtectedPostOrMediaLeak(t *testing.T) {
 	asCreateUser(t, srv, "mallory", "subscriber", "mallory-secret-pw")
 	st := srv.hgLoad()
 	st.UserAuth = true
-	st.Authenticated = map[string][]string{"article": {"find", "findOne", "create"}}
+	st.Authenticated = map[string][]string{"article": {"find", "findOne", "create", "update"}} // update: ?status=published needs it
 	st.Public = map[string][]string{"article": {"find", "findOne"}}
 	_ = srv.hgSaveSettings(ctx, st)
 	full := hgNewToken(t, srv, &hgToken{Name: "Full", Kind: "full-access"})

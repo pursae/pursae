@@ -509,6 +509,21 @@ func TestForumFrontPosting(t *testing.T) {
 	if code, _, loc := post(t, ozan, fx.url("u", "mara"), url.Values{"forum_action": {"block"}, "_wpnonce": {bnonce}}); code != http.StatusFound || !strings.Contains(loc, "forum_msg=blocked") {
 		t.Errorf("block: %d %s", code, loc)
 	}
+	// Blocking ended Mara's sessions; she signs in again.
+	var maraSessions int
+	_ = srv.store.Pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1`, maraID).Scan(&maraSessions)
+	if maraSessions != 0 {
+		t.Errorf("blocked member keeps %d sessions", maraSessions)
+	}
+	if code, _, _ := post(t, mara, fx.base+"/wp-login", url.Values{"log": {"mara"}, "pwd": {"member password 1"}}); code != http.StatusFound {
+		t.Fatalf("mara signs in again: %d", code)
+	}
+	_, body, _ = get(t, mara, fx.base+"/forums/account/")
+	if m := regexp.MustCompile(`name="_wpnonce" value="([^"]+)"`).FindStringSubmatch(body); m != nil {
+		nonce = m[1]
+	} else {
+		t.Fatal("no forum nonce on the account page")
+	}
 	if code, body, _ := post(t, mara, topic.URL, url.Values{"forum_action": {"reply"}, "_wpnonce": {nonce}, "content": {"Am I blocked?"}}); code != http.StatusForbidden || !strings.Contains(body, "cannot post") {
 		t.Errorf("blocked member posts: %d", code)
 	}
@@ -532,8 +547,25 @@ func TestForumFrontPosting(t *testing.T) {
 	if code, _, _ := post(t, fx.admin, fx.url("u", "mara"), url.Values{"forum_action": {"unblock"}, "_wpnonce": {anonce}}); code != http.StatusFound {
 		t.Errorf("unblock: %d", code)
 	}
-	if code, _, _ := post(t, mara, topic.URL, url.Values{"forum_action": {"reply"}, "_wpnonce": {nonce}, "content": {"Back again"}}); code != http.StatusFound {
-		t.Errorf("unblocked member posts: %d", code)
+	// Unblocking is an access change too: Mara's sessions end, and after signing in she posts again.
+	_ = srv.store.Pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1`, maraID).Scan(&maraSessions)
+	if maraSessions != 0 {
+		t.Errorf("unblocked member keeps %d sessions", maraSessions)
+	}
+	if code, _, _ := post(t, mara, fx.base+"/wp-login", url.Values{"log": {"mara"}, "pwd": {"member password 1"}}); code != http.StatusFound {
+		t.Fatalf("mara signs in after the unblock: %d", code)
+	}
+	_, body, _ = get(t, mara, fx.base+"/forums/account/")
+	if m := regexp.MustCompile(`name="_wpnonce" value="([^"]+)"`).FindStringSubmatch(body); m != nil {
+		nonce = m[1]
+	} else {
+		t.Fatal("no forum nonce on the account page after the unblock")
+	}
+	if code, _, loc := post(t, mara, topic.URL, url.Values{"forum_action": {"reply"}, "_wpnonce": {nonce}, "content": {"Back again"}}); code != http.StatusFound || strings.Contains(loc, "wp-login") {
+		t.Errorf("unblocked member posts: %d %s", code, loc)
+	}
+	if _, body, _ := get(t, fx.anon, topic.URL); !strings.Contains(body, "Back again") {
+		t.Error("the unblocked member's reply is not on the topic")
 	}
 
 	// First-post moderation: the topic is pending, hidden from visitors, visible to its author, and

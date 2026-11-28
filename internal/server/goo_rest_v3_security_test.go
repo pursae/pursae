@@ -82,3 +82,22 @@ func TestGooV3CustomerEmailNeedsCredentialCheck(t *testing.T) {
 		t.Errorf("administrator email change: %d %s", r.Code, r.Raw)
 	}
 }
+
+// A batch delete needs the resource's delete capability, not only the write one.
+func TestGooV3BatchDeleteNeedsDeleteCap(t *testing.T) {
+	base, _, srv := gooSite(t)
+	ctx := context.Background()
+	mgr := asCreateUser(t, srv, "mgr2", "shop_manager", asStrongPass)
+	if err := srv.store.SetUserCapExceptions(ctx, mgr, map[string]string{"edit_users": "allow", "list_users": "allow", "delete_users": "deny"}); err != nil {
+		t.Fatal(err)
+	}
+	cust := asCreateUser(t, srv, "victim", "customer", asStrongPass)
+	ck, cs, _, _ := srv.gooRESTNewKey(ctx, mgr, "Mgr", "read_write")
+	r := gooReq(t, &http.Client{}, "POST", base+"/wp-json/wc/v3/customers/batch", map[string]any{"delete": []any{cust}}, gooBasic(ck, cs))
+	if r.Code != http.StatusOK || !strings.Contains(r.Raw, "woocommerce_rest_cannot_delete") {
+		t.Errorf("batch delete without delete_users: %d %s", r.Code, r.Raw)
+	}
+	if u, _ := srv.store.UserByID(ctx, cust); u == nil {
+		t.Fatal("customer was deleted")
+	}
+}

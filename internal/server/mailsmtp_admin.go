@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"html/template"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	gomail "wpgo/internal/mail"
+	"wpgo/internal/netguard"
 )
 
 // Admin screens of WPGO Mail SMTP: Settings (General, Email Log, Alerts, Additional Connections,
@@ -1047,7 +1049,16 @@ func (s *Server) msTest(ctx context.Context, o *msOptions, to, connID string, ht
 		s.msSetLastError(ctx, cn.Mailer, res.Err)
 		s.msDebugEvent(ctx, o, "error", fmt.Sprintf("Email Test (%s): %v", msMailerTitle(cn.Mailer), res.Err), "Pursae SMTP: Email Test")
 		r.Message = res.Err.Error()
-		r.Hints = msHints(cn.Mailer, res.Err.Error())
+		if cn.Mailer == "smtp" {
+			// A fixed category, not the raw dial error or the server's banner: the test must not
+			// tell an administrator what answers on an arbitrary host and port.
+			r.Message = msSMTPErrorMessage(res.Err)
+			var se *gomail.SendError
+			if !errors.As(res.Err, &se) || se.Stage == gomail.StageConnect {
+				r.Debug = ""
+			}
+		}
+		r.Hints = msHints(cn.Mailer, r.Message)
 		return r
 	}
 	s.msClearLastError(ctx)
@@ -1067,7 +1078,7 @@ func msHints(mailer, err string) []string {
 	case strings.Contains(e, "authentication") || strings.Contains(e, "535") || strings.Contains(e, "username and password"):
 		h = append(h, "Double-check the SMTP Username and SMTP Password. Some providers (Gmail, Outlook, Yahoo) require an app password.",
 			"Make sure the Authentication option is enabled when your server requires it.")
-	case strings.Contains(e, "connection refused") || strings.Contains(e, "i/o timeout") || strings.Contains(e, "could not connect") || strings.Contains(e, "no such host"):
+	case strings.Contains(e, "connection refused") || strings.Contains(e, "i/o timeout") || strings.Contains(e, "timed out") || strings.Contains(e, "could not connect") || strings.Contains(e, "no such host"):
 		h = append(h, "Check the SMTP Host and SMTP Port. Common ports are 587 (TLS), 465 (SSL) and 25 (none).",
 			"Your hosting provider may block outgoing SMTP connections; ask them to open the port, or use an API mailer instead.")
 	case strings.Contains(e, "certificate") || strings.Contains(e, "tls") || strings.Contains(e, "starttls"):
@@ -1397,4 +1408,18 @@ func (s *Server) mailSMTPDashboardWidget(c *gin.Context) template.HTML {
 		return template.HTML("<!-- wp-mail-smtp widget: " + template.HTMLEscapeString(err.Error()) + " -->")
 	}
 	return template.HTML(buf.String())
+}
+
+// smtpPrivateHostMessage is the fixed Email Test line when the private-address guard refused the
+// SMTP host: the category alone, nothing about what answers there. It is a constant so the
+// translation (web/languages) matches it.
+const smtpPrivateHostMessage = "SMTP error: the SMTP host is on a private network. Set PURSAE_ALLOW_PRIVATE_ENDPOINTS=1 on the server to allow it."
+
+// msSMTPErrorMessage is the Email Test line for an "Other SMTP" failure (gomail.ErrorCategory);
+// a refusal by the private-address guard says how a self-hosted MTA is allowed.
+func msSMTPErrorMessage(err error) string {
+	if errors.Is(err, netguard.ErrNotPublic) {
+		return smtpPrivateHostMessage
+	}
+	return gomail.ErrorCategory(err)
 }

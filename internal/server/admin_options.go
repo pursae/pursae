@@ -36,7 +36,7 @@ var optionPages = map[string][]string{
 		"comment_moderation", "comment_previously_approved", "comment_max_links", "moderation_keys", "disallowed_keys",
 		"show_avatars", "avatar_rating", "avatar_default"},
 	"media": {"thumbnail_size_w", "thumbnail_size_h", "thumbnail_crop", "medium_size_w", "medium_size_h", "large_size_w", "large_size_h",
-		"uploads_use_yearmonth_folders", "image_output_format"},
+		"uploads_use_yearmonth_folders", "image_output_format", "pursae_strip_exif"},
 	"permalink": {"permalink_structure", "category_base", "tag_base"},
 }
 

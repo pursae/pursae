@@ -263,6 +263,7 @@ func (s *Server) gooWebhookFireAny(ctx context.Context, topics []string, resourc
 	for rows.Next() {
 		var h gooWebhookRow
 		if rows.Scan(&h.ID, &h.Topic, &h.URL, &h.Secret, &h.UserID, &h.Failures) == nil {
+			h.Secret = s.revealSecret(h.Secret) // stored sealed (secret_seal.go)
 			hooks = append(hooks, h)
 		}
 	}

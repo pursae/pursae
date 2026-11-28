@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
 	"encoding/base64"
 	"errors"
 	"html"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+
+	"wpgo/internal/store"
 )
 
 // The Store API's cart, checkout and order routes (wc/store/v1/cart…, /checkout, /order/{id}). They
@@ -60,6 +63,9 @@ func (s *Server) gooStore(h restHandler, mutating bool) restHandler {
 	return func(c *gin.Context, req *restRequest) {
 		c.Header("Access-Control-Expose-Headers", "X-WP-Total, X-WP-TotalPages, Link, Nonce, Nonce-Timestamp, Cart-Token, User-ID")
 		c.Set(gooStoreAPIKey, true)
+		if ck, err := c.Cookie(postPassCookie); err == nil { // gooPassLocked: product text behind a password
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), gooPostPassCtx{}, ck))
+		}
 		token := s.gooUseCartToken(c)
 		if mutating && !token {
 			nonce := c.GetHeader("Nonce")
@@ -79,6 +85,22 @@ func (s *Server) gooStore(h restHandler, mutating bool) restHandler {
 		}
 		h(c, req)
 	}
+}
+
+// gooPostPassCtx carries the request's wp-postpass cookie to the Store API's product serializers.
+type gooPostPassCtx struct{}
+
+// gooPassLocked reports whether a password-protected product's text must be withheld: the request
+// holds no wp-postpass cookie for its password (post_password_required()).
+func (s *Server) gooPassLocked(ctx context.Context, post *store.Post) bool {
+	if post == nil || post.Password == "" {
+		return false
+	}
+	if gc, ok := ctx.(*gin.Context); ok {
+		return s.passwordRequired(gc, post)
+	}
+	ck, _ := ctx.Value(gooPostPassCtx{}).(string)
+	return ck == "" || !hmac.Equal([]byte(ck), []byte(s.postPassValue(post.Password)))
 }
 
 // Cart tokens ------------------------------------------------------------------------------------------
@@ -225,6 +247,9 @@ func (s *Server) gooStoreItemJSON(ctx context.Context, cart *gooCart, it *gooCar
 	}
 	if p.Type == gooTypeVariation && p.Description != "" {
 		desc = p.Description
+	}
+	if s.gooPassLocked(ctx, parent.Post) {
+		short, desc = "", ""
 	}
 	return map[string]any{
 		"key": it.Key, "id": p.ID, "type": p.Type, "quantity": it.Quantity,
@@ -907,6 +932,10 @@ func (s *Server) gooStoreCheckoutPost(c *gin.Context, req *restRequest) {
 		return
 	}
 	res, o, errs := s.gooProcessCheckout(c, form)
+	if len(errs) == 1 && errs[0] == gooThrottledMsg {
+		s.gooStoreRespondErr(c, http.StatusTooManyRequests, "woocommerce_rest_checkout_throttled", gooThrottledMsg)
+		return
+	}
 	if len(errs) > 0 {
 		msgs := make([]string, 0, len(errs))
 		for _, e := range errs {

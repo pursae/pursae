@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"wpgo/internal/auth"
 )
 
 func TestLockoutAlertSlotCapsMailsPerHour(t *testing.T) {
@@ -70,9 +72,6 @@ func TestLoginCaptchaAndResetThrottle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resetReqMu.Lock()
-	resetReqSeen = map[string][]time.Time{}
-	resetReqMu.Unlock()
 	allowed := 0
 	for i := 0; i < 6; i++ {
 		_, _, loc := post(t, asNewClient(), base+"/wp-login?action=lostpassword", url.Values{"user_login": {u.Login}})
@@ -80,9 +79,8 @@ func TestLoginCaptchaAndResetThrottle(t *testing.T) {
 			t.Fatalf("request %d: redirect %q", i, loc)
 		}
 	}
-	resetReqMu.Lock()
-	allowed = len(resetReqSeen["user:"+strconv.FormatInt(u.ID, 10)])
-	resetReqMu.Unlock()
+	// Stored in the database (auth.AllowResetRequest): the limit survives a restart.
+	_ = srv.store.Pool.QueryRow(ctx, `SELECT count(*) FROM login_attempts WHERE login = $1`, auth.ResetBucket+strings.ToLower(u.Login)).Scan(&allowed)
 	if allowed != resetRequestMax {
 		t.Errorf("reset requests recorded for the account: %d, want %d", allowed, resetRequestMax)
 	}

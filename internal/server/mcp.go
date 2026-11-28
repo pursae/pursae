@@ -313,7 +313,7 @@ var mcpTools = func() []*mcpTool {
 		Props: termFields, Required: []string{"taxonomy", "name"}})
 	add(&mcpTool{Name: "update_term", Desc: "Update a term.", Method: http.MethodPost, Path: "/wp/v2/{taxonomy}/{id}", Props: withID(termFields), Required: []string{"taxonomy", "id"}})
 	add(&mcpTool{Name: "delete_term", Desc: "Delete a term.", Method: http.MethodDelete, Path: "/wp/v2/{taxonomy}/{id}",
-		Props: map[string]any{"taxonomy": tax["taxonomy"], "id": num("Term ID."), "force": flag("Must be true for terms.")}, Required: []string{"taxonomy", "id"}})
+		Props: map[string]any{"taxonomy": tax["taxonomy"], "id": num("Term ID."), "force": flag("Must be true: terms have no trash.")}, Required: []string{"taxonomy", "id", "force"}})
 
 	add(&mcpTool{Name: "list_menus", Desc: "List navigation menus.", Method: http.MethodGet, Path: "/wp/v2/menus", Props: listProps(nil), Open: true})
 	add(&mcpTool{Name: "create_menu", Desc: "Create a navigation menu; locations assigns theme menu locations.", Method: http.MethodPost, Path: "/wp/v2/menus",
@@ -341,11 +341,11 @@ var mcpTools = func() []*mcpTool {
 
 	add(&mcpTool{Name: "seo_get_meta", Desc: "Get a post's Pursae SEO fields (title, description, focus keyword, robots, canonical, social…).",
 		Method: http.MethodGet, Path: "/seogo/v1/meta/{id}", Props: map[string]any{"id": num("Post ID.")}, Required: []string{"id"}})
-	add(&mcpTool{Name: "seo_update_meta", Desc: "Update a post's Pursae SEO fields; pass them under fields, e.g. {\"fields\": {\"title\": \"…\", \"description\": \"…\", \"focus_keyword\": \"…\"}}.",
+	add(&mcpTool{Name: "seo_update_meta", Desc: "Update a post's Pursae SEO fields; pass them under fields, e.g. {\"fields\": {\"title\": \"…\", \"description\": \"…\", \"focus\": \"…\"}}.",
 		Method: http.MethodPost, Path: "/seogo/v1/meta/{id}", Props: map[string]any{"id": num("Post ID."), "fields": obj("SEO fields to set.")}, Required: []string{"id"}, Open: true})
 	add(&mcpTool{Name: "seo_analyze", Desc: "Run the Pursae SEO and readability analysis for a post, optionally with unsaved title/content/fields.",
 		Method: http.MethodPost, Path: "/seogo/v1/analyze", Props: map[string]any{"post_id": num("Post ID."), "title": str("Title."), "content": str("Content."),
-			"slug": str("Slug."), "fields": obj("SEO fields (focus_keyword, title, description…).")}})
+			"slug": str("Slug."), "fields": obj("SEO fields (focus, title, description…).")}})
 	add(&mcpTool{Name: "seo_get_settings", Desc: "Get Pursae SEO's site-wide settings (modules, title templates per type, sitemap, robots, schema defaults…).",
 		Method: http.MethodGet, Path: "/pursae/v1/seo/settings"})
 	add(&mcpTool{Name: "seo_update_settings", Desc: "Merge changes into Pursae SEO's site-wide settings; send only the keys to change (same shape as seo_get_settings).",

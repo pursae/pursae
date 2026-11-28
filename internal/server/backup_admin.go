@@ -70,6 +70,7 @@ type bmgrEntryView struct {
 	Parts                                  []string
 	Err                                    string
 	Safety                                 bool
+	SiteKey                                bool // the archive carries the site's encryption key
 	DownloadURL, RestoreURL, DeleteURL     string
 }
 
@@ -176,6 +177,20 @@ func (s *Server) bmgrUpload(c *gin.Context) bool {
 		return true
 	}
 	limit := int64(16) << 30
+	// A middleware that already parsed the form leaves the file in MultipartForm and an empty body;
+	// take it from there instead of reporting that nothing was received.
+	if mf := c.Request.MultipartForm; mf != nil {
+		if fh := mf.File["archive"]; len(fh) > 0 && fh[0].Filename != "" && fh[0].Size <= limit {
+			f, err := fh[0].Open()
+			if err != nil {
+				c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape("The upload failed: "+err.Error())))
+				return true
+			}
+			defer f.Close()
+			s.bmgrSaveUpload(c, f)
+			return true
+		}
+	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 	mr, err := c.Request.MultipartReader()
 	if err != nil {
@@ -190,41 +205,47 @@ func (s *Server) bmgrUpload(c *gin.Context) bool {
 		if part.FormName() != "archive" || part.FileName() == "" {
 			continue
 		}
-		if err := os.MkdirAll(s.bmgrDir(), 0o700); err != nil {
-			c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape(err.Error())))
-			return true
-		}
-		name := "uploaded-" + time.Now().Format("20060102-150405") + "-" + bmgrToken() + ".zip"
-		dst := filepath.Join(s.bmgrDir(), name)
-		f, err := os.OpenFile(dst+".part", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err == nil {
-			_, err = io.Copy(f, part)
-			f.Close()
-		}
-		if err != nil {
-			os.Remove(dst + ".part")
-			c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape("The upload failed: "+err.Error())))
-			return true
-		}
-		if _, err := bmgrReadManifest(dst + ".part"); err != nil {
-			os.Remove(dst + ".part")
-			c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape("That file is not a usable backup: "+err.Error())))
-			return true
-		}
-		if err := os.Rename(dst+".part", dst); err != nil {
-			c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape(err.Error())))
-			return true
-		}
-		c.Redirect(http.StatusFound, s.bmgrBack("&tab=restore&file="+url.QueryEscape(name)))
+		s.bmgrSaveUpload(c, part)
 		return true
 	}
 	c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape("Choose a backup file first.")))
 	return true
 }
 
+// bmgrSaveUpload stores an uploaded archive in the backups folder, checks it is a backup, and
+// sends the browser to its restore screen.
+func (s *Server) bmgrSaveUpload(c *gin.Context, src io.Reader) {
+	if err := os.MkdirAll(s.bmgrDir(), 0o700); err != nil {
+		c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape(err.Error())))
+		return
+	}
+	name := "uploaded-" + time.Now().Format("20060102-150405") + "-" + bmgrToken() + ".zip"
+	dst := filepath.Join(s.bmgrDir(), name)
+	f, err := os.OpenFile(dst+".part", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err == nil {
+		_, err = io.Copy(f, src)
+		f.Close()
+	}
+	if err != nil {
+		os.Remove(dst + ".part")
+		c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape("The upload failed: "+err.Error())))
+		return
+	}
+	if _, err := bmgrReadManifest(dst + ".part"); err != nil {
+		os.Remove(dst + ".part")
+		c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape("That file is not a usable backup: "+err.Error())))
+		return
+	}
+	if err := os.Rename(dst+".part", dst); err != nil {
+		c.Redirect(http.StatusFound, s.bmgrBack("&tab=import&bmgr-error="+url.QueryEscape(err.Error())))
+		return
+	}
+	c.Redirect(http.StatusFound, s.bmgrBack("&tab=restore&file="+url.QueryEscape(name)))
+}
+
 func (s *Server) bmgrPostBackup(c *gin.Context) {
 	sel := bmgrSelection{Categories: c.PostFormArray("cat"), UserMode: c.PostForm("user_mode"), Roles: c.PostFormArray("role"),
-		Note: strings.TrimSpace(c.PostForm("note"))}
+		Note: strings.TrimSpace(c.PostForm("note")), IncludeKey: c.PostForm("include_key") == "1"}
 	if len(sel.Note) > 300 {
 		sel.Note = sel.Note[:300]
 	}
@@ -436,7 +457,7 @@ func (s *Server) bmgrEntryView(c *gin.Context, e bmgrEntry) bmgrEntryView {
 	v.DeleteURL = s.bmgrBack("&action=delete" + q + "&_wpnonce=" + n)
 	if e.M != nil {
 		v.RestoreURL = s.bmgrBack("&tab=restore" + q)
-		v.Safety = e.M.Kind == "safety"
+		v.Safety, v.SiteKey = e.M.Kind == "safety", e.M.SiteKey
 		v.Site, v.Note = e.M.SiteURL, e.M.Note
 		v.Kind = map[bool]string{true: "Safety snapshot", false: "Backup"}[v.Safety]
 		switch e.M.Kind {

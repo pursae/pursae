@@ -239,6 +239,10 @@ func (s *Server) flipbookPDF(c *gin.Context, id int64) (string, string, error) {
 	if err != nil || a == nil {
 		return "", "", errPick
 	}
+	// Only a PDF the user may edit: otherwise an author could publish another user's file as a book.
+	if !canEditAttachment(currentUser(c), a) {
+		return "", "", errPick
+	}
 	if !strings.EqualFold(a.Mime, "application/pdf") || !strings.EqualFold(path.Ext(a.FilePath), ".pdf") {
 		return "", "", errPick
 	}

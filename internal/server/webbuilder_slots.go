@@ -434,7 +434,7 @@ func (r *wbSlotResolver) HTML(slot webbuilder.SlotName, a webbuilder.SlotArgs) (
 		if sp.main && e.own {
 			return "", false // the page's own doc: its content is this snapshot
 		}
-		if a.Raw && wbRawContent(p) {
+		if a.Raw && wbRawContent(p) && !e.memberHidden(p) {
 			// A design's own markup imported as the post's content (a code binding): printed as
 			// stored, as the design wrote it (the_content would texturize quotes and add <p>).
 			return p.Content, strings.TrimSpace(p.Content) != ""
@@ -442,7 +442,7 @@ func (r *wbSlotResolver) HTML(slot webbuilder.SlotName, a webbuilder.SlotArgs) (
 		out := sp.contentOf(e)
 		return out, strings.TrimSpace(out) != ""
 	case webbuilder.SlotPostFieldHTML:
-		if a.Field != "" && p.Password == "" {
+		if a.Field != "" && p.Password == "" && !e.memberHidden(p) {
 			if v, ok := p.Meta[webbuilder.TrustedHTMLField+a.Field].(string); ok && strings.TrimSpace(v) != "" {
 				return v, true // a site import's markup, protected meta (TrustedHTMLField)
 			}
@@ -612,6 +612,12 @@ func (r *wbSlotResolver) Attrs(slot webbuilder.SlotName, a webbuilder.SlotArgs) 
 	return nil, false
 }
 
+// memberHidden reports whether Memberships keeps p's content from the visitor: its fields and raw
+// markup are part of that content, so they go where the_content's restriction message goes.
+func (e *wbSlotEnv) memberHidden(p *store.Post) bool {
+	return e.s != nil && p != nil && e.s.gmemHidesPost(e.ctx, e.u, p.ID)
+}
+
 // wbRawContent reports whether a post's content is printed as stored by a code binding: imported
 // markup (it starts with an element and holds no blocks) of a post without a password.
 func wbRawContent(p *store.Post) bool {
@@ -689,7 +695,7 @@ func (e *wbSlotEnv) menuByID(id int64) []*store.MenuItem {
 		items = nil
 	}
 	if len(items) > 0 {
-		e.s.resolveMenu(e.ctx, items, e.lb, e.v.Q)
+		items = e.s.resolveMenu(e.ctx, items, e.lb, e.v.Q)
 	}
 	e.menusByID[id] = items
 	return items
@@ -708,7 +714,7 @@ func (e *wbSlotEnv) menuByID(id int64) []*store.MenuItem {
 // (webbuilder.SiteFieldName: design_<n>, list<n>_<k> and their _href / _src / _alt companions),
 // so an imported site keeps working with Pursae Custom Fields off.
 func (e *wbSlotEnv) fieldValue(p *store.Post, name string, meta bool) any {
-	if e.s == nil || p == nil || name == "" || p.Password != "" || strings.HasPrefix(name, "_") {
+	if e.s == nil || p == nil || name == "" || p.Password != "" || strings.HasPrefix(name, "_") || e.memberHidden(p) {
 		return nil
 	}
 	if v := e.s.acfRegisteredField(e.ctx, name, p); v != nil || !meta {

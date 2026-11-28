@@ -196,7 +196,7 @@ func TestReadyzSchemaGuard(t *testing.T) {
 	if _, err := srv.store.Pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('9999_future')`); err != nil {
 		t.Fatal(err)
 	}
-	if code, body := probe(); code != 200 || !strings.Contains(body, "newer than this binary") {
+	if code, body := probe(); code != 200 || body != "ok" && !strings.HasPrefix(body, "ok") {
 		t.Fatalf("/readyz with a newer, compatible schema: %d %s", code, body)
 	}
 
@@ -204,7 +204,7 @@ func TestReadyzSchemaGuard(t *testing.T) {
 	if _, err := srv.store.Pool.Exec(ctx, `UPDATE schema_meta SET value = '999.0.0' WHERE key = 'min_binary_version'`); err != nil {
 		t.Fatal(err)
 	}
-	if code, body := probe(); code != http.StatusServiceUnavailable || !strings.Contains(body, "999.0.0") {
+	if code, body := probe(); code != http.StatusServiceUnavailable || strings.Contains(body, "999.0.0") || !strings.Contains(body, "not ready") {
 		t.Fatalf("/readyz below the floor: %d %s", code, body)
 	}
 }

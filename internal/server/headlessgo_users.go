@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"wpgo/internal/auth"
 	"wpgo/internal/store"
@@ -136,7 +138,9 @@ func (a *hgAuth) ownerOnly(uid, action string) bool {
 }
 
 // hgOwnerAllows is false when a user restricted to its own entries addresses somebody else's
-// document (every locale of a document has the creator of its first version).
+// document (every locale of a document has the creator of its first version). A failed lookup
+// denies: only a document that does not exist yet is let through (the caller answers 404 or
+// creates it).
 func (s *Server) hgOwnerAllows(c *gin.Context, a *hgAuth, sc *hgSchema, doc, action string) bool {
 	if !a.ownerOnly(sc.UID, action) {
 		return true
@@ -145,8 +149,12 @@ func (s *Server) hgOwnerAllows(c *gin.Context, a *hgAuth, sc *hgSchema, doc, act
 		doc = s.hgSingleDoc(c, sc.UID)
 	}
 	var owner int64
-	if err := s.store.Pool.QueryRow(c, `SELECT created_by FROM hg_entries WHERE type_uid = $1 AND document_id = $2 ORDER BY id LIMIT 1`, sc.UID, doc).Scan(&owner); err != nil {
+	err := s.store.Pool.QueryRow(c, `SELECT created_by FROM hg_entries WHERE type_uid = $1 AND document_id = $2 ORDER BY id LIMIT 1`, sc.UID, doc).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return true // no such entry: the caller answers 404 (or creates it)
+	}
+	if err != nil {
+		return false // fail closed: a database error must not skip the owner check
 	}
 	return owner == a.UserID && owner > 0
 }
@@ -234,6 +242,12 @@ func (s *Server) hgLogin(c *gin.Context, st hgSettings) {
 		return
 	}
 	s.auth.DropAttempt(c, attemptID)
+	// A forced password change or an expired second-factor requirement (Pursae Security) gets no token:
+	// the account must be fixed on the HTML screens first, like cookie and token REST (restAuthUser).
+	if s.adminsecBlocked(c, u) != "" {
+		hgErr(c, http.StatusForbidden, "ForbiddenError", "Your account needs attention before it can use the API: change your password or set up the sign-in method your role requires", map[string]any{"code": "account_action_required"})
+		return
+	}
 	tok, ttl := s.hgIssueUserToken(st, u)
 	hgWriteJSON(c, http.StatusOK, map[string]any{"jwt": tok, "expiresIn": ttl, "user": hgUserJSON(u)})
 }
@@ -288,8 +302,14 @@ func (s *Server) hgRegister(c *gin.Context, st hgSettings) {
 	case et:
 		add("email", "This email address is already registered")
 	}
+	role := s.settings.String("default_role")
+	if role == "" {
+		role = "subscriber"
+	}
 	if len(pass) < 8 || len(pass) > 200 {
 		add("password", "The password must be 8 to 200 characters")
+	} else if msg := s.adminsecPasswordProblem([]string{role}, login, email, pass); msg != "" { // Pursae Security password policy
+		add("password", msg)
 	}
 	if len(errs) > 0 {
 		hgErr(c, http.StatusBadRequest, "ValidationError", errs.Error(), errs)
@@ -299,10 +319,6 @@ func (s *Server) hgRegister(c *gin.Context, st hgSettings) {
 	if err != nil {
 		hgFail(c, err)
 		return
-	}
-	role := s.settings.String("default_role")
-	if role == "" {
-		role = "subscriber"
 	}
 	id, err := s.store.CreateUser(c, store.NewUser{Login: login, Email: email, PasswordHash: hash, Role: role})
 	if err != nil {

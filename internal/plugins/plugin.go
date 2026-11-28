@@ -262,6 +262,11 @@ var errReentrant = errors.New("re-entrant call skipped")
 // terminated module instance.
 var errReinstantiate = errors.New("re-instantiate")
 
+// errGuestBudget is the cancel cause of a callback that used up its own time budget. It tells
+// a plugin that ran too long (its fault, counted toward MaxFailures) apart from a caller that
+// gave up or whose own deadline ran out first (not counted).
+var errGuestBudget = errors.New("callback time budget exceeded")
+
 // handleRequest is the JSON sent to the guest's wpgo_handle export.
 type handleRequest struct {
 	Plugin   string `json:"plugin"`
@@ -314,7 +319,7 @@ func (p *Plugin) call(ctx context.Context, req *handleRequest) (json.RawMessage,
 		// The caller giving up is not the plugin's fault; a failed re-instantiation always is
 		// (it runs detached from the caller's context), so repeated init failures end in a
 		// visible "disabled" state instead of retrying forever.
-		if ctx.Err() == nil || errors.Is(err, errReinstantiate) {
+		if ctx.Err() == nil || errors.Is(err, errReinstantiate) || errors.Is(err, errGuestBudget) {
 			p.recordFailure(ctx, err)
 		}
 		return nil, err
@@ -353,7 +358,7 @@ func (p *Plugin) callGuest(parent context.Context, body []byte, budget time.Dura
 			return nil, 0, fmt.Errorf("%w: %w", errReinstantiate, err)
 		}
 	}
-	ctx, cancel := context.WithTimeout(withActive(parent, p), budget)
+	ctx, cancel := context.WithTimeoutCause(withActive(parent, p), budget, errGuestBudget)
 	defer cancel()
 
 	start := time.Now()
@@ -534,6 +539,9 @@ func isActive(ctx context.Context, p *Plugin) bool {
 
 // describeCallError makes wazero errors readable, naming timeouts explicitly.
 func describeCallError(ctx context.Context, err error) error {
+	if errors.Is(context.Cause(ctx), errGuestBudget) { // our own budget, not the caller's deadline
+		return fmt.Errorf("timed out: %w: %w", errGuestBudget, err)
+	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf("timed out: %w", err)
 	}

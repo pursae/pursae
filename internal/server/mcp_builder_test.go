@@ -240,12 +240,14 @@ func TestMCPSiteToolsScopes(t *testing.T) {
 	installAndLogin(t, ts, c)
 	pass, _ := mcpTestAgent(t, ts.URL, c, "Content agent", []string{"content"})
 	list := mcpJ(mcpRPC(t, ts.URL, pass, "tools/list", nil))
-	for _, want := range []string{"web_builder_build_page", "forum_create"} {
+	for _, want := range []string{"web_builder_build_page"} {
 		if !strings.Contains(list, `"`+want+`"`) {
 			t.Errorf("content scope should list %s", want)
 		}
 	}
-	for _, hidden := range []string{"update_options", "commerce_create_coupon", "activate_plugin"} {
+	// forum_create needs manage_options (rest_pursae_forum.go), which the content scope does not
+	// grant: its REST call is refused, so it is not listed either.
+	for _, hidden := range []string{"update_options", "commerce_create_coupon", "activate_plugin", "forum_create"} {
 		if strings.Contains(list, `"`+hidden+`"`) {
 			t.Errorf("content scope lists %s", hidden)
 		}
@@ -479,5 +481,35 @@ func mcpTestAgentRole(t *testing.T, base string, c *http.Client, login, role str
 			t.Fatalf("%s: no result: %s", tool, raw)
 		}
 		return res
+	}
+}
+
+// A partial spec never publishes the catalog's sample copy (Pursae's own demo text): text fields
+// left out are emptied, sample items dropped, and the answer says which (human test B1).
+func TestMCPBuildPageDropsSampleText(t *testing.T) {
+	ts, c, _ := testServerBuilderOff(t)
+	installAndLogin(t, ts, c)
+	_, call := mcpTestAgent(t, ts.URL, c, "Site agent", nil)
+	if r := call("activate_plugin", map[string]any{"slug": "golementor"}); r["isError"] == true {
+		t.Fatalf("activate builder: %s", mcpText(r))
+	}
+	res := call("web_builder_build_page", map[string]any{"title": "Partial", "status": "publish", "sections": []any{
+		map[string]any{"kind": "hero", "content": map[string]any{"title": "Hoş geldiniz İstanbul", "body": "Merhaba"}},
+		map[string]any{"kind": "features", "content": map[string]any{"title": "Özellikler"}, "items": []any{map[string]any{"title": "Hızlı", "text": "Çok hızlı"}}},
+	}})
+	page := mcpStructured(t, "web_builder_build_page", res)
+	if !strings.Contains(mcpJ(page), "emptied the sample text") || !strings.Contains(mcpJ(page), "eyebrow") {
+		t.Errorf("no warning about the emptied fields: %v", page["warnings"])
+	}
+	html := fetchPage(t, strAny(page["url"]))
+	for _, want := range []string{"Hoş geldiniz İstanbul", "Hızlı"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	for _, sample := range []string{"Early release", "One binary", "docker compose", "Keep your themes, plugins and dashboard", "PostgreSQL + JSONB"} {
+		if strings.Contains(html, sample) {
+			t.Errorf("published page shows sample text %q", sample)
+		}
 	}
 }

@@ -76,7 +76,8 @@ func gooViewFrom(c *gin.Context) *gooFrontView {
 // gooPostMarkers are the form fields of the store's POST forms (the site accepts those POSTs).
 var gooPostMarkers = []string{"add-to-cart", "goo_module", "goo_review", "woocommerce-cart-nonce", "woocommerce-shipping-calculator-nonce",
 	"woocommerce-process-checkout-nonce", "woocommerce-login-nonce", "woocommerce-register-nonce", "woocommerce-edit-address-nonce",
-	"save-account-details-nonce", "woocommerce-pay-nonce", "woocommerce-order-tracking-nonce", "woocommerce-apply-coupon-nonce"}
+	"save-account-details-nonce", "woocommerce-pay-nonce", "woocommerce-order-tracking-nonce", "woocommerce-apply-coupon-nonce",
+	"woocommerce-lost-password-nonce", "woocommerce-reset-password-nonce"}
 
 // gooAcceptsPost reports whether a POST to a site URL is one of the store's forms or AJAX actions.
 func (s *Server) gooAcceptsPost(c *gin.Context) bool {
@@ -700,19 +701,20 @@ func (s *Server) gooServeStorePage(c *gin.Context, key, endpoint, value string) 
 				return true
 			}
 		case "lost-password":
-			c.Redirect(http.StatusFound, s.loginPath()+"?action=lostpassword")
-			return true
+			// The store's own form (gooLostPasswordHTML): sending visitors to wp-login.php would give
+			// away a hidden login address. The reset key may be in the URL: keep it out of Referer.
+			c.Header("Referrer-Policy", "no-referrer")
 		case "payment-methods":
 			if u == nil {
 				break
 			}
 		}
-		if u == nil && endpoint != "" && endpoint != "customer-logout" {
+		if u == nil && endpoint != "" && endpoint != "customer-logout" && endpoint != "lost-password" {
 			fv.Endpoint, fv.Value = "", "" // logged out: the login form on every endpoint
 		}
 	}
 	copy := *page
-	if t := s.gooEndpointTitle(endpoint, value); t != "" && (u != nil || key == "checkout") {
+	if t := s.gooEndpointTitle(endpoint, value); t != "" && (u != nil || key == "checkout" || endpoint == "lost-password") {
 		copy.Title = s.gooL10nText(ctx, t)
 	}
 	q := &siteQuery{Kind: "page", Post: &copy, Paged: 1, Store: key}
@@ -743,6 +745,8 @@ func (s *Server) gooEndpointTitle(endpoint, value string) string {
 		return "Account details"
 	case "payment-methods":
 		return "Payment methods"
+	case "lost-password":
+		return "Lost password"
 	case "view-subscription": // untitled detail page (no menu tab): WCS titles it like view-order
 		if value != "" {
 			return "Subscription #" + value
@@ -792,9 +796,17 @@ func (s *Server) gooServeProduct(c *gin.Context, id int64) bool {
 	ctx = c.Request.Context()
 	fv := &gooFrontView{Kind: "product", Product: p}
 	c.Set(gooCtxView, fv)
-	body := s.gooSingleProductHTML(c, p)
 	post := s.gooSyntheticPost(ctx, p.ID, p.Name, s.gooProductBase()+"/"+p.Slug, p.Post)
-	post.Excerpt = wp.StripTags(p.Post.Excerpt)
+	var body string
+	if s.passwordRequired(c, p.Post) {
+		// WooCommerce's single-product template prints get_the_password_form() instead of the product
+		// until the visitor entered the password (wp-postpass cookie).
+		c.Header("Cache-Control", "no-cache, must-revalidate, max-age=0")
+		body = `<div class="woocommerce">` + s.passwordForm(p.Post, s.links(ctx)) + `</div>`
+	} else {
+		body = s.gooSingleProductHTML(c, p)
+		post.Excerpt = wp.StripTags(p.Post.Excerpt)
+	}
 	s.gooRenderSynthetic(c, post, body, 1)
 	return true
 }

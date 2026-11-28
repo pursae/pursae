@@ -233,6 +233,16 @@ func (s *Server) loginPath() string {
 	return "/wp-login"
 }
 
+// lostPasswordURL is the "Lost your password?" link for public pages (forum, store). With a hidden login
+// address it is the store's own reset form (My Account › Lost password) when Commerce has a My Account
+// page, so the link does not hand the hidden slug to visitors; otherwise core's lostpassword screen.
+func (s *Server) lostPasswordURL(ctx context.Context) string {
+	if s.adminsecOn() && s.asLoad().hideActive() && s.gooOn() && s.gooPageID("myaccount") > 0 {
+		return s.gooAccountURL(ctx, "lost-password")
+	}
+	return s.loginPath() + "?action=lostpassword"
+}
+
 var asSlugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{2,63}$`)
 
 // asReservedSlug lists paths a login slug may not take.
@@ -397,8 +407,14 @@ func (w *asWriter) finalize() {
 	if st.hideActive() {
 		if loc := h.Get("Location"); loc != "" {
 			if u, err := url.Parse(loc); err == nil && asIsLogin(u.Path) && u.Query().Get("action") != "postpass" {
-				u.Path = "/" + st.LoginSlug
-				h.Set("Location", u.String())
+				if asAdminOpen(w.r.URL.Path) {
+					// admin-ajax, admin-post and install stay open to visitors; their "log in first" redirect
+					// would hand the secret login URL to anybody who asks (#21). Send them home instead.
+					h.Set("Location", "/")
+				} else {
+					u.Path = "/" + st.LoginSlug
+					h.Set("Location", u.String())
+				}
 			}
 		}
 	}

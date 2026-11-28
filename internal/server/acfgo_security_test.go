@@ -138,8 +138,8 @@ func TestACFGoRESTStandardFormatHidesPrivateData(t *testing.T) {
 	if _, body := restGet(t, c, base, "/wp-json/wp/v2/posts/"+itoa64(pub.ID)+"?acf_format=standard"); !strings.Contains(body, "draft-body-xyz") || !strings.Contains(body, admin.Email) {
 		t.Errorf("administrator standard format lost data: %s", body)
 	}
-	// Theme output keeps ACF's get_field behaviour.
-	if v, _ := srv.acfGetField(ctx, "related", pub.ID, true).([]any); len(v) != 2 {
+	// Theme output (no visitor in the context: anonymous) leaves out the draft too.
+	if v, _ := srv.acfGetField(ctx, "related", pub.ID, true).([]any); len(v) != 1 {
 		t.Errorf("get_field related = %v", v)
 	}
 }

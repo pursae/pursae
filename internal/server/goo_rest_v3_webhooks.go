@@ -72,6 +72,7 @@ func (s *Server) gooWebhookByID(ctx context.Context, id int64) (*gooWebhook, err
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
+	w.Secret = s.revealSecret(w.Secret) // stored sealed (secret_seal.go)
 	return w, err
 }
 
@@ -141,7 +142,7 @@ func (s *Server) gooV3WebhookCreate(c *gin.Context, b map[string]any) (map[strin
 		w.Secret = gooRandomKey(32)
 	}
 	if err := s.store.Pool.QueryRow(ctx, `INSERT INTO goo_webhooks (name, status, topic, delivery_url, secret, user_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		w.Name, w.Status, w.Topic, w.URL, w.Secret, w.UserID).Scan(&w.ID); err != nil {
+		w.Name, w.Status, w.Topic, w.URL, s.sealSecret(w.Secret), w.UserID).Scan(&w.ID); err != nil {
 		return nil, gooErr(500, "woocommerce_rest_cannot_create", err.Error())
 	}
 	w, _ = s.gooWebhookByID(ctx, w.ID)
@@ -162,7 +163,7 @@ func (s *Server) gooV3WebhookUpdate(c *gin.Context, id int64, b map[string]any) 
 		w.Failures = 0 // re-activating starts the failure count over
 	}
 	if _, err := s.store.Pool.Exec(ctx, `UPDATE goo_webhooks SET name=$2, status=$3, topic=$4, delivery_url=$5, secret=$6, failures=$7 WHERE id=$1`,
-		w.ID, w.Name, w.Status, w.Topic, w.URL, w.Secret, w.Failures); err != nil {
+		w.ID, w.Name, w.Status, w.Topic, w.URL, s.sealSecret(w.Secret), w.Failures); err != nil {
 		return nil, gooErr(500, "woocommerce_rest_cannot_edit", err.Error())
 	}
 	return s.gooV3WebhookJSON(ctx, w), nil

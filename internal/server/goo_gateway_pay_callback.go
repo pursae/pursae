@@ -388,7 +388,15 @@ func (s *Server) gooPayApplySuccess(ctx context.Context, db gooPayDB, g *gooPayG
 		}
 		return mark("paid", "")
 	}
-	if res.PaidAmount >= a.Amount && (res.Currency == "" || strings.EqualFold(res.Currency, a.Currency)) && gooPayMinor(o.Total, o.Currency) != a.Amount {
+	if res.Currency == "" {
+		// Some providers' answers carry no currency (a single-currency merchant account, or a verified
+		// answer that echoes only the amount). The attempt's own currency is what the provider was
+		// asked to charge, so it stands in; logged so a provider that should report one is noticed.
+		// Every check below then compares against an explicit currency.
+		log.Printf("goocommerce: %s: attempt %s: the provider reported no currency; using the attempt's %s", g.ID(), a.Ref, a.Currency) //nolint:gosec // G706: gateway id, validated attempt reference and currency code
+		res.Currency = a.Currency
+	}
+	if res.PaidAmount >= a.Amount && strings.EqualFold(res.Currency, a.Currency) && gooPayMinor(o.Total, o.Currency) != a.Amount {
 		// The customer changed the installment count on the Pay for order page after starting this
 		// payment: when the order matches it again with this attempt's count, accept it on that count.
 		ok, err := s.gooPayOrderMatchAttempt(ctx, g, o, a)
@@ -416,7 +424,7 @@ func (s *Server) gooPayApplySuccess(ctx context.Context, db gooPayDB, g *gooPayG
 	case res.PaidAmount < a.Amount:
 		problem = fmt.Sprintf("received %s %s, the payment was started for %s %s", pay.FormatMinor(res.PaidAmount, a.Currency), a.Currency,
 			pay.FormatMinor(a.Amount, a.Currency), a.Currency)
-	case res.Currency != "" && !strings.EqualFold(res.Currency, a.Currency):
+	case !strings.EqualFold(res.Currency, a.Currency):
 		problem = fmt.Sprintf("paid in %s, the payment was started in %s", res.Currency, a.Currency)
 	case !strings.EqualFold(o.Currency, a.Currency) || gooPayMinor(o.Total, o.Currency) != a.Amount:
 		problem = fmt.Sprintf("the order total changed to %s %s after the payment was started for %s %s", pay.FormatMinor(gooPayMinor(o.Total, o.Currency), o.Currency),
@@ -542,7 +550,7 @@ func (g *gooPayGateway) refundLocked(s *Server, ctx context.Context, o *gooOrder
 		return fmt.Errorf("%s is not configured: %w", g.spec.Title, err)
 	}
 	{
-		res, err := p.Refund(ctx, pay.RefundRequest{Attempt: a.toPay(), Amount: minor, Full: minor == a.Amount && a.Refunded == 0,
+		res, err := p.Refund(ctx, pay.RefundRequest{Attempt: a.toPay(), Amount: minor, Full: minor == a.Paid && a.Refunded == 0, // against what was captured (installment interest included), not the order amount
 			RefundRef: gooPayRef(), Reason: pay.Trunc(reason, 200)})
 		if errors.Is(err, pay.ErrUnknownOutcome) {
 			log.Printf("goocommerce: %s: refund of attempt %s: %q", g.ID(), a.Ref, err.Error()) //nolint:gosec // G706: gateway and order ids, a validated attempt reference and a quoted error text

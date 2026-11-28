@@ -377,6 +377,9 @@ func (s *Server) seogoMembersPost(ctx context.Context, u *store.User, p *store.P
 	if ok, _ := s.gmemPostAccess(ctx, u, p.ID, s.gmemPostPlans(ctx, p.ID)); !ok {
 		cp := *p
 		cp.Content = ""
+		// The featured image is part of the restricted post too: no og:image / schema thumbnail /
+		// sitemap image from it. (An SEO social image set by hand stays: the editor chose it for sharing.)
+		cp.FeaturedMediaID = 0
 		if s.gooExtBool(gmemKey, "show_excerpts") {
 			cp.Excerpt = s.gmemShortcodesFor(ctx, u, cp.Excerpt)
 		} else {

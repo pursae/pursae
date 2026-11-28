@@ -346,6 +346,24 @@ func (s *Server) gooValidateCheckout(c *gin.Context, cart *gooCart, d *gooChecko
 	return errs
 }
 
+// gooNormalizeCheckoutStates rewrites a posted state name ("California") to its code ("CA") before
+// the totals are calculated: shipping zones and tax rates match codes, so a name would price the
+// order as if it had no state while validation later stores the code.
+func gooNormalizeCheckoutStates(d *gooCheckoutData) {
+	for _, typ := range []string{"billing", "shipping"} {
+		v := strings.TrimSpace(d.Fields[typ+"_state"])
+		if v == "" {
+			continue
+		}
+		for _, st := range gooStates[d.Fields[typ+"_country"]] {
+			if strings.EqualFold(st.Code, v) || strings.EqualFold(st.Name, v) {
+				d.Fields[typ+"_state"] = st.Code
+				break
+			}
+		}
+	}
+}
+
 func gooStateNames(country string) string {
 	var names []string
 	for _, st := range gooStates[country] {
@@ -360,6 +378,7 @@ func (s *Server) gooProcessCheckout(c *gin.Context, form map[string][]string) (*
 	ctx := c.Request.Context()
 	cart := s.gooCartFor(c)
 	d := gooPostedCheckout(form)
+	gooNormalizeCheckoutStates(d)
 	s.gooUpdateCustomerFromCheckout(c, d)
 	cart.Calculate()
 	// woocommerce_check_cart_items: a coupon, item or gift card dropped while the cart was
@@ -376,6 +395,14 @@ func (s *Server) gooProcessCheckout(c *gin.Context, form map[string][]string) (*
 		return nil, nil, errs
 	}
 	u := currentUser(c)
+	if u == nil {
+		// Guests place at most 10 orders in 10 minutes per IP (an account created below counts too).
+		th := s.gooGuestCheckoutThrottle()
+		if th.Blocked(clientIP(c)) {
+			return nil, nil, []string{gooThrottledMsg}
+		}
+		th.Fail(clientIP(c))
+	}
 	customerID := int64(0)
 	if u != nil {
 		customerID = u.ID
@@ -420,9 +447,21 @@ func (s *Server) gooProcessCheckout(c *gin.Context, form map[string][]string) (*
 	if err := s.gooReserveStockMine(ctx, o, gooVisitorOrders(sess, customerID)); err != nil {
 		return nil, o, []string{err.Error()}
 	}
+	// The coupon's uses are claimed now, in one conditional UPDATE, rather than when the order is
+	// paid: concurrent checkouts with a single-use coupon would otherwise all be placed with the
+	// discount and the losers held on-hold still carrying it. The losing checkout stops here, before
+	// any payment, and the claim is released when the payment fails or the unpaid order is cancelled.
+	if len(o.ItemsOf("coupon")) > 0 {
+		if err := s.gooRecordCouponUsage(ctx, o, true, true); err != nil {
+			return nil, o, []string{err.Error() + " Please remove the coupon and try again."}
+		}
+	}
 	gw := s.gooGateway(d.PaymentMethod)
 	res, err := gw.ProcessPayment(s, c, o)
 	if err != nil || res.Result != "success" {
+		if cur, gerr := s.gooGetOrder(ctx, o.ID); gerr == nil && (cur.Status == "pending" || cur.Status == "failed") {
+			_ = s.gooRecordCouponUsage(ctx, cur, false, false)
+		}
 		msg := "There was an error processing your order. Please check for any charges in your payment method and review your order history before placing the order again."
 		if err != nil {
 			msg = err.Error()

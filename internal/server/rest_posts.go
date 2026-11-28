@@ -105,6 +105,8 @@ func (s *Server) restPost(c *gin.Context, p *store.Post, ctxName string) map[str
 	// Password-protected posts must not leak the note text or custom fields to callers
 	// who cannot edit the post (public view, or an edit-context collection of someone else's post).
 	hideProtected := protected && !canEdit
+	// Members-only posts keep their custom fields and footnotes from non-members like their body.
+	hideFields := hideProtected || (!canEdit && s.gmemHidesPost(c.Request.Context(), u, p.ID))
 	date := p.Date().In(loc)
 	var dateGMT any = gmt(p.Date())
 	if p.PublishedAt == nil && (p.Status == "draft" || p.Status == "auto-draft" || p.Status == "pending") {
@@ -134,7 +136,7 @@ func (s *Server) restPost(c *gin.Context, p *store.Post, ctxName string) map[str
 		"comment_status": p.CommentStatus,
 		"ping_status":    p.PingStatus,
 		"template":       "",
-		"meta":           map[string]any{"footnotes": footnotesForREST(p, hideProtected)},
+		"meta":           map[string]any{"footnotes": footnotesForREST(p, hideFields)},
 		"class_list":     []string{"post-" + itoa64(p.ID), p.Type, "type-" + p.Type, "status-" + p.Status, "hentry"},
 	}
 	if p.Type == "post" {
@@ -164,9 +166,10 @@ func (s *Server) restPost(c *gin.Context, p *store.Post, ctxName string) map[str
 		out["title"].(map[string]any)["raw"] = title
 		// A collection in the edit context (any edit_posts caller) also lists items the caller
 		// cannot edit: like WordPress they keep their raw fields, except the post password and
-		// the raw text of a password-protected or members-only post. Patterns (wp_block) always
-		// keep content.raw, which the inserter builds other users' patterns from.
-		hideRaw := !canEdit && (protected || restricted) && p.Type != "wp_block"
+		// the raw text of a password-protected or members-only post. That holds for patterns
+		// (wp_block) too: the inserter builds other users' public patterns from content.raw, but a
+		// protected one stays readable only to those who can edit it.
+		hideRaw := !canEdit && (protected || restricted)
 		if !hideRaw {
 			out["content"].(map[string]any)["raw"] = p.Content
 			out["excerpt"].(map[string]any)["raw"] = p.Excerpt
@@ -245,7 +248,7 @@ func (s *Server) restPost(c *gin.Context, p *store.Post, ctxName string) map[str
 		}
 	}
 	s.acfgoRESTPost(c, p, out) // ACF-Go: the "acf" field
-	if hideProtected {
+	if hideFields {
 		delete(out, "acf")
 	}
 	out["_links"] = restLinks(self, home+"/wp-json/wp/v2/"+base, extra)
@@ -374,7 +377,7 @@ func (api *restAPI) embedPost(c *gin.Context, p *store.Post, item map[string]any
 		// The same rule as /wp/v2/media/<id>: an attachment of an unpublished post stays hidden
 		// from those who do not browse the library, whichever post names it as its image.
 		if a, err := api.s.attachment(ctx, p.FeaturedMediaID); err == nil &&
-			(a.PostID == p.ID && p.Status == "publish" && p.Password == "" || api.mediaReadable(c, a)) {
+			(a.PostID == p.ID && p.Status == "publish" && p.Password == "" && !api.s.gmemHidesPost(ctx, restCurrent(c), p.ID) || api.mediaReadable(c, a)) {
 			emb["wp:featuredmedia"] = []any{api.s.restMedia(c, a, "embed")}
 		}
 	}
@@ -408,7 +411,10 @@ func (api *restAPI) embedPost(c *gin.Context, p *store.Post, item map[string]any
 func (api *restAPI) listPosts(c *gin.Context, r *restRequest, typ string) {
 	s := api.s
 	u := restCurrent(c)
-	page, per := pageArgs(c)
+	page, per, ok := listArgs(c, restPostOrderBy)
+	if !ok {
+		return
+	}
 	q := store.PostQuery{Types: []string{typ}, Page: page, PerPage: per, Search: c.Query("search"),
 		OrderBy: c.DefaultQuery("orderby", "date"), Order: c.DefaultQuery("order", "desc"), Loc: s.loc()}
 	if q.OrderBy == "relevance" && q.Search == "" || q.OrderBy == "include" {
@@ -649,10 +655,24 @@ func (api *restAPI) savePost(c *gin.Context, r *restRequest, typ string, id int6
 		}
 		p.Sticky = v
 	}
+	// A missing user, attachment or parent is the client's mistake: WordPress answers 400 with its
+	// own code, while the foreign key would otherwise fail the save with a 500.
 	if v, ok := r.Int(c, "featured_media"); ok {
+		if v != 0 {
+			if _, err := s.store.GetAttachment(c, v); err != nil {
+				restErr(c, http.StatusBadRequest, "rest_invalid_featured_media", "Invalid featured media ID.")
+				return
+			}
+		}
 		p.FeaturedMediaID = v
 	}
 	if v, ok := r.Int(c, "parent"); ok && typ == "page" {
+		if v != 0 {
+			if _, err := s.store.GetPost(c, v); err != nil {
+				restErr(c, http.StatusBadRequest, "rest_post_invalid_id", "Invalid post parent ID.")
+				return
+			}
+		}
 		p.ParentID = v
 	}
 	if v, ok := r.Int(c, "menu_order"); ok {
@@ -671,6 +691,10 @@ func (api *restAPI) savePost(c *gin.Context, r *restRequest, typ string, id int6
 	if v, ok := r.Int(c, "author"); ok && v != p.AuthorID {
 		if !u.Can("edit_others_"+plural, nil) {
 			restErr(c, http.StatusForbidden, "rest_cannot_edit_others", "Sorry, you are not allowed to update posts as this user.")
+			return
+		}
+		if _, err := s.store.UserByID(c, v); err != nil {
+			restErr(c, http.StatusBadRequest, "rest_invalid_author", "Invalid author ID.")
 			return
 		}
 		p.AuthorID = v

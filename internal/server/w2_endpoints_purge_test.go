@@ -10,9 +10,16 @@ import (
 	"testing"
 )
 
-// The purge URL may name a proxy on this machine or the private network (Varnish, nginx), but
-// never a link-local or metadata address.
+// The purge URL may name a proxy on this machine or the private network (Varnish, nginx) only with
+// PURSAE_ALLOW_PRIVATE_ENDPOINTS=1, and never a link-local or metadata address.
 func TestW2EndpointsPurgeURLSaveTime(t *testing.T) {
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "")
+	for _, raw := range []string{"http://127.0.0.1:6081", "http://localhost/purge", "http://10.1.2.3/purge", "http://[::1]/"} {
+		if err := proxyPurgeURLProblem(raw); err == nil || !strings.Contains(err.Error(), "PURSAE_ALLOW_PRIVATE_ENDPOINTS") {
+			t.Errorf("%q without the switch: err = %v", raw, err)
+		}
+	}
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
 	for _, tc := range []struct {
 		raw string
 		ok  bool
@@ -39,6 +46,7 @@ func TestW2EndpointsPurgeURLSaveTime(t *testing.T) {
 
 // The REST settings route (and the MCP tool on it) refuses a metadata purge URL.
 func TestW2EndpointsPurgeURLREST(t *testing.T) {
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "")
 	ts, c, srv := newTestServer(t, false)
 	installAndLogin(t, ts, c)
 	_, nonce, _ := get(t, c, ts.URL+"/wp-admin/admin-ajax?action=rest-nonce")
@@ -60,13 +68,17 @@ func TestW2EndpointsPurgeURLREST(t *testing.T) {
 	if got := srv.settings.String("wpgo_cache_purge_url"); got != "" {
 		t.Fatalf("stored purge URL = %q", got)
 	}
+	if code := send("http://127.0.0.1:6081"); code != http.StatusBadRequest {
+		t.Fatalf("loopback purge URL without the switch: %d", code)
+	}
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
 	if code := send("http://127.0.0.1:6081"); code != http.StatusOK {
 		t.Fatalf("local Varnish purge URL: %d", code)
 	}
 }
 
-// At connect time the purge client reaches a proxy on the loopback address through a host name,
-// refuses link-local addresses and never follows a redirect to another host.
+// At connect time the purge client refuses a loopback proxy reached through a host name unless
+// PURSAE_ALLOW_PRIVATE_ENDPOINTS=1, refuses link-local addresses and never follows a redirect.
 func TestW2EndpointsPurgeDialTime(t *testing.T) {
 	var other atomic.Int32
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { other.Add(1) }))
@@ -81,7 +93,13 @@ func TestW2EndpointsPurgeDialTime(t *testing.T) {
 	defer proxy.Close()
 	base := localhostURL(t, proxy)
 
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "")
 	req, _ := http.NewRequest("PURGE", base+"/", nil)
+	if err := sendProxyPurge(req); err == nil || !strings.Contains(err.Error(), "PURSAE_ALLOW_PRIVATE_ENDPOINTS") {
+		t.Fatalf("loopback purge target without the switch: %v", err)
+	}
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
+	req, _ = http.NewRequest("PURGE", base+"/", nil)
 	if err := sendProxyPurge(req); err != nil {
 		t.Fatalf("local proxy by host name: %v", err)
 	}

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"wpgo/internal/blocks"
+	"wpgo/internal/netguard"
 	"wpgo/internal/store"
 	"wpgo/internal/wp"
 )
@@ -364,57 +365,11 @@ func (s *Server) fetchFeed(ctx context.Context, feedURL string) (*wp.Feed, error
 	return f, nil
 }
 
-// nonPublicNets are the special-purpose ranges (RFC 6890) beyond what net.IP's predicates cover.
-var nonPublicNets = func() []*net.IPNet {
-	var out []*net.IPNet
-	for _, c := range []string{
-		"0.0.0.0/8",       // "this network"
-		"100.64.0.0/10",   // carrier-grade NAT
-		"192.0.0.0/24",    // IETF protocol assignments
-		"192.0.2.0/24",    // TEST-NET-1
-		"198.18.0.0/15",   // benchmarking
-		"198.51.100.0/24", // TEST-NET-2
-		"203.0.113.0/24",  // TEST-NET-3
-		"240.0.0.0/4",     // reserved, includes broadcast
-		"::/96",           // IPv4-compatible (deprecated), includes :: and ::1
-		"64:ff9b:1::/48",  // local-use NAT64
-		"2001::/32",       // Teredo (embeds an obfuscated IPv4 address)
-		"2001:db8::/32",   // documentation
-		"fec0::/10",       // site-local (deprecated)
-	} {
-		_, n, _ := net.ParseCIDR(c)
-		out = append(out, n)
-	}
-	return out
-}()
-
 // publicIP is the host check of wp_http_validate_url(): loopback, private, link-local, multicast,
-// unspecified and other special-purpose addresses are refused so a URL cannot reach internal
-// services. IPv4 addresses embedded in IPv6 (IPv4-mapped ::ffff:0:0/96, NAT64 64:ff9b::/96 and
-// 6to4 2002::/16) are checked as the IPv4 address they reach.
-func publicIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if ip16 := ip.To16(); ip16 != nil && ip.To4() == nil {
-		switch {
-		case ip16[0] == 0x00 && ip16[1] == 0x64 && ip16[2] == 0xff && ip16[3] == 0x9b && isZero(ip16[4:12]): // 64:ff9b::/96
-			return publicIP(net.IP(ip16[12:16]))
-		case ip16[0] == 0x20 && ip16[1] == 0x02: // 2002::/16
-			return publicIP(net.IP(ip16[2:6]))
-		}
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() {
-		return false
-	}
-	for _, n := range nonPublicNets {
-		if n.Contains(ip) {
-			return false
-		}
-	}
-	return true
-}
+// unspecified, special-purpose and cloud metadata addresses are refused so a URL cannot reach
+// internal services. Embedded IPv4 (IPv4-mapped, NAT64, 6to4) is judged as the address it reaches.
+// The range list lives in netguard so i18n and mail share it.
+func publicIP(ip net.IP) bool { return netguard.PublicIP(ip) }
 
 func isZero(b []byte) bool {
 	for _, x := range b {
@@ -525,7 +480,9 @@ func renderPageListBlock(ctx context.Context, b *blocks.Block, _ string) string 
 	if rc == nil {
 		return ""
 	}
-	pages, _, err := rc.s.store.QueryPosts(ctx, store.PostQuery{Types: []string{"page"}, Statuses: []string{"publish"}, OrderBy: "menu_order", Order: "asc", PerPage: -1, NoContent: true, NoTotal: true})
+	// Memberships "hide completely": restricted pages are left out for non-members (with their subpages).
+	pages, _, err := rc.s.store.QueryPosts(ctx, store.PostQuery{Types: []string{"page"}, Statuses: []string{"publish"}, OrderBy: "menu_order", Order: "asc", PerPage: -1, NoContent: true, NoTotal: true,
+		ExcludeID: rc.s.gooListingExclude(ctx, "post")})
 	if err != nil || len(pages) == 0 {
 		return ""
 	}

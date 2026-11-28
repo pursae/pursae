@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"html"
 	"mime"
 	"net/mail"
 	"net/url"
@@ -317,7 +318,13 @@ func (s *Server) gooRenderEmail(ctx context.Context, d *gooEmailDef, st map[stri
 	}
 	e.Subject = gooReplacePlaceholders(s.gooEmailText(ctx, subject), ph)
 	e.Heading = gooReplacePlaceholders(s.gooEmailText(ctx, heading), ph)
-	additional := gooReplacePlaceholders(s.gooEmailText(ctx, st["additional_content"]), ph)
+	// The additional content is HTML written by the shop; the values put into it (the customer's
+	// name among them) are not, so they are escaped there. The plain part strips the tags again.
+	phHTML := make(map[string]string, len(ph))
+	for k, v := range ph {
+		phHTML[k] = html.EscapeString(v)
+	}
+	additional := gooReplacePlaceholders(s.gooEmailText(ctx, st["additional_content"]), phHTML)
 	content, plain := s.gooEmailContent(ctx, d, o, args)
 	e.HTML = s.gooEmailWrap(ctx, e.Heading, content+gooAutoP(additional))
 	e.Plain = "= " + e.Heading + " =\n\n" + plain
@@ -403,6 +410,11 @@ func (s *Server) gooEmailResetURL(ctx context.Context, userID int64) string {
 	raw, _ := json.Marshal(map[string]any{"password_reset": map[string]any{"hash": hex.EncodeToString(sum[:]), "expires": time.Now().Add(24 * time.Hour).Unix()}})
 	if _, err := s.store.Pool.Exec(ctx, `UPDATE users SET meta = coalesce(meta, '{}'::jsonb) || $2::jsonb WHERE id = $1`, u.ID, raw); err != nil {
 		return s.gooAccountURL(ctx, "lost-password")
+	}
+	// WooCommerce links to My Account › Lost password with the key (the same key checkResetKey reads),
+	// which also keeps a hidden login address out of the email.
+	if s.gooPageID("myaccount") > 0 {
+		return gooAddQuery(s.gooAccountURL(withConfiguredOrigin(ctx), "lost-password"), "key="+key+"&login="+url.QueryEscape(u.Login))
 	}
 	return s.configuredLinks(ctx).HomeURL(s.loginPath() + "?action=rp&key=" + key + "&login=" + url.QueryEscape(u.Login))
 }

@@ -158,7 +158,7 @@ func (sc *bmgrSchema) userFilters(set map[string]bool) map[string]string {
 
 // bmgrExportTable streams one table as JSON lines into w and returns the row count. where, when
 // non-empty, takes the user ids as $1.
-func bmgrExportTable(ctx context.Context, tx pgx.Tx, table, where string, ids []int64, w io.Writer) (int64, error) {
+func bmgrExportTable(ctx context.Context, tx pgx.Tx, table, where string, ids []int64, noSettings []string, w io.Writer) (int64, error) {
 	q := `SELECT to_jsonb(t)::text FROM ` + bmgrQ(table) + ` t`
 	var args []any
 	if where != "" {
@@ -171,7 +171,7 @@ func bmgrExportTable(ctx context.Context, tx pgx.Tx, table, where string, ids []
 		} else {
 			q += ` AND `
 		}
-		args = append(args, bmgrNoExportSettings)
+		args = append(args, noSettings)
 		q += fmt.Sprintf(`t.key <> ALL($%d)`, len(args))
 	}
 	rows, err := tx.Query(ctx, q, args...)

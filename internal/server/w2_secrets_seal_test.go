@@ -239,7 +239,9 @@ func TestW2SecretsRestoreOtherSecret(t *testing.T) {
 	}
 	var archive string
 	bmgrRun(t, srv, "backup", func(j *bmgrJob) (err error) {
-		archive, err = srv.bmgrRunBackup(ctx, j, bmgrSelection{Categories: []string{"settings"}, UserMode: "all"})
+		// The archive carries the old site's key (the "include key" option for a move): without it
+		// the sealed values could not open on a site with another secret (TestBmgrArchiveWithoutKey).
+		archive, err = srv.bmgrRunBackup(ctx, j, bmgrSelection{Categories: []string{"settings"}, UserMode: "all", IncludeKey: true})
 		return err
 	})
 	if err := srv.settings.Set(ctx, map[string]any{"auth_secret": "another-secret-for-this-site-w2s"}); err != nil {

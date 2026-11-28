@@ -22,6 +22,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"wpgo/internal/netguard"
 )
 
 // Language is one of the translations WordPress offers (api.wordpress.org/translations/core).
@@ -125,10 +127,8 @@ func (in *Installer) urlAllowed(raw string) error {
 	return fmt.Errorf("refusing translation URL host %s", host)
 }
 
-func translationPublicIP(ip net.IP) bool {
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsMulticast() && !ip.IsUnspecified() && !ip.IsInterfaceLocalMulticast()
-}
+// translationPublicIP shares the server's outbound list (CGNAT, NAT64, metadata, reserved ranges).
+func translationPublicIP(ip net.IP) bool { return netguard.PublicIP(ip) }
 
 func (in *Installer) api() string {
 	if in.API != "" {

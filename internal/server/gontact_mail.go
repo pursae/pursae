@@ -298,6 +298,14 @@ func (sub *gfSubmission) mail() bool {
 	if sub.skipMail {
 		return true
 	}
+	// Capped against mail floods (notifyMailAllowed): the entry is kept, marked as not mailed, and the
+	// visitor gets the usual answer.
+	if !sub.s.notifyMailAllowed("contact", sub.remoteIP) {
+		if sub.entryID > 0 {
+			sub.s.gontactEntryMailStatus(sub.ctx, sub.entryID, "skipped")
+		}
+		return true
+	}
 	msg, ok := sub.composeMail(sub.form.Mail)
 	if !ok {
 		return false

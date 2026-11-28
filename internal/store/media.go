@@ -230,7 +230,8 @@ type AttachmentQuery struct {
 	AuthorID          int64
 	IDs               []int64
 	Exclude           []int64
-	OrderBy           string // date, title, menuOrder, id
+	ExcludeParentIDs  []int64 // files attached to these posts are left out (and not counted)
+	OrderBy           string  // date, title, menuOrder, id
 	Order             string
 	Page              int
 	PerPage           int
@@ -279,6 +280,9 @@ func (s *Store) QueryAttachments(ctx context.Context, q AttachmentQuery) ([]*Att
 	}
 	if len(q.Exclude) > 0 {
 		conds = append(conds, "NOT (id = ANY("+add(q.Exclude)+"))")
+	}
+	if len(q.ExcludeParentIDs) > 0 {
+		conds = append(conds, "(post_id IS NULL OR NOT (post_id = ANY("+add(q.ExcludeParentIDs)+")))")
 	}
 	where := "TRUE"
 	if len(conds) > 0 {

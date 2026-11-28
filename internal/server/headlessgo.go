@@ -423,10 +423,19 @@ func (s *Server) headlessServe(w http.ResponseWriter, r *http.Request) bool {
 // hgAlwaysOpen are the paths headless mode never closes (the OAuth endpoints too: MCP clients sign in there).
 func hgAlwaysOpen(r *http.Request) bool {
 	p := r.URL.Path
-	for _, pre := range []string{"/wp-admin", "/wp-login", "/wp-json", "/wp-content/", "/wp-includes/", "/wp-cron", "/xmlrpc", "/oauth/", "/.well-known/oauth-"} {
+	// Whole segments only: a raw prefix let /wp-loginx?p=1 or /xmlrpcs?s= reach the site router (#15).
+	for _, pre := range []string{"/wp-content/", "/wp-includes/", "/oauth/", "/.well-known/oauth-"} {
 		if strings.HasPrefix(p, pre) {
 			return true
 		}
+	}
+	for _, seg := range []string{"/wp-admin", "/wp-json"} {
+		if pathUnder(p, seg) {
+			return true
+		}
+	}
+	if p == "/wp-admin.php" || p == "/wp-login" || p == "/wp-login.php" || maintRPCOrCron(p) {
+		return true
 	}
 	if r.URL.Query().Has("rest_route") && strings.Trim(p, "/") == "" {
 		return true

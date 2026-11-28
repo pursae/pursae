@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,9 +182,12 @@ func TestBmgrRestoreResealsSecrets(t *testing.T) {
 	}
 	var archive string
 	bmgrRun(t, srv, "backup", func(j *bmgrJob) (err error) {
-		archive, err = srv.bmgrRunBackup(ctx, j, bmgrSelection{Categories: []string{"settings"}, UserMode: "all"})
+		archive, err = srv.bmgrRunBackup(ctx, j, bmgrSelection{Categories: []string{"settings"}, UserMode: "all", IncludeKey: true})
 		return err
 	})
+	if m, err := bmgrReadManifest(filepath.Join(srv.bmgrDir(), archive)); err != nil || !m.SiteKey {
+		t.Fatalf("an archive made with the key is not marked: %+v %v", m, err)
+	}
 	// This site gets a new secret (another server, a reinstall): the archive's value no longer opens.
 	if err := srv.settings.Set(ctx, map[string]any{"auth_secret": "a-brand-new-secret-for-this-site"}); err != nil {
 		t.Fatal(err)
@@ -199,5 +203,101 @@ func TestBmgrRestoreResealsSecrets(t *testing.T) {
 	}
 	if v := srv.msReveal(srv.settings.String("r2_sealed_probe")); v != "smtp-pass" {
 		t.Errorf("sealed value after the restore: %q", v)
+	}
+}
+
+// By default an archive does not carry the site's encryption key: restored on a site with another key the
+// sealed secrets read as empty (never an error), and the restore reports how many must be entered again.
+func TestBmgrArchiveWithoutKey(t *testing.T) {
+	ts, c, srv := testServerBuilderOff(t)
+	installAndLogin(t, ts, c)
+	ctx := context.Background()
+	if err := srv.bmgrPluginAction(ctx, "activate"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PURSAE_BACKUPS_DIR", t.TempDir())
+	if srv.cfg.Secret != "" {
+		t.Skip("PURSAE_SECRET is set for the tests")
+	}
+	if err := srv.settings.Set(ctx, map[string]any{"r2_sealed_probe": srv.msSeal("smtp-pass"), "r2_sec_probe": srv.sealSecret("stripe-key")}); err != nil {
+		t.Fatal(err)
+	}
+	var archive string
+	bmgrRun(t, srv, "backup", func(j *bmgrJob) (err error) {
+		archive, err = srv.bmgrRunBackup(ctx, j, bmgrSelection{Categories: []string{"settings"}, UserMode: "all"})
+		return err
+	})
+	m, err := bmgrReadManifest(filepath.Join(srv.bmgrDir(), archive))
+	if err != nil || m.SiteKey {
+		t.Fatalf("manifest: %+v %v", m, err)
+	}
+	zr, err := zip.OpenReader(filepath.Join(srv.bmgrDir(), archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range zr.File {
+		if f.Name == "database/settings.jsonl" {
+			if got := bmgrArchiveSecret(f); got != "" {
+				t.Errorf("the archive carries auth_secret")
+			}
+		}
+	}
+	zr.Close()
+
+	// The same site restores its own archive: nothing is unreadable.
+	var job *bmgrJob
+	bmgrRun(t, srv, "restore", func(j *bmgrJob) error {
+		job = j
+		return srv.bmgrRunRestore(ctx, j, bmgrRestoreReq{File: archive, Categories: []string{"settings"}, Me: 1})
+	})
+	if job.Unreadable != 0 || srv.msReveal(srv.settings.String("r2_sealed_probe")) != "smtp-pass" {
+		t.Errorf("same-site restore: %d unreadable, %q", job.Unreadable, srv.msReveal(srv.settings.String("r2_sealed_probe")))
+	}
+
+	// Another key (another server): the values stay sealed, read as empty, and the restore says so.
+	if err := srv.settings.Set(ctx, map[string]any{"auth_secret": "a-brand-new-secret-for-this-site"}); err != nil {
+		t.Fatal(err)
+	}
+	bmgrRun(t, srv, "restore", func(j *bmgrJob) error {
+		job = j
+		return srv.bmgrRunRestore(ctx, j, bmgrRestoreReq{File: archive, Categories: []string{"settings"}, Me: 1})
+	})
+	if job.Unreadable < 2 || job.Warnings == 0 || !strings.Contains(strings.Join(job.Log, "\n"), "cannot be decrypted on this site") {
+		t.Errorf("unreadable secrets not reported: %d, %d warnings\n%s", job.Unreadable, job.Warnings, strings.Join(job.Log, "\n"))
+	}
+	if v := srv.msReveal(srv.settings.String("r2_sealed_probe")); v != "" {
+		t.Errorf("msReveal = %q", v)
+	}
+	if v := srv.revealSecret(srv.settings.String("r2_sec_probe")); v != "" {
+		t.Errorf("revealSecret = %q", v)
+	}
+	// The status the screen polls carries the count.
+	code, body, _ := get(t, c, ts.URL+"/wp-admin/admin?page=backup-manager&action=status&job="+job.ID)
+	if code == http.StatusOK && !strings.Contains(body, `"unreadable":`) {
+		t.Errorf("status lacks the unreadable count: %s", body)
+	}
+}
+
+// The Create tab offers the key as an opt-in, in Turkish on a Turkish site.
+func TestBmgrIncludeKeyOptionTurkish(t *testing.T) {
+	ts, c, srv := testServerBuilderOff(t)
+	installAndLogin(t, ts, c)
+	ctx := context.Background()
+	if err := srv.bmgrPluginAction(ctx, "activate"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.settings.Set(ctx, map[string]any{"WPLANG": "tr_TR"}); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	bmgrRun(t, srv, "restore", func(j *bmgrJob) error { id = j.ID; return nil })
+	_, body, _ := get(t, c, ts.URL+"/wp-admin/admin?page=backup-manager&tab=create&job="+id)
+	if !strings.Contains(body, `name="include_key" value="1">`) || strings.Contains(body, `name="include_key" value="1" checked`) {
+		t.Error("the include-key box is missing or ticked by default")
+	}
+	for _, want := range []string{"Sitenin şifreleme anahtarını ekle (yeni bir sunucuya taşımak için)", "Yedekte bulunmayan eklenti veya tema dosyaları", "Bu sitede çözülemeyen kayıtlı parolalar"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("create tab lacks %q", want)
+		}
 	}
 }

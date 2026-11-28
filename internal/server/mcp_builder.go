@@ -320,9 +320,11 @@ func mcpCreateSections(r *webbuilder.ServerRenderer, specs []any, htmlSrc string
 	return out, warnings, brand, nil
 }
 
-// mcpSampleText warns about the text fields a section shows that the spec left at the design's
-// sample text: the kind's fields minus the extra fields only some designs use and the fields this
-// design hides, plus this design's own extras.
+// mcpSampleText removes the design's sample copy (Pursae's own demo text: "Early release · 0.1",
+// a fake terminal, "One binary" cards…) that the spec did not replace, so a partial spec never
+// publishes it: text fields the design shows and the spec left out are emptied, and the sample
+// items are dropped when the spec gives no items. Pictures and links stay (a sample picture is
+// still a picture). The answer lists what was emptied so the caller can fill it in.
 func mcpSampleText(r *webbuilder.ServerRenderer, spec, sec map[string]any) []string {
 	kind, _ := sec["kind"].(string)
 	if kind == "custom" || kind == "layout" || kind == "html" || kind == "loop" {
@@ -340,14 +342,29 @@ func mcpSampleText(r *webbuilder.ServerRenderer, spec, sec map[string]any) []str
 		if strings.HasPrefix(str, "http") || strings.HasPrefix(str, "#") || strings.HasPrefix(str, "/") {
 			continue // links and images: a sample picture is still a picture
 		}
+		content[k] = ""
 		left = append(left, k)
 	}
-	if len(left) == 0 {
+	droppedItems := 0
+	if _, ok := spec["items"]; !ok {
+		if items, _ := sec["items"].([]any); len(items) > 0 {
+			droppedItems = len(items)
+			sec["items"] = []any{}
+		}
+	}
+	if len(left) == 0 && droppedItems == 0 {
 		return nil
 	}
 	name, _ := sec["name"].(string)
 	id, _ := sec["id"].(string)
-	return []string{fmt.Sprintf("section %s (%s, %q) still shows sample text in: %s — set them with web_builder_edit_page (op update, content) or pick another design", id, kind, name, strings.Join(sortedStrings(left), ", "))}
+	var what []string
+	if len(left) > 0 {
+		what = append(what, "emptied the sample text of "+strings.Join(sortedStrings(left), ", "))
+	}
+	if droppedItems > 0 {
+		what = append(what, fmt.Sprintf("removed %d sample items (give items to add your own)", droppedItems))
+	}
+	return []string{fmt.Sprintf("section %s (%s, %q): %s — set them with web_builder_edit_page (op update, content/items) or pick another design", id, kind, name, strings.Join(what, "; "))}
 }
 
 // mcpVisibleFields are the content keys a section's design shows (from the catalog).
@@ -1162,7 +1179,7 @@ func mcpWBImportThemeKit(s *Server, c *gin.Context, args map[string]any) (any, e
 const mcpBuilderGuide = `A page is a list of sections. Build one with web_builder_build_page {title | post_id, sections: [spec…]}; a spec is
 {kind, design?, name?, content?: {field: text}, items?: [{title, text, icon?, href?}], style?: {palette, align, padding, titleSize}, bg?, grid?, box?, els?}.
 Pick kinds and designs from this catalog (web_builder_catalog kind=<kind> lists a kind's fields, extra fields per design and defaults).
-Every text field you do not set keeps the design's sample text: set them all, or the answer lists them as warnings.
+Text fields you do not set are left empty (the design's sample text is never published) and a section without items gets none; the answer lists them as warnings, so set them all.
 Text fields take plain text or the rich subset <b> <i> <u> <s> <code> <a href> <br> <ul>/<ol>/<li>. Buttons: content.primary / secondary,
 links in content.primaryHref / secondaryHref; nav and footer items are menu links (title + href).
 Images: an http(s) URL or a Media Library URL (upload_media first, then use its source_url).

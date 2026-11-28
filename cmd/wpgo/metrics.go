@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,6 +50,12 @@ func serveMetrics(ctx context.Context, cfg config.Config, mx *metrics.Metrics, p
 	if cfg.MetricsAddr == "" {
 		return
 	}
+	// Without a token the counters (routes, query timings, pool state) must not be reachable from
+	// the network: the listener is only started on a loopback address.
+	if cfg.MetricsToken == "" && !metricsAddrLoopback(cfg.MetricsAddr) {
+		log.Printf("error: the metrics listener was not started: PURSAE_METRICS_ADDR=%s is not a loopback address and PURSAE_METRICS_TOKEN is empty; listen on 127.0.0.1 or set a token", cfg.MetricsAddr)
+		return
+	}
 	h := mx.Handler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -71,4 +79,18 @@ func serveMetrics(ctx context.Context, cfg config.Config, mx *metrics.Metrics, p
 			log.Printf("metrics listener: %v", err)
 		}
 	}()
+}
+
+// metricsAddrLoopback reports whether a listen address binds only loopback ("127.0.0.1:9100",
+// "[::1]:9100", "localhost:9100"). ":9100" and other host names listen beyond this machine.
+func metricsAddrLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

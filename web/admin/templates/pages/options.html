@@ -217,6 +217,8 @@ Discourage search engines from indexing this site</label>
 <option value="webp-all"{{if eq (settingStr "image_output_format") "webp-all"}} selected="selected"{{end}}>WebP for JPEG, PNG and WebP uploads</option>
 </select>
 <p class="description" id="image-output-format-description">The format of the sizes made of each uploaded image. With WebP for JPEG and PNG uploads, the image itself is saved as WebP too and the uploaded file is kept as the original image. Images already in the Media Library are not changed.</p></td></tr>
+<tr><th scope="row" colspan="2" class="th-full"><label for="pursae_strip_exif"><input name="pursae_strip_exif" type="checkbox" id="pursae_strip_exif" value="1" aria-describedby="pursae-strip-exif-description"{{if settingBool "pursae_strip_exif"}} checked="checked"{{end}} /> Remove location and camera data from uploaded photos</label>
+<p class="description" id="pursae-strip-exif-description">GPS position, camera model and serial number (EXIF/XMP) are removed from uploaded JPEG files; the orientation is kept. Images already in the Media Library are not changed.</p></th></tr>
 </table>{{end}}
 
 {{define "options-permalink"}}<p>WordPress offers you the ability to create a custom URL structure for your permalinks and archives. Custom URL structures can improve the aesthetics, usability, and forward-compatibility of your links. A <a href="https://wordpress.org/documentation/article/customize-permalinks/">number of tags are available</a>, and here are some examples to get you started.</p>

@@ -212,7 +212,7 @@ func (s *Server) gooRunThemeStep(c *gin.Context, lt *libraryTheme, step string) 
 			return fail("A bundled theme already uses this name.")
 		}
 		if t == nil || semverLess(t.Version, m.Version) {
-			if _, err := s.installLibraryTheme(c, lt); err != nil {
+			if _, err := s.installLibraryTheme(withExtActor(c.Request.Context(), currentUser(c)), lt); err != nil {
 				return fail("Installation failed: " + err.Error())
 			}
 			res.Message = m.Name + " is installed."

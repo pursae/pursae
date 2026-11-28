@@ -25,6 +25,10 @@ import (
 // URL, another site) revalidates, so it never shows an older file for a year.
 func (s *Server) uploadCacheControl(c *gin.Context) string {
 	rel := strings.TrimPrefix(path.Clean(c.Request.URL.Path), "/wp-content/uploads/")
+	if strings.HasPrefix(rel, "wp-personal-data-exports/") {
+		// A personal-data export is one person's data behind an unguessable name: no shared cache keeps it (#25).
+		return "private, no-store"
+	}
 	if cc, ok := s.wbKitCacheControl(c, rel); ok { // design kit files (webbuilder_kits.go)
 		return cc
 	}

@@ -13,6 +13,8 @@ import (
 )
 
 func TestCLICacheFlushClearsDiskOnProxyFailure(t *testing.T) {
+	// The test proxy listens on 127.0.0.1: a private purge target needs the operator switch.
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
 	ts, client, srv := newTestServer(t, false)
 	installAndLogin(t, ts, client)
 	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -52,6 +54,8 @@ func TestCLICacheFlushClearsDiskOnProxyFailure(t *testing.T) {
 }
 
 func TestCLICacheFlushReportsProxyAndDiskFailures(t *testing.T) {
+	// The test proxy listens on 127.0.0.1: a private purge target needs the operator switch.
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
 	ts, client, srv := newTestServer(t, false)
 	installAndLogin(t, ts, client)
 	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

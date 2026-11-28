@@ -85,6 +85,18 @@ modules' front-end texts are still English.
 
 A password reset requested for an account with the `customer` role sends the store's "Reset password"
 e-mail (Settings > Emails) when it is enabled; every other account gets the core "[Site] Password Reset" message.
+My account has its own **lost-password** form (0.6.3+): the request, the "e-mail sent" answer and the
+new-password form all stay on the store page, with the same limits as the core form (3 requests per
+15 minutes per network and per account) and the same answer whether or not the account exists.
+
+A **password-protected product** shows the password form on its product page instead of the
+description (0.6.3+); the Store API returns an empty `description` and `short_description` for it
+until the request carries the `wp-postpass` cookie of the right password.
+
+Guest checkout places at most 10 orders per 10 minutes from one address, and wrong gift card codes
+(balance check or applying one) are limited to 10 per 10 minutes per address (0.6.3+). A billing or
+shipping state given by name ("California") is turned into its code ("CA") before shipping and tax
+are calculated.
 
 A store theme may also ship demo content with a `goocommerce` section in `demo/demo.json` (products,
 reviews, coupons, shipping), imported with the rest of the demo. The package format is in
@@ -98,7 +110,8 @@ reviews, coupons, shipping), imported with the rest of the demo. The package for
 | `wc/v3` | The management API: products, orders, customers, coupons, settings | Logged-in cookie with `X-WP-Nonce`, an application password, or a consumer key and secret from `goo_api_keys` |
 
 Both follow WooCommerce's JSON shapes, query parameters, error codes and headers, so clients written
-for WooCommerce work unchanged.
+for WooCommerce work unchanged. A `wc/v3` batch request with `delete` items needs the resource's
+delete capability as well as the write one (0.6.3+).
 
 ## Extension points
 
@@ -144,6 +157,10 @@ transaction, and leaves a hold on any other product alone. A payment cannot take
 put on hold (the stock is reduced instead), cancelled or failed, or when the time runs out (expired holds
 count for nothing; the hourly job deletes them and cancels the unpaid order). Products that do not manage
 stock or allow backorders are not reserved.
+
+Coupon uses are claimed when the order is placed (0.6.3+), not when it is paid: with a single-use
+coupon only one of two simultaneous checkouts gets the discount, and the other stops before payment.
+The use is released again when the payment fails or the unpaid order is cancelled.
 
 ## Known limits
 
@@ -241,6 +258,9 @@ Bookings REST (`wc-bookings/v1`): `GET /products/slots?product_id=&date=` (publi
 - E-mails (Goocommerce > Settings > Emails): Membership welcome, Membership ending soon (days before the end set by Memberships > Ending soon reminder, 0 = off) and Membership ended. Each is sent once per membership and end date.
 - Plan > Restrict Content > Drip schedule (`post ID:days, tTERMID:days`) opens restricted content N days after the membership start; members see "available on <date>" until then.
 - The comments of restricted content are restricted too: non-members do not see them on the page, in the comment feeds, in the Latest Comments block or through `wp/v2/comments`.
+- Restricted content is kept from non-members everywhere it can surface (0.6.3+): ACF fields, footnotes,
+  Web Builder field slots, the Latest Posts block, SEO images and sitemaps, GraphQL, and the media API
+  (attachments of restricted posts). Non-members cannot comment on restricted posts.
 - The plan form checks that every product, post and term ID exists and has search boxes that add IDs to the fields.
 
 Some payment methods do not support refunds; their cancelled paid bookings get a "refund required" order note.
