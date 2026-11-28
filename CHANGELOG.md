@@ -10,6 +10,8 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-28
+
 ### Changed
 
 - **Pursae Flipbook has a new viewer.** Pages now fold and turn like paper: click, drag a page across, or lift and
