@@ -300,6 +300,9 @@ func (s *Server) gsubUpdateStatus(ctx context.Context, sub *gooSubscription, to,
 		}
 		sub.NextPayment = nil
 	case "active":
+		// Paid, or reactivated by the store: nothing is owed any more (the customer's own Reactivate
+		// is not offered while it is, gsubCustomerActions).
+		delete(sub.Meta, "_unpaid_renewal")
 		if from == "on-hold" && sub.NextPayment != nil && sub.NextPayment.Before(now) {
 			// Reactivated after a suspension: the next payment is one period from now.
 			np := gxaAddPeriod(now, sub.Period, sub.Interval)
@@ -858,11 +861,17 @@ func (s *Server) gsubRecurringTotals(c *gin.Context, cart *gooCart) template.HTM
 // gsubDropPendingRenewal forgets an unpaid renewal order that will never be paid. A regular renewal
 // puts an active subscription on hold (the period was not paid for; the customer can pay from a new
 // renewal or the store reactivates it); an early renewal just leaves the subscription as it was.
+// The dropped regular renewal is remembered (_unpaid_renewal) so the customer cannot Reactivate the
+// on-hold subscription without paying (WooCommerce Subscriptions offers no Reactivate while the
+// subscription needs payment); a paid renewal or the store's own reactivation clears it.
 func (s *Server) gsubDropPendingRenewal(ctx context.Context, sub *gooSubscription, orderID int64, early bool, note string) {
 	if gxaInt64(sub.Meta, "_pending_renewal") != orderID {
 		return
 	}
 	delete(sub.Meta, "_pending_renewal")
+	if !early {
+		sub.Meta["_unpaid_renewal"] = true
+	}
 	if !early && sub.Status == "active" {
 		_ = s.gsubUpdateStatus(ctx, sub, "on-hold", note, "")
 		return
@@ -882,6 +891,7 @@ func (s *Server) gsubOrderStatusChanged(ctx context.Context, o *gooOrder, from, 
 			sub.LastOrderID = o.ID
 			// The suspension allowance is per billing period: a paid renewal starts a new one.
 			delete(sub.Meta, "_suspension_count")
+			delete(sub.Meta, "_unpaid_renewal")
 			if gxaInt64(sub.Meta, "_pending_renewal") == o.ID {
 				delete(sub.Meta, "_pending_renewal")
 			}
@@ -1258,7 +1268,13 @@ func (s *Server) gsubCustomerActions(ctx context.Context, sub *gooSubscription) 
 			out = append(out, gooOpt{"on-hold", "Suspend"})
 		}
 	case "on-hold":
-		if gxaInt64(sub.Meta, "_pending_renewal") == 0 {
+		// An unpaid renewal (pending, or cancelled and remembered as _unpaid_renewal) keeps the
+		// subscription on hold until it is paid: the customer pays a new renewal instead.
+		switch {
+		case gxaInt64(sub.Meta, "_pending_renewal") != 0:
+		case sub.Meta["_unpaid_renewal"] != nil:
+			out = append(out, gooOpt{"renew", "Renew now"})
+		default:
 			out = append(out, gooOpt{"active", "Reactivate"})
 		}
 	}
@@ -1331,7 +1347,8 @@ func gsubFrontRoute(s *Server, c *gin.Context, path string) bool {
 	}
 	switch action {
 	case "renew":
-		o, err := s.gsubCreateRenewal(ctx, sub, true)
+		// On hold for an unpaid renewal: a regular renewal for the unpaid period; otherwise early.
+		o, err := s.gsubCreateRenewal(ctx, sub, sub.Status == "active")
 		if err != nil {
 			return fail(gooEsc(err.Error()))
 		}

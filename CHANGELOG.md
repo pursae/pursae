@@ -19,6 +19,9 @@ Hardening from the internal review. Upgrade every site.
   `PURSAE_BACKUP_MAX_UNPACKED`.
 - Admin-set SMTP hosts and the cache purge URL reach private networks only with `PURSAE_ALLOW_PRIVATE_ENDPOINTS=1`.
 - Cross-site `POST`s to the login page and signed-in comment posts are refused (403).
+- `POST /wp/v2/users` without `roles` checks that the caller may give the default role.
+- Password-protected products keep their text hidden in the `[product_page]` shortcode and Web Builder product slots;
+  an unpaid renewal no longer reactivates a cancelled-renewal subscription.
 - A role or capability change by another administrator, a forum block or forum role change ends that user's sessions.
 - Lost-password requests: 3 per 15 minutes per network and per account, counted in the database.
 - Updating an active plugin from the web needs `activate_plugins`; overwriting a theme needs `update_themes`.

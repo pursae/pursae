@@ -1194,6 +1194,13 @@ func (api *restAPI) createUser(c *gin.Context, r *restRequest) {
 	}
 	if !hasRoles || len(roles) == 0 {
 		roles = []string{s.settings.String("default_role")}
+		// The default role counts as a role the actor gives, as on Add User: a promoter may only give
+		// it within actorMayGiveRole (an omitted or empty roles list must not reach editor or
+		// administrator past the check an explicit list gets).
+		if cur.Can("promote_users", nil) && !s.actorMayGiveRole(c, cur, roles[0]) {
+			restErr(c, http.StatusForbidden, "rest_user_invalid_role", "Sorry, you are not allowed to give users that role.")
+			return
+		}
 	}
 	if msg := s.adminsecPasswordProblem(roles, login, email, pass); msg != "" { // AdminSecGo password policy
 		restErr(c, http.StatusBadRequest, "rest_user_invalid_password", msg)

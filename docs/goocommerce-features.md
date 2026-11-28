@@ -91,7 +91,11 @@ new-password form all stay on the store page, with the same limits as the core f
 
 A **password-protected product** shows the password form on its product page instead of the
 description (0.6.3+); the Store API returns an empty `description` and `short_description` for it
-until the request carries the `wp-postpass` cookie of the right password.
+until the request carries the `wp-postpass` cookie of the right password. The same applies where the product's text is shown elsewhere: the
+`[product_page]` shortcode and Web Builder product description, short description and tabs slots.
+
+A subscription put on hold by an unpaid renewal becomes active again only when that renewal is paid; cancelling
+the unpaid renewal does not reactivate it (0.6.3+).
 
 Guest checkout places at most 10 orders per 10 minutes from one address, and wrong gift card codes
 (balance check or applying one) are limited to 10 per 10 minutes per address (0.6.3+). A billing or

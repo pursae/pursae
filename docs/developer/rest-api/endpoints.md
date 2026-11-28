@@ -58,7 +58,7 @@ language, of the same type, that the user may edit; an entry for the saved objec
 
 | Route | Methods | Notes |
 |-------|---------|-------|
-| `/users` | GET, POST | `GET`: public profiles (`who=authors`), or all users with `list_users`; `capabilities`, `offset`. Without `list_users`, `search` matches only the id, login, slug and display name. `POST` creates a user (`create_users`; `username`, `email`, `password`) |
+| `/users` | GET, POST | `GET`: public profiles (`who=authors`), or all users with `list_users`; `capabilities`, `offset`. Without `list_users`, `search` matches only the id, login, slug and display name. `POST` creates a user (`create_users`; `username`, `email`, `password`); without `roles` the site's default role is given only if the caller may give that role (0.6.3+) |
 | `/users/{id}` | GET, POST, DELETE | `POST` updates; `DELETE` needs `?force=true` (users cannot be trashed) and `delete_users`, and `reassign` moves the user's content to another user |
 | `/users/me` | GET, POST, DELETE | the current user; `context=edit` for the full record (and `meta.persisted_preferences`, which only that context returns) |
 | `/comments` | GET, POST | `post`, `parent`, `parent_exclude`, `include`, `exclude`, `author`, `author_exclude`, `author_email`, `type`, `status`, `offset`; anonymous comments honour the Discussion settings |
