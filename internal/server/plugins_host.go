@@ -728,6 +728,9 @@ func (s *Server) pluginSettingsScreen(c *gin.Context, slug string) bool {
 		s.enqueueMedia(c, 0)
 		s.pageAssets(c).AddInline("media-editor", pluginMediaFieldJS)
 	}
+	if pluginFieldsHave(page.Fields, "color") { // swatch + Clear of color fields (plugins_fields.go)
+		s.pageAssets(c).Script("jquery").AddInline("jquery", pluginColorFieldJS)
+	}
 	var notices []notice
 	if c.Query("settings-updated") == "true" {
 		notices = append(notices, notice{Type: "success", Message: "Settings saved.", Dismissible: true})

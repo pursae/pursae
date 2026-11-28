@@ -14,7 +14,17 @@ func X(text, context string) string {
 	if text == "" {
 		return text
 	}
-	raw, err := hostCall("translate", map[string]string{"text": text, "context": context})
+	resp, err := invokeHost("translate", translateRequest(text, context))
+	if err != nil {
+		return text
+	}
+	if v, ok := fastString(resp, translatePrefix, resultSuffix); ok { // fastpath.go
+		if v == "" {
+			return text
+		}
+		return v
+	}
+	raw, err := decodeResponse(resp)
 	if err != nil {
 		return text
 	}

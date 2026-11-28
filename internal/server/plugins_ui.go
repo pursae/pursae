@@ -277,16 +277,17 @@ func (s *Server) pluginMetaBoxesClassic(c *gin.Context, p *store.Post, where str
 }
 
 // pluginMetaBoxMediaJS adds the image field script once per edit screen when a box has an image
-// field (the edit screens enqueue the media modal themselves).
+// field (the edit screens enqueue the media modal themselves), and the color field script when a box
+// has a color field.
 func (s *Server) pluginMetaBoxMediaJS(c *gin.Context, boxes []plugins.PluginMetaBox) {
-	if _, done := c.Get("pluginMediaFieldJS"); done {
-		return
-	}
 	for _, pb := range boxes {
-		if pluginFieldsHaveImage(pb.Box.Fields) {
+		if _, done := c.Get("pluginMediaFieldJS"); !done && pluginFieldsHaveImage(pb.Box.Fields) {
 			c.Set("pluginMediaFieldJS", true)
 			s.pageAssets(c).AddInline("media-editor", pluginMediaFieldJS)
-			return
+		}
+		if _, done := c.Get("pluginColorFieldJS"); !done && pluginFieldsHave(pb.Box.Fields, "color") {
+			c.Set("pluginColorFieldJS", true) // swatch + Clear of color fields (plugins_fields.go)
+			s.pageAssets(c).Script("jquery").AddInline("jquery", pluginColorFieldJS)
 		}
 	}
 }

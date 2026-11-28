@@ -9,16 +9,35 @@ import (
 // returned JSON-encoded. A missing option yields "", false, nil.
 // Requires the "options:read" permission.
 func GetOption(name string) (string, bool, error) {
-	var raw json.RawMessage
-	found, err := GetOptionJSON(name, &raw)
-	if err != nil || !found {
-		return "", found, err
+	raw, err := invokeHost("get_option", getOptionRequest(name))
+	if err != nil {
+		return "", false, err
+	}
+	if v, ok := fastString(raw, optionFoundPrefix, resultSuffix); ok { // fastpath.go
+		return v, true, nil
+	}
+	if string(raw) == optionMissing {
+		return "", false, nil
+	}
+	res, err := decodeResponse(raw)
+	if err != nil {
+		return "", false, err
+	}
+	var out struct {
+		Found bool            `json:"found"`
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return "", false, fmt.Errorf("wpgo: decode get_option result: %w", err)
+	}
+	if !out.Found {
+		return "", false, nil
 	}
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(out.Value, &s) == nil {
 		return s, true, nil
 	}
-	return string(raw), true, nil
+	return string(out.Value), true, nil
 }
 
 // GetOptionJSON decodes a site option into v and reports whether it exists.

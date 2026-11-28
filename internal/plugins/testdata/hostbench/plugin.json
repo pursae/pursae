@@ -1,0 +1,7 @@
+{
+  "slug": "hostbench",
+  "name": "Host call benchmark",
+  "version": "0.0.1",
+  "permissions": ["options:read"],
+  "hooks": ["hostbench"]
+}

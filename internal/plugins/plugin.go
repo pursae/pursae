@@ -43,6 +43,10 @@ type Plugin struct {
 	sem     chan struct{}
 	mod     api.Module
 	modName string
+	// exports caches the guest exports the runtime calls (callExport), for the module instance
+	// in exportsMod. Guarded by sem like mod.
+	exports    map[string]*cachedExport
+	exportsMod api.Module
 
 	// state guards regs, failures and reason. It is never held while
 	// calling into the guest.
@@ -175,7 +179,7 @@ func (p *Plugin) instantiate(parent context.Context) (err error) {
 	if p.mod != nil {
 		_ = p.mod.Close(parent)
 		p.rt.forgetModule(p.modName)
-		p.mod = nil
+		p.mod, p.exports, p.exportsMod = nil, nil, nil
 	}
 	snap := p.snapshotRegistrations()
 	p.resetRegistrations()
@@ -214,6 +218,40 @@ func (p *Plugin) instantiate(parent context.Context) (err error) {
 	}
 	p.mod, p.modName = mod, name
 	return nil
+}
+
+// cachedExport is a guest export kept for repeated calls. wazero builds a new call engine, with
+// its own stack (about 10 KiB), on every ExportedFunction; every host call needs wpgo_alloc for its
+// response, so fetching the function per call cost an allocation of that size per host call.
+type cachedExport struct {
+	fn   api.Function
+	busy bool // a call through fn is running
+}
+
+// callExport calls the guest export name of instance m through a function cached per instance.
+// A call engine must not be re-entered while it runs (its stack is in use), so a nested call of
+// the same export — a guest whose wpgo_alloc calls a host import, which calls wpgo_alloc again —
+// gets a fresh function instead. Callers hold the instance lock (sem), and host functions run on
+// the goroutine of the guest call that holds it, so the cache needs no other locking.
+func (p *Plugin) callExport(ctx context.Context, m api.Module, name string, params ...uint64) ([]uint64, error) {
+	if p.exportsMod != m {
+		p.exports, p.exportsMod = map[string]*cachedExport{}, m
+	}
+	c := p.exports[name]
+	if c == nil {
+		f := m.ExportedFunction(name)
+		if f == nil {
+			return nil, fmt.Errorf("%s is not exported", name)
+		}
+		c = &cachedExport{fn: f}
+		p.exports[name] = c
+	}
+	if c.busy {
+		return m.ExportedFunction(name).Call(ctx, params...)
+	}
+	c.busy = true
+	defer func() { c.busy = false }()
+	return c.fn.Call(ctx, params...)
 }
 
 // errReentrant is returned when a hook would call back into a plugin that is
@@ -320,16 +358,16 @@ func (p *Plugin) callGuest(parent context.Context, body []byte, budget time.Dura
 
 	start := time.Now()
 	mod := p.mod
-	ptr, err := writeGuest(ctx, mod, body)
+	ptr, err := writeGuest(ctx, p, mod, body)
 	if err != nil {
 		return nil, time.Since(start), describeCallError(ctx, err)
 	}
-	res, err := mod.ExportedFunction(exportHandle).Call(ctx, uint64(ptr), uint64(len(body)))
+	res, err := p.callExport(ctx, mod, exportHandle, uint64(ptr), uint64(len(body)))
 	took = time.Since(start)
 	if err != nil {
 		return nil, took, describeCallError(ctx, err)
 	}
-	out, err := readGuest(ctx, mod, res[0], p.rt.cfg.MaxMessageSize, true)
+	out, err := readGuest(ctx, p, mod, res[0], p.rt.cfg.MaxMessageSize, true)
 	if err != nil {
 		return nil, took, err
 	}
@@ -377,7 +415,7 @@ func (p *Plugin) disableLocked(ctx context.Context, reason string) {
 	if p.mod != nil {
 		_ = p.mod.Close(ctx)
 		p.rt.forgetModule(p.modName)
-		p.mod = nil
+		p.mod, p.exports, p.exportsMod = nil, nil, nil
 	}
 	if first {
 		p.logs.add("error", "runtime", reason)
