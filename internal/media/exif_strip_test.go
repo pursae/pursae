@@ -6,6 +6,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -103,7 +104,8 @@ func TestStripJPEGFileStreamsLargeFile(t *testing.T) {
 	if _, err := jpeg.Decode(bytes.NewReader(got)); err != nil {
 		t.Fatalf("stripped file does not decode: %v", err)
 	}
-	if st, _ := os.Stat(full); st.Mode().Perm() != 0o640 {
+	// Windows has no Unix permission bits to keep.
+	if st, _ := os.Stat(full); runtime.GOOS != "windows" && st.Mode().Perm() != 0o640 {
 		t.Fatalf("mode %v, want 0640", st.Mode().Perm())
 	}
 	if left, _ := filepath.Glob(filepath.Join(dir, ".*exif*")); len(left) != 0 {

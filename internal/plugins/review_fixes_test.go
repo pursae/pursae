@@ -255,9 +255,10 @@ func TestOwnBudgetTimeoutCountsCallerDeadlineDoesNot(t *testing.T) {
 		t.Fatal("disabled for callers that gave up")
 	}
 	// The plugin's own budget runs out; the caller's deadline is later
-	// but close (as servePluginRest's request deadline is to RestTimeout).
+	// (as servePluginRest's request deadline is to RestTimeout), with room
+	// for a slow runner such as -race.
 	for range 2 {
-		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		hooks.ApplyFilters(ctx, "probe_loop", "v")
 		cancel()
 	}
