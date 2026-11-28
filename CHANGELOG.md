@@ -10,6 +10,8 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-28
+
 ### Security
 
 Hardening from the internal review. Upgrade every site.
