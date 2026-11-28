@@ -35,7 +35,7 @@ import (
 // Version is shown in the admin footer and the generator meta tag, sent to Pursae Manager and compared
 // with its core releases. It is a variable so release builds set it:
 // go build -ldflags "-X wpgo/internal/server.Version=0.2.0" ./cmd/wpgo
-var Version = "0.6.1"
+var Version = "0.6.2"
 
 type Server struct {
 	cfg      config.Config
