@@ -80,6 +80,8 @@ func pluginFieldRow(name string, f plugins.SettingsField, v any) string {
 		td = `<input name="` + n + `" type="number" id="` + n + `" value="` + e(text) + `" class="small-text"` + mm + ` step="any"` + ph + ` />` + desc
 	case "image":
 		td = pluginImageField(n, label, text, ph) + desc
+	case "color":
+		td = pluginColorField(n, label, text) + desc
 	case "select":
 		var b strings.Builder
 		b.WriteString(`<select name="` + n + `" id="` + n + `">`)
@@ -92,13 +94,13 @@ func pluginFieldRow(name string, f plugins.SettingsField, v any) string {
 		}
 		b.WriteString("</select>")
 		td = b.String() + desc
-	default: // text, email, url, password, color, date
+	default: // text, email, url, password, date
 		typ, class := f.Type, ` class="regular-text"`
 		switch typ {
 		case "password":
 			text = "" // never printed back; an empty input keeps the stored value
 			ph = ` autocomplete="new-password"` + ph
-		case "color", "date":
+		case "date":
 			class = ""
 		case "email", "url":
 			class = ` class="regular-text code"`
@@ -229,15 +231,79 @@ func pluginImageField(n, label, value, ph string) string {
 		`</div>`
 }
 
-// pluginFieldsHaveImage reports whether a list of fields holds an image field.
-func pluginFieldsHaveImage(fields []plugins.SettingsField) bool {
+// pluginColorField is the control of a color field. The posted value is a text input, so an empty
+// colour stays empty: a bare <input type="color"> cannot be empty, shows black and posts #000000 on
+// every save, which turned an untouched optional colour into black. The native picker is a swatch
+// without a name (never posted) that pluginColorFieldJS keeps in step with the text, plus a Clear
+// link; without JavaScript the text input alone works.
+func pluginColorField(n, label, value string) string {
+	e := html.EscapeString
+	swatch := "#000000"
+	if pluginColorRe.MatchString(value) {
+		switch h := value[1:]; len(h) {
+		case 3:
+			swatch = "#" + string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+		default: // 6, or 8 with alpha the picker cannot show
+			swatch = "#" + h[:6]
+		}
+		swatch = strings.ToLower(swatch)
+	}
+	hidden := ""
+	if value == "" {
+		hidden = " hidden"
+	}
+	return `<span class="pursae-color-field">` +
+		`<input name="` + n + `" type="text" id="` + n + `" value="` + e(value) + `" class="code pursae-color-field__value" size="10" maxlength="9" placeholder="No colour" pattern="#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})" /> ` +
+		`<input type="color" class="pursae-color-field__swatch hide-if-no-js" value="` + swatch + `" aria-label="` + label + `" /> ` +
+		`<button type="button" class="button-link button-link-delete pursae-color-field__clear hide-if-no-js"` + hidden + `>Clear</button>` +
+		`</span>`
+}
+
+// pluginFieldsHave reports whether a list of fields holds a field of type typ.
+func pluginFieldsHave(fields []plugins.SettingsField, typ string) bool {
 	for _, f := range fields {
-		if f.Type == "image" {
+		if f.Type == typ {
 			return true
 		}
 	}
 	return false
 }
+
+// pluginFieldsHaveImage reports whether a list of fields holds an image field.
+func pluginFieldsHaveImage(fields []plugins.SettingsField) bool {
+	return pluginFieldsHave(fields, "image")
+}
+
+// pluginColorFieldJS keeps the swatch, the text value and the Clear link of color fields in step
+// (plain DOM, delegated, so meta boxes reloaded after a save keep working).
+const pluginColorFieldJS = `( function() {
+	var re = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+	function wrap( el ) { return el.closest && el.closest( '.pursae-color-field' ); }
+	function sync( w ) {
+		var v = w.querySelector( '.pursae-color-field__value' ).value.trim(), m = re.exec( v );
+		if ( m ) {
+			var h = m[1];
+			if ( h.length === 3 ) { h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]; }
+			w.querySelector( '.pursae-color-field__swatch' ).value = '#' + h.slice( 0, 6 ).toLowerCase();
+		}
+		w.querySelector( '.pursae-color-field__clear' ).hidden = ! v;
+	}
+	document.addEventListener( 'input', function( event ) {
+		var t = event.target, w = wrap( t );
+		if ( ! w ) { return; }
+		if ( t.classList.contains( 'pursae-color-field__swatch' ) ) {
+			w.querySelector( '.pursae-color-field__value' ).value = t.value;
+		}
+		sync( w );
+	} );
+	document.addEventListener( 'click', function( event ) {
+		var t = event.target, w = wrap( t );
+		if ( ! w || ! t.classList.contains( 'pursae-color-field__clear' ) ) { return; }
+		event.preventDefault();
+		w.querySelector( '.pursae-color-field__value' ).value = '';
+		sync( w );
+	} );
+} )();`
 
 // pluginMediaFieldJS wires the image fields of plugin settings pages and meta boxes to the media
 // modal. Handlers are delegated, so meta boxes Pursae Editor reloads after a save keep working.

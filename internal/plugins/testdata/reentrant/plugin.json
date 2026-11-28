@@ -1,0 +1,7 @@
+{
+  "slug": "reentrant",
+  "name": "Re-entrant alloc",
+  "version": "0.0.1",
+  "permissions": [],
+  "hooks": []
+}

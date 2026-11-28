@@ -36,13 +36,13 @@ func TestMain(m *testing.M) {
 
 // buildPlugin compiles the plugin in pkgDir (relative to the module root) for
 // wasip1/wasm. It skips the test when the toolchain cannot target wasip1.
-func buildPlugin(t *testing.T, pkgDir string) []byte {
+func buildPlugin(t testing.TB, pkgDir string) []byte {
 	t.Helper()
 	return buildPluginMode(t, pkgDir, "c-shared")
 }
 
 // buildPluginMode is buildPlugin with an explicit -buildmode.
-func buildPluginMode(t *testing.T, pkgDir, mode string) []byte {
+func buildPluginMode(t testing.TB, pkgDir, mode string) []byte {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping Wasm plugin build in -short mode")
@@ -82,7 +82,7 @@ func buildPluginMode(t *testing.T, pkgDir, mode string) []byte {
 
 // buildPackage builds pkgDir and wraps it in a signed package loaded through
 // LoadPackage, mirroring what the core does with an uploaded zip.
-func buildPackage(t *testing.T, pkgDir string) *Package {
+func buildPackage(t testing.TB, pkgDir string) *Package {
 	t.Helper()
 	wasm := buildPlugin(t, pkgDir)
 	manifest, err := os.ReadFile(filepath.Join(moduleRoot, pkgDir, ManifestFile))
@@ -116,7 +116,7 @@ func buildPackage(t *testing.T, pkgDir string) *Package {
 }
 
 // newTestRuntime returns a runtime with short timeouts, closed at cleanup.
-func newTestRuntime(t *testing.T, cfg Config) *Runtime {
+func newTestRuntime(t testing.TB, cfg Config) *Runtime {
 	t.Helper()
 	if cfg.CallTimeout == 0 {
 		cfg.CallTimeout = 500 * time.Millisecond
@@ -136,7 +136,7 @@ func newTestRuntime(t *testing.T, cfg Config) *Runtime {
 
 // loadPlugin builds and loads a plugin with all its declared permissions
 // unless perms is given.
-func loadPlugin(t *testing.T, rt *Runtime, pkgDir string, host Host, perms ...Permission) *Plugin {
+func loadPlugin(t testing.TB, rt *Runtime, pkgDir string, host Host, perms ...Permission) *Plugin {
 	t.Helper()
 	pkg := buildPackage(t, pkgDir)
 	if perms == nil {

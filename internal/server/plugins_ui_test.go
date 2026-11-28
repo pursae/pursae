@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	xhtml "golang.org/x/net/html"
+
 	"wpgo/internal/plugins"
 	"wpgo/internal/store"
 )
@@ -181,5 +183,58 @@ func TestPluginUIAdminPageDashboardMetaBoxAndBlock(t *testing.T) {
 	// The Web Builder widget renders through the runtime.
 	if html, ok := srv.renderPluginWidget(ctx, "ui-demo/badge", map[string]any{"text": "WB"}); !ok || !strings.Contains(html, ">WB</span>") {
 		t.Errorf("builder widget = %q %v", html, ok)
+	}
+}
+
+// An untouched optional color field must save as "", not as the black a bare <input type="color">
+// shows and posts. The form is submitted the way a browser does: every named control, with the
+// value it renders.
+func TestPluginColorFieldUntouchedStaysEmpty(t *testing.T) {
+	f := plugins.SettingsField{ID: "accent", Label: "Accent", Type: "color"}
+	submit := func(row string) (string, bool) {
+		doc, err := xhtml.Parse(strings.NewReader("<table>" + row + "</table>"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var val string
+		var found bool
+		var walk func(n *xhtml.Node)
+		walk = func(n *xhtml.Node) {
+			if n.Type == xhtml.ElementNode && n.Data == "input" {
+				attr := map[string]string{}
+				for _, a := range n.Attr {
+					attr[a.Key] = a.Val
+				}
+				if attr["name"] == "plugin_x_accent" {
+					val, found = attr["value"], true
+				} else if attr["name"] != "" {
+					t.Errorf("unexpected named control %q", attr["name"])
+				}
+				if attr["type"] == "color" && attr["name"] != "" {
+					t.Errorf("the native color input is posted: %s", row)
+				}
+			}
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				walk(c)
+			}
+		}
+		walk(doc)
+		return val, found
+	}
+	for _, stored := range []any{nil, ""} {
+		raw, present := submit(pluginFieldRow("plugin_x_accent", f, stored))
+		if got, ok := pluginFieldValue(f, raw, present); !ok || got != "" {
+			t.Errorf("stored %v: untouched color saved as %v (ok %v), want \"\"", stored, got, ok)
+		}
+	}
+	row := pluginFieldRow("plugin_x_accent", f, "#AbC")
+	if raw, present := submit(row); raw != "#AbC" || !present {
+		t.Errorf("set color not posted back: %q %v", raw, present)
+	}
+	if !strings.Contains(row, `type="color" class="pursae-color-field__swatch hide-if-no-js" value="#aabbcc"`) {
+		t.Errorf("swatch should show the stored colour: %s", row)
+	}
+	if row = pluginFieldRow("plugin_x_accent", f, `#fff" onclick="x`); strings.Contains(row, `" onclick`) {
+		t.Errorf("value not escaped: %s", row)
 	}
 }

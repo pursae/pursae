@@ -43,7 +43,7 @@ func init() {
 | `email` | string, a valid address or "" | `Placeholder` |
 | `url` | string, an http(s) URL (cleaned) or "" | `Placeholder` |
 | `password` | string; never printed back, an empty input keeps the stored value | `Placeholder` |
-| `color` | string, `#rgb`, `#rrggbb` or `#rrggbbaa`, or "" | — |
+| `color` | string, `#rgb`, `#rrggbb` or `#rrggbbaa`, or "" | a hex text input with a colour swatch and **Clear**; an untouched field stays "" (before 0.6.2 it was a bare colour input that saved `#000000`) |
 | `date` | string `YYYY-MM-DD` or "" | — |
 | `image` | string, an http(s) URL or a site-relative path (`/wp-content/uploads/…`), or "" | `Placeholder`; a **Select image** button opens the media library (upload or pick), with a preview and Remove. Since 0.5.5 |
 

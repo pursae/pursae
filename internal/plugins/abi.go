@@ -164,7 +164,7 @@ func respond(ctx context.Context, p *Plugin, m api.Module, result any, err error
 	if mErr != nil {
 		body, _ = json.Marshal(hostResponse{Code: CodeHostError, Error: "cannot encode response"})
 	}
-	ptr, wErr := writeGuest(ctx, m, body)
+	ptr, wErr := writeGuest(ctx, p, m, body)
 	if wErr != nil {
 		p.logs.add("error", "runtime", "cannot deliver host response: "+wErr.Error())
 		return 0
@@ -173,8 +173,8 @@ func respond(ctx context.Context, p *Plugin, m api.Module, result any, err error
 }
 
 // writeGuest allocates len(data) bytes with wpgo_alloc and copies data in.
-func writeGuest(ctx context.Context, m api.Module, data []byte) (uint32, error) {
-	res, err := m.ExportedFunction(exportAlloc).Call(ctx, uint64(len(data)))
+func writeGuest(ctx context.Context, p *Plugin, m api.Module, data []byte) (uint32, error) {
+	res, err := p.callExport(ctx, m, exportAlloc, uint64(len(data)))
 	if err != nil {
 		return 0, fmt.Errorf("wpgo_alloc: %w", err)
 	}
@@ -190,7 +190,7 @@ func writeGuest(ctx context.Context, m api.Module, data []byte) (uint32, error) 
 
 // readGuest copies a packed ptr/len buffer out of guest memory, optionally
 // releasing it with wpgo_free.
-func readGuest(ctx context.Context, m api.Module, packed uint64, limit uint32, free bool) ([]byte, error) {
+func readGuest(ctx context.Context, p *Plugin, m api.Module, packed uint64, limit uint32, free bool) ([]byte, error) {
 	ptr, size := uint32(packed>>32), uint32(packed)
 	if size > limit {
 		return nil, fmt.Errorf("response of %d bytes exceeds the %d byte limit", size, limit)
@@ -201,7 +201,7 @@ func readGuest(ctx context.Context, m api.Module, packed uint64, limit uint32, f
 	}
 	out := append([]byte(nil), view...)
 	if free {
-		if _, err := m.ExportedFunction(exportFree).Call(ctx, uint64(ptr), uint64(size)); err != nil {
+		if _, err := p.callExport(ctx, m, exportFree, uint64(ptr), uint64(size)); err != nil {
 			return nil, fmt.Errorf("wpgo_free: %w", err)
 		}
 	}

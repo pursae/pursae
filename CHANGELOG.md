@@ -23,12 +23,18 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
   If you handed out `/flipbook/N` links before, share the page that holds the book instead.
 - **Flipbook memory use is bounded:** a book loads when it comes near the screen, fetches the PDF in ranges
   instead of whole, keeps at most 12 drawn pages, and releases everything when it leaves the page.
+- **Wasm plugins are faster at host calls:** `wpgo.GetOption` (and `Setting*`, `OptionBool`) and `wpgo.T`/`X` are about 7–9× faster inside a plugin
+  (about 106 µs → 12 µs per call on an M2 Pro), because the SDK no longer runs `encoding/json` for the common response.
+  Plugins get this when they are rebuilt with this SDK. The host also reuses the guest's `wpgo_alloc`/`wpgo_free`/`wpgo_handle`
+  instead of building a new call engine per call, which cuts host memory churn per host call from about 13 KB to 1 KB.
 
 ### Fixed
 
 - **Pursae Commerce installments:** a payment started on the Pay for order page before the customer chose another
   installment count is accepted on the count it was paid with (the order's surcharge line follows it) instead of
   putting the order on hold, as long as the plan still offers that count and nothing else in the order changed.
+- **Plugin color fields:** on plugin settings pages and meta boxes an untouched `color` field is saved as empty instead of `#000000`. The field
+  is now a hex text input with a colour swatch and a Clear link.
 
 ## [0.6.1] - 2026-11-27
 
