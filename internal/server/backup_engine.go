@@ -889,7 +889,7 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		if err := tx.Commit(ctx); err != nil {
 			conn.Release()
 			if rerr := swap.rollback(); rerr != nil {
-				return fmt.Errorf("saving the database failed (%v) and putting the previous files back failed too: %v", err, rerr)
+				return fmt.Errorf("saving the database failed (%w) and putting the previous files back failed too: %w", err, rerr)
 			}
 			return fmt.Errorf("saving the database failed, nothing was restored: %w", err)
 		}

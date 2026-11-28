@@ -86,7 +86,9 @@ func TestPrivateHostResolvesAndCaches(t *testing.T) {
 		return nil, errors.New("no such host")
 	}
 	ctx := context.Background()
-	if !privateHost(ctx, "mail.lan.test") || !privateHost(ctx, "mail.lan.test") {
+	first := privateHost(ctx, "mail.lan.test")
+	second := privateHost(ctx, "mail.lan.test") // served from the cache
+	if !first || !second {
 		t.Error("LAN name not reported")
 	}
 	if calls != 1 {

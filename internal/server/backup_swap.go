@@ -57,7 +57,7 @@ func (s *Server) bmgrSwapIn(ctx context.Context, j *bmgrJob, groups []string, st
 	w := &bmgrSwap{replaced: map[string]string{}, roots: map[string]string{}, placed: map[string]int{}}
 	fail := func(err error) (*bmgrSwap, error) {
 		if rerr := w.rollback(); rerr != nil {
-			return nil, fmt.Errorf("%w (undoing the file changes also failed: %v)", err, rerr)
+			return nil, fmt.Errorf("%w (undoing the file changes also failed: %w)", err, rerr)
 		}
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (s *Server) bmgrSwapIn(ctx context.Context, j *bmgrJob, groups []string, st
 			}
 			if err := os.Rename(stage, root); err != nil {
 				if rerr := os.Rename(old, root); rerr != nil {
-					err = fmt.Errorf("%w (and putting the old folder back failed: %v; it is at %s)", err, rerr, old)
+					err = fmt.Errorf("%w (and putting the old folder back failed: %w; it is at %s)", err, rerr, old)
 				}
 				return fail(fmt.Errorf("putting the restored %s folder in place: %w", g, err))
 			}
@@ -114,7 +114,8 @@ func (s *Server) bmgrSwapIn(ctx context.Context, j *bmgrJob, groups []string, st
 					return err
 				}
 			}
-			if err := os.Rename(p, dst); err != nil {
+			// p is inside the staging folder this restore created; a symlink is moved, not followed.
+			if err := os.Rename(p, dst); err != nil { //nolint:gosec // G122: see above
 				if prev != "" {
 					_ = os.Rename(prev, dst)
 				}
@@ -170,11 +171,11 @@ func (w *bmgrSwap) finish(quarantineBase string, now time.Time) (moved int, wher
 		n := 0
 		_ = filepath.WalkDir(old, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
-				return nil
+				return nil //nolint:nilerr // an unreadable entry stays in the old folder, the walk goes on
 			}
 			rel, _ := filepath.Rel(old, p)
 			if _, err := os.Lstat(filepath.Join(w.roots[g], rel)); err == nil {
-				_ = os.Remove(p)
+				_ = os.Remove(p) //nolint:gosec // G122: p is in the folder this restore moved aside; Remove does not follow a symlink
 				return nil
 			}
 			n++

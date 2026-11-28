@@ -36,7 +36,7 @@ func (a *hgAuth) canUpload() bool {
 
 // hgUploadTokenMeta records which API token uploaded a file: a custom upload token reads back its
 // own uploads, not the whole media library.
-const hgUploadTokenMeta = "_hg_upload_token"
+const hgUploadTokenMeta = "_hg_upload_token" //nolint:gosec // G101: a post meta key, not a credential
 
 func (a *hgAuth) fullAccess() bool {
 	return a.Kind == "token" && a.Token != nil && a.Token.Kind == "full-access"

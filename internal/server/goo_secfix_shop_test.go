@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -128,11 +129,11 @@ func TestGooGiftCardApplyThrottle(t *testing.T) {
 	gooRealThrottles(srv)
 	for i := 0; i < 10; i++ {
 		c := gxaCtx(nil, http.MethodGet, "/", nil)
-		if _, err := srv.gcApply(c, "NOPE-0000-0000-000"+itoa(i)); err == nil || err == errGooThrottled {
+		if _, err := srv.gcApply(c, "NOPE-0000-0000-000"+itoa(i)); err == nil || errors.Is(err, errGooThrottled) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
-	if _, err := srv.gcApply(gxaCtx(nil, http.MethodGet, "/", nil), "NOPE-1111"); err != errGooThrottled {
+	if _, err := srv.gcApply(gxaCtx(nil, http.MethodGet, "/", nil), "NOPE-1111"); !errors.Is(err, errGooThrottled) {
 		t.Fatalf("11th wrong code: %v", err)
 	}
 }
