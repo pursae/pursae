@@ -21,6 +21,13 @@ var mcpRouteCaps = map[string]string{
 	"/pursae/v1/health": "manage_options", "/pursae/v1/csp": "manage_options", "/pursae/v1/backups": "manage_options", "/pursae/v1/updates": "update_plugins",
 	"/wc/v3/products": "edit_products", "/wc/v3/orders": "edit_shop_orders", "/web-builder/v2": "edit_posts",
 	"/wc/v3/reports": "view_woocommerce_reports", "/wp/v2/users/me": "read",
+	// Same capabilities as the handlers (goo_rest_v3_*, rest_pursae_forum, forum_site_templates,
+	// gontact_submit, seogo_editor), so tools/list does not show a subscriber admin-only tools
+	// and their schemas.
+	"/wc/v3/products/categories": "manage_product_terms", "/wc/v3/coupons": "edit_shop_coupons",
+	"/wc/v3/settings": "manage_woocommerce", "/wc/v3/payment_gateways": "manage_woocommerce", "/wc/v3/shipping": "manage_woocommerce",
+	"/pursae/v1/forum/forums": "manage_options", "/pursae/v1/forum/templates": "edit_theme_options",
+	"/contact-form-7/v1": "edit_posts", "/seogo/v1": "edit_posts",
 }
 
 // mcpWriteCaps are the capabilities a tool that changes something (any method but GET) needs, by
@@ -32,7 +39,7 @@ var mcpWriteCaps = map[string]string{
 	"/wp/v2/posts": "edit_posts", "/wp/v2/pages": "edit_pages", "/wp/v2/media": "upload_files", "/pursae/v1/media": "upload_files",
 	"/wp/v2/x": "manage_categories", "/wp/v2/menus": "edit_theme_options", "/wp/v2/menu-items": "edit_theme_options",
 	"/wp/v2/comments/x": "moderate_comments", "/seogo/v1": "edit_posts", "/wp/v2/users": "create_users",
-	"/wp/v2/users/x": "read",
+	"/wp/v2/users/x": "read", "/contact-form-7/v1": "publish_pages",
 }
 
 // mcpCapFor is the capability of the longest prefix of route in caps, or "".

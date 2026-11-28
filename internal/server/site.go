@@ -88,6 +88,44 @@ func siteQueryFrom(c *gin.Context) *siteQuery {
 	return nil
 }
 
+// siteReservedPath reports a slash-trimmed path whose first segment belongs to a core route (assets, admin,
+// REST, login, XML-RPC, cron, OAuth, .well-known). Nothing the theme renders lives there, so when no real
+// route answered it is a bare 404: rendering the theme (?p=, ?s=, ?preview=) under such a path let it slip
+// past gates that exempt the prefix (maintenance, firewall, CSP; findings #15/#31/#33/#34).
+func siteReservedPath(p string) bool {
+	seg, _, _ := strings.Cut(p, "/")
+	seg = strings.ToLower(seg)
+	switch seg {
+	case "wp-content", "wp-includes", "oauth", ".well-known":
+		return true
+	}
+	for _, pre := range []string{"wp-admin", "wp-json", "wp-login", "xmlrpc", "wp-cron"} {
+		if strings.HasPrefix(seg, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+// authorHidden reports an author archive that must answer like an unknown slug: with user enumeration blocked,
+// /author/<slug>/ of an account without published posts would otherwise confirm the account exists (#4).
+// WordPress itself only shows an author archive that has posts.
+func (s *Server) authorHidden(ctx context.Context, u *store.User) bool {
+	if !s.blockEnumeration() {
+		return false
+	}
+	var has bool
+	if err := s.store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM posts WHERE author_id = $1 AND type = 'post' AND status = 'publish')`, u.ID).Scan(&has); err != nil {
+		return true
+	}
+	return !has
+}
+
+// pathUnder reports whether p is base itself or a path below it (segment boundary, not a raw prefix).
+func pathUnder(p, base string) bool {
+	return p == base || strings.HasPrefix(p, base+"/")
+}
+
 // site serves every public URL that is not an admin, login or asset route.
 func (s *Server) site(c *gin.Context) {
 	if route, ok := c.GetQuery("rest_route"); ok && strings.Trim(c.Request.URL.Path, "/") == "" {
@@ -145,7 +183,7 @@ func (s *Server) site(c *gin.Context) {
 	if s.wbKitRootAsset(c) { // Pursae Web Builder: a site-imported design's files at the root (webbuilder_kits.go)
 		return
 	}
-	if strings.HasPrefix(path, "wp-json") || strings.HasPrefix(path, "wp-content/") || strings.HasPrefix(path, "wp-includes/") || strings.HasPrefix(path, "wp-admin") {
+	if siteReservedPath(path) || siteReservedPath(raw) {
 		c.Status(http.StatusNotFound)
 		return
 	}
@@ -226,7 +264,9 @@ func (s *Server) resolve(c *gin.Context, path string) (*siteQuery, error) {
 	}
 
 	if aid, _ := strconv.ParseInt(v.Get("attachment_id"), 10, 64); aid > 0 {
-		if a, err := s.store.GetAttachment(ctx, aid); err == nil {
+		// Only an attachment the visitor may read (the REST rule): a private or draft parent's file
+		// would otherwise leak its upload URL to anybody enumerating ids (#47).
+		if a, err := s.store.GetAttachment(ctx, aid); err == nil && (mediaLibraryReader(currentUser(c)) || s.attachmentPublicFor(ctx, currentUser(c), a)) {
 			q.Kind = "redirect:" + s.uploadURL(c, a.FilePath)
 			return q, nil
 		}
@@ -280,7 +320,7 @@ func (s *Server) resolve(c *gin.Context, path string) (*siteQuery, error) {
 	case v.Get("author") != "":
 		id, _ := strconv.ParseInt(v.Get("author"), 10, 64)
 		u, err := s.store.UserByID(ctx, id)
-		if err != nil {
+		if err != nil || s.authorHidden(ctx, u) {
 			return nil, errNotFound
 		}
 		q.Kind, q.Author = "author", u
@@ -402,7 +442,7 @@ func (s *Server) resolvePretty(c *gin.Context, q *siteQuery, path string) (*site
 		return q, nil
 	case strings.HasPrefix(path, "author/"):
 		u, err := s.store.UserByNicename(ctx, strings.TrimPrefix(path, "author/"))
-		if err != nil {
+		if err != nil || s.authorHidden(ctx, u) {
 			return nil, errNotFound
 		}
 		q.Kind, q.Author = "author", u

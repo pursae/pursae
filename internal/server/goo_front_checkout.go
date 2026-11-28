@@ -410,7 +410,11 @@ func (s *Server) gooCheckoutAjax(c *gin.Context) {
 	res, errs := s.gooRunCheckout(c, form)
 	s.gooSaveSession(c)
 	if len(errs) > 0 {
-		c.JSON(http.StatusOK, gin.H{"result": "failure", "messages": s.gooL10n(c, gooErrorList(errs)), "refresh": false, "reload": false})
+		status := http.StatusOK
+		if len(errs) == 1 && errs[0] == gooThrottledMsg {
+			status = http.StatusTooManyRequests
+		}
+		c.JSON(status, gin.H{"result": "failure", "messages": s.gooL10n(c, gooErrorList(errs)), "refresh": false, "reload": false})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"result": res.Result, "redirect": res.Redirect})

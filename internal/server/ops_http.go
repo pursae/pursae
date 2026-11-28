@@ -215,9 +215,11 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		probeAnswer(w, r, http.StatusServiceUnavailable, "schema check failed")
 	case st.TooOld():
-		probeAnswer(w, r, http.StatusServiceUnavailable, "schema too new: the database needs Pursae "+st.MinBinary+" or newer, this is "+st.Binary)
+		// The probe is anonymous: versions stay in the server log, not in the answer.
+		log.Printf("readyz: schema too new: the database needs Pursae %s or newer, this is %s", st.MinBinary, st.Binary)
+		probeAnswer(w, r, http.StatusServiceUnavailable, "not ready")
 	case st.Newer():
-		probeAnswer(w, r, http.StatusOK, "ok (the database schema is newer than this binary: "+strconv.Itoa(len(st.Unknown))+" unknown migration(s))")
+		probeAnswer(w, r, http.StatusOK, "ok")
 	default:
 		probeAnswer(w, r, http.StatusOK, "ok")
 	}

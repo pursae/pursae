@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"runtime"
@@ -131,7 +132,11 @@ func (s *Server) pursaeUpdatesRun(c *gin.Context, r *restRequest) {
 	ctx := c.Request.Context()
 	switch typ {
 	case "plugin":
-		m, err := s.hubUpdatePlugin(ctx, slug)
+		m, err := s.hubUpdatePlugin(withExtActor(ctx, u), slug)
+		if errors.Is(err, errPluginReloadDenied) {
+			restErr(c, http.StatusForbidden, "rest_cannot_activate_plugin", err.Error())
+			return
+		}
 		if err != nil {
 			restErr(c, http.StatusBadRequest, "rest_update_failed", err.Error())
 			return

@@ -78,7 +78,11 @@ timeout. While no purge URL is set, *Front Server Lifetime* (default 300 s) caps
 and Cache Settings shows a warning.
 
 The purge URL usually names a proxy next to Pursae (Varnish or nginx on `127.0.0.1`, a Docker
-network), so loopback and private addresses are allowed without any switch. What is sent there is
+network). It is set by a site administrator, so like every admin-set endpoint it reaches loopback
+and private addresses only when the server sets `PURSAE_ALLOW_PRIVATE_ENDPOINTS=1`
+([configuration](configuration.md)); without it the URL is refused when saved and every connection
+to a private address is refused (a saved purge URL on a private address then shows an admin notice
+and a recommended Site Health item, "The cache purge URL is on a private network"). What is sent there is
 fixed: only `PURGE` requests to the configured host, with the headers above, and redirects are never
 followed (a `3xx` answer counts as a failed purge). Link-local, cloud metadata and reserved addresses
 are refused when the URL is saved (Cache Settings, `POST /pursae/v1/cache/settings`) and again on

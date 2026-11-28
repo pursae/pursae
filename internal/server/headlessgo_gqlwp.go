@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -201,6 +202,13 @@ func (ex *hgGQLExec) wpRoot(f *hgGQLField) (v any, handled bool, err error) {
 				}
 			}
 		}
+		// Memberships "hide completely": a non-member neither lists nor fetches restricted entries,
+		// as on /wp/v2/posts (the caller is the token's WP user, anonymous otherwise).
+		var member *store.User
+		if ex.a != nil && ex.a.Kind == "user" && ex.a.UserID > 0 {
+			member, _ = ex.s.store.UserByID(ex.c, ex.a.UserID)
+		}
+		q.ExcludeID = append(q.ExcludeID, ex.s.gooListingExclude(withPluginUser(ex.c, member), "post")...)
 		posts, total, err := ex.s.store.QueryPosts(ex.c, q)
 		if err != nil {
 			return nil, true, err
@@ -271,9 +279,13 @@ func (ex *hgGQLExec) wpRoot(f *hgGQLField) (v any, handled bool, err error) {
 		if err != nil {
 			return nil, true, err
 		}
-		out := make([]any, len(list))
-		for i, a := range list {
-			out[i] = ex.wpMedia(a)
+		out := []any{}
+		viewer := ex.s.hgWPUser(ex.c, ex.a)
+		for _, a := range list {
+			if a.PostID != 0 && ex.s.gmemHidesPost(ex.c, viewer, a.PostID) { // Memberships-restricted post's file
+				continue
+			}
+			out = append(out, ex.wpMedia(a))
 		}
 		if name == "wpMediaItem" {
 			if len(out) == 0 {
@@ -364,6 +376,21 @@ func wpTypedItem(v any) {
 }
 
 // wpAuthorIDs are the users who published a post or page (the ones WordPress' own REST API lists).
+// hgHidesUsers reports whether accounts are hidden from the caller: an anonymous caller (the public
+// role or a preview token) while user enumeration is blocked. Such a caller sees (or links) wp:user
+// relations only to authors of published content, the same accounts wpUsers lists (wpAuthorIDs).
+func (s *Server) hgHidesUsers(a *hgAuth) bool {
+	return a != nil && (a.Kind == "public" || a.Kind == "preview") && s.blockEnumeration()
+}
+
+// hgUserPublished reports whether the user is the author of published content (a public author,
+// whose name the site shows anyway).
+func (s *Server) hgUserPublished(ctx context.Context, id int64) bool {
+	var ok bool
+	_ = s.store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM posts WHERE author_id = $1 AND status = 'publish')`, id).Scan(&ok)
+	return ok
+}
+
 func (ex *hgGQLExec) wpAuthorIDs(one bool, pg hgPagination, id any) ([]int64, error) {
 	q := `SELECT DISTINCT author_id FROM posts WHERE status = 'publish' AND type IN ('post','page') AND author_id IS NOT NULL`
 	args := []any{}

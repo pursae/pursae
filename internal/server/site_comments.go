@@ -386,11 +386,20 @@ func (s *Server) commentForm(c *gin.Context, p *store.Post, lb *links.Builder, u
 		sb.WriteString("\n" + `<p class="wpgo-hp" style="display:none !important" aria-hidden="true"><label for="wpgo_hp">Leave this field empty</label><input type="text" name="` + commentHoneypot + `" id="wpgo_hp" value="" tabindex="-1" autocomplete="off" /></p>`)
 		sb.WriteString(`<input type="hidden" name="` + commentTimeField + `" value="` + s.commentTimeToken(p.ID, time.Now()) + `" />`)
 	}
+	if u.Can("unfiltered_html", nil) {
+		// wp_comment_form_unfiltered_html_nonce(): only a comment sent from this form keeps raw HTML.
+		sb.WriteString(`<input type="hidden" id="_wp_unfiltered_html_comment" name="_wp_unfiltered_html_comment" value="` + s.nonce(c, commentUnfilteredAction(p.ID)) + `" />`)
+	}
 	fmt.Fprintf(&sb, "\n"+`<p class="form-submit"><input name="submit" type="submit" id="submit" class="submit" value="%s" /> <input type='hidden' name='comment_post_ID' value='%d' id='comment_post_ID' />
 <input type='hidden' name='comment_parent' id='comment_parent' value='%d' />
 </p></form>	</div><!-- #respond -->
 	`, s.frontE(c, "Post Comment"), p.ID, replyTo)
 	return template.HTML(sb.String())
+}
+
+// commentUnfilteredAction is the nonce action of the comment form's _wp_unfiltered_html_comment field.
+func commentUnfilteredAction(postID int64) string {
+	return "unfiltered-html-comment_" + strconv.FormatInt(postID, 10)
 }
 
 // linkRe finds the links of a comment or forum post for the comment_max_links rule. Every anchor with
@@ -469,6 +478,12 @@ func (s *Server) commentFlooded(ctx context.Context, cm *store.Comment, u *store
 func (s *Server) commentPost(c *gin.Context) {
 	ctx := c.Request.Context()
 	u := currentUser(c)
+	// The form has no nonce (as in WordPress): a signed-in visitor's cookie must not post for them from
+	// another site. Anonymous comments carry no identity, so they are left as they are.
+	if u != nil && s.crossSitePost(c) {
+		s.commentDie(c, http.StatusForbidden, "Sorry, you are not allowed to post a comment from another site.")
+		return
+	}
 	postID, _ := strconv.ParseInt(c.PostForm("comment_post_ID"), 10, 64)
 	p, err := s.store.GetPost(ctx, postID)
 	if err != nil || (p.Status != "publish" && p.Status != "private") || (p.Status == "private" && !u.Can("read_post", p)) {
@@ -476,7 +491,7 @@ func (s *Server) commentPost(c *gin.Context) {
 		s.commentDie(c, http.StatusNotFound, "Sorry, comments are closed for this item.")
 		return
 	}
-	if !s.commentsOpen(p) {
+	if !s.commentsOpen(p) || (!u.Can("edit_post", p) && s.gmemHidesPost(ctx, u, p.ID)) { // Memberships: closed to non-members
 		s.commentDie(c, http.StatusForbidden, "Sorry, comments are closed for this item.")
 		return
 	}
@@ -541,7 +556,9 @@ func (s *Server) commentPost(c *gin.Context) {
 		s.commentDie(c, http.StatusRequestEntityTooLarge, "<strong>Error:</strong> Your comment is too long.")
 		return
 	}
-	if !u.Can("unfiltered_html", nil) {
+	// wp-comments-post.php keeps raw HTML (kses_remove_filters) only for an unfiltered_html user whose
+	// form carried a valid _wp_unfiltered_html_comment nonce; any other post is filtered like everyone's.
+	if !u.Can("unfiltered_html", nil) || !s.checkNonceValue(c, c.PostForm("_wp_unfiltered_html_comment"), commentUnfilteredAction(p.ID)) {
 		cm.Content = wp.KsesData(cm.Content) // pre_comment_content: wp_filter_kses ($allowedtags)
 	}
 	if dup, _ := s.store.IsDuplicateComment(ctx, cm); dup {

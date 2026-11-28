@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"wpgo/internal/config"
 	"wpgo/internal/mail"
 	"wpgo/internal/plugins"
 )
@@ -131,12 +132,42 @@ func (s *Server) applySiteKeys() {
 	ps.keyMu.Lock()
 	defer ps.keyMu.Unlock()
 	ps.siteKeys = append([]ed25519.PublicKey{}, ps.envKeys...)
+	if pluginKeysLocked() {
+		return // the operator owns the key list: keys an administrator added are not trusted
+	}
 	for _, k := range parseTrustedKeys(s.settings.String("plugin_trusted_keys")) {
 		ps.siteKeys = append(ps.siteKeys, k.pub)
 	}
 }
 
+// pluginKeysLocked reports the operator lock on the trusted-key list (a hosting panel sets it):
+// PURSAE_PLUGIN_KEYS_LOCKED=1|true|locked, or one of those words as an entry of
+// PURSAE_PLUGIN_KEYS. Locked, administrators cannot add or remove keys and keys stored in the
+// plugin_trusted_keys option are ignored, so a site admin cannot widen which publishers' code
+// runs on the host. Off by default: self-hosted admins manage their own keys.
+func pluginKeysLocked() bool {
+	lockWord := func(v string) bool {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "locked":
+			return true
+		}
+		return false
+	}
+	if lockWord(config.Env("PLUGIN_KEYS_LOCKED")) {
+		return true
+	}
+	for _, f := range strings.FieldsFunc(config.Env("PLUGIN_KEYS"), func(r rune) bool { return r == ',' || r == '\n' || r == ' ' }) {
+		if lockWord(f) {
+			return true
+		}
+	}
+	return false
+}
+
+var errPluginKeysLocked = errors.New("The trusted keys are managed by the server operator (PURSAE_PLUGIN_KEYS is locked) and cannot be changed here.")
+
 type pluginKeysData struct {
+	Locked    bool
 	Keys      []trustedKey
 	FixedKeys int // keys from the environment: shown, not editable
 	Nonce     string
@@ -168,12 +199,15 @@ func (s *Server) pluginKeys(c *gin.Context) {
 	if v := c.Query("error"); v != "" {
 		notices = append(notices, notice{Type: "error", Message: template.HTML(template.HTMLEscapeString(v))})
 	}
-	d := pluginKeysData{Keys: parseTrustedKeys(s.settings.String("plugin_trusted_keys")), FixedKeys: len(s.plugins.envKeys), Nonce: s.nonce(c, "plugin-keys")}
+	d := pluginKeysData{Locked: pluginKeysLocked(), Keys: parseTrustedKeys(s.settings.String("plugin_trusted_keys")), FixedKeys: len(s.plugins.envKeys), Nonce: s.nonce(c, "plugin-keys")}
 	s.adminPage(c, "plugin-keys", "Trusted Keys", "plugins-php", "admin/plugin-keys", d, notices...)
 }
 
 // changeTrustedKeys adds or removes one key of the option and applies the result live.
 func (s *Server) changeTrustedKeys(ctx context.Context, action, key, comment, fingerprint string) (string, error) {
+	if pluginKeysLocked() {
+		return "", errPluginKeysLocked
+	}
 	keys := parseTrustedKeys(s.settings.String("plugin_trusted_keys"))
 	var msg string
 	switch action {

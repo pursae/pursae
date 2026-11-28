@@ -435,6 +435,12 @@ func (s *Server) gooAdjacent(ctx context.Context, p *store.Post, previous bool) 
 	return s.store.AdjacentExcept(ctx, p, previous, s.gooListingKinds(ctx, []string{p.Type}))
 }
 
+// gooPublicExclude is gooListingKinds for an anonymous visitor: sitemaps are public and cached, so
+// they leave out whatever a visitor without a membership may not see listed.
+func (s *Server) gooPublicExclude(ctx context.Context, types []string) []int64 {
+	return s.gooListingKinds(withPluginUser(ctx, nil), types)
+}
+
 // gooSingleAccessHook decides whether the visitor may open a single post, page or product: "" serves
 // it, "404" answers not found, anything else is a URL to redirect to (Memberships' restriction modes).
 type gooSingleAccessHook func(s *Server, c *gin.Context, postID int64, postType string) string

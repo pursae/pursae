@@ -895,6 +895,9 @@ func (s *Server) gooProductLD(c *gin.Context, p *gooProduct) map[string]any {
 	if strings.TrimSpace(desc) == "" {
 		desc = wp.StripTags(stripBlocks(p.Post.Content))
 	}
+	if s.passwordRequired(c, p.Post) {
+		desc = "" // a protected product's text stays behind its password
+	}
 	desc = strings.TrimSpace(html.UnescapeString(desc))
 	d := map[string]any{"@context": "https://schema.org/", "@type": "Product", "@id": link + "#product", "name": p.Name, "url": link, "description": desc}
 	if img, _, _ := s.gooImageURL(ctx, p.ImageID, "full"); img != "" {

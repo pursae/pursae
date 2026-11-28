@@ -129,7 +129,10 @@ func (sc *seogoCtx) breadcrumbs() []seogoCrumb {
 				if err != nil {
 					break
 				}
-				chain = append([]seogoCrumb{{Name: sc.crumbName(seogoMeta(parent.Meta, "bc_title"), parent.Title), URL: lb.Permalink(parent)}}, chain...)
+				// A private or draft ancestor stays out of a public page's trail (and its JSON-LD).
+				if parent.Status == "publish" {
+					chain = append([]seogoCrumb{{Name: sc.crumbName(seogoMeta(parent.Meta, "bc_title"), parent.Title), URL: lb.Permalink(parent)}}, chain...)
+				}
 				id = parent.ParentID
 			}
 			trail = append(trail, chain...)

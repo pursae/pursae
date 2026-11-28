@@ -370,6 +370,7 @@ func (s *Server) adminPage(c *gin.Context, screen, title, bodyClass, tmpl string
 	v.Menu = s.bmgrMenu(v.Menu, u, screen)
 	v.Menu = s.mailSMTPMenu(c, v.Menu, screen)
 	v.Notices = append(v.Notices, s.mailSMTPNotices(c)...)
+	v.Notices = append(v.Notices, s.privateEndpointNotices(c)...) // private SMTP host / purge URL (private_endpoint_notice.go)
 	// ACF-Go: its menu, options pages and post types (acfgo.go)
 	v.Menu = s.acfgoMenu(c, v.Menu, screen)
 	// Pursae SEO's menu (seogo.go)

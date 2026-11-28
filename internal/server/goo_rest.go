@@ -118,6 +118,10 @@ func (s *Server) gooV3(pattern string, caps gooCaps, methods map[string]restHand
 				restErr(c, http.StatusForbidden, code, "Sorry, you cannot "+verb+".")
 				return
 			}
+			if strings.HasSuffix(pattern, "/batch") {
+				// The batch gate checks only the write cap; gooBatch checks the delete part itself.
+				c.Set(gooBatchDeleteCapKey, caps.Delete)
+			}
 			h(c, req)
 		}
 	}
@@ -142,6 +146,9 @@ type gooBatchOps struct {
 	Update func(c *gin.Context, id int64, b map[string]any) (map[string]any, *gooAPIErr)
 	Delete func(c *gin.Context, id int64, force bool) (map[string]any, *gooAPIErr)
 }
+
+// gooBatchDeleteCapKey carries the resource's delete capability from gooV3 to gooBatch.
+const gooBatchDeleteCapKey = "goo_batch_delete_cap"
 
 // gooBatchLimit is WooCommerce's woocommerce_rest_batch_items_limit.
 const gooBatchLimit = 100
@@ -191,11 +198,22 @@ func (s *Server) gooBatch(c *gin.Context, req *restRequest, ops gooBatchOps) {
 		out["update"] = res
 	}
 	if len(deletes) > 0 && ops.Delete != nil {
+		// Deleting needs the resource's delete capability, not only the write one the batch gate
+		// checked (WooCommerce runs each item through its own permission callback).
+		canDelete := true
+		if dc := c.GetString(gooBatchDeleteCapKey); dc != "" {
+			u := gooV3Actor(c)
+			canDelete = u != nil && u.Can(dc, nil)
+		}
 		var res []any
 		for _, x := range deletes {
 			id := gooInt(x)
 			if m, ok := x.(map[string]any); ok {
 				id = gooInt(m["id"])
+			}
+			if !canDelete {
+				res = append(res, map[string]any{"id": id, "error": gooErrJSON(gooErr(http.StatusForbidden, "woocommerce_rest_cannot_delete", "Sorry, you are not allowed to delete this resource."))})
+				continue
 			}
 			obj, err := ops.Delete(c, id, true)
 			if err != nil {

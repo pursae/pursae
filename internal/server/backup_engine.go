@@ -12,15 +12,19 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"wpgo/internal/config"
 )
 
 // bmgrTableInfo describes one table in an archive.
@@ -61,6 +65,8 @@ type bmgrManifest struct {
 	RemoteOnly int `json:"remote_only,omitempty"`
 	// Skipped counts files that could not be read and are therefore NOT in the archive.
 	Skipped int `json:"skipped,omitempty"`
+	// SiteKey marks an archive that carries the site's encryption key (bmgrSelection.IncludeKey).
+	SiteKey bool `json:"site_key,omitempty"`
 }
 
 // bmgrSelection is what a backup is asked to contain.
@@ -73,6 +79,10 @@ type bmgrSelection struct {
 	Kind       string
 	NoFiles    bool     // the tables only: no media, theme or plugin files (pre-update backups)
 	KeepFiles  []string // with NoFiles: the file groups still written (pre-update backups keep "plugins" and "themes")
+	// IncludeKey writes the site's encryption key (auth_secret) into the archive, so its sealed
+	// secrets can be read after a restore on another server. Off by default: whoever holds such an
+	// archive can decrypt every stored secret and forge Sign() tokens.
+	IncludeKey bool
 }
 
 // bmgrEntry is a stored archive as the screen lists it.
@@ -338,7 +348,13 @@ func (s *Server) bmgrRunBackup(ctx context.Context, j *bmgrJob, sel bmgrSelectio
 	}
 
 	m := bmgrManifest{Format: bmgrFormat, Created: time.Now().UTC(), Kind: kind, Version: Version, SiteURL: bmgrSiteURL(s), SiteName: s.settings.String("blogname"),
-		Note: sel.Note, Categories: sel.Categories, UserMode: sel.UserMode}
+		Note: sel.Note, Categories: sel.Categories, UserMode: sel.UserMode, SiteKey: sel.IncludeKey && set["settings"]}
+	if m.SiteKey {
+		s.bmgrLog(j, "this archive includes the site's encryption key: keep it private, anyone who has it can read the stored passwords and API keys")
+		if s.cfg.Secret != "" {
+			s.bmgrLog(j, "note: this site encrypts with PURSAE_SECRET, which is not stored in archives; set the same PURSAE_SECRET on the new server")
+		}
+	}
 	if len(filters) > 0 {
 		m.Users = len(ids)
 	}
@@ -363,7 +379,7 @@ func (s *Server) bmgrRunBackup(ctx context.Context, j *bmgrJob, sel bmgrSelectio
 			return "", err
 		}
 		hw := sha256.New()
-		n, err := bmgrExportTable(ctx, tx, t, filters[t], ids, io.MultiWriter(w, hw))
+		n, err := bmgrExportTable(ctx, tx, t, filters[t], ids, bmgrExcludedSettings(sel.IncludeKey), io.MultiWriter(w, hw))
 		sums["database/"+t+".jsonl"] = hex.EncodeToString(hw.Sum(nil))
 		if err != nil {
 			return "", fmt.Errorf("exporting %s: %w", t, err)
@@ -717,6 +733,10 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 	}
 
 	s.bmgrProgress(j, "Verifying the archive", 1)
+	budget := bmgrNewUnpackBudget(&zr.Reader)
+	if err := budget.precheck(&zr.Reader); err != nil {
+		return fmt.Errorf("the archive was refused, nothing was restored: %w", err)
+	}
 	if err := bmgrVerifyArchive(ctx, &zr.Reader, m); err != nil {
 		return fmt.Errorf("the archive failed verification, nothing was restored: %w", err)
 	}
@@ -725,7 +745,6 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		s.bmgrLog(j, "note: %d media files of the source site were only in its Pursae CDN bucket and are not in this archive", m.RemoteOnly)
 	}
 
-	safetyName := ""
 	if req.Safety {
 		s.bmgrProgress(j, "Safety snapshot of this site", 1)
 		var cats []string
@@ -736,7 +755,6 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		if err != nil {
 			return fmt.Errorf("the safety snapshot failed, nothing was restored: %w", err)
 		}
-		safetyName = name
 		s.bmgrLog(j, "safety snapshot saved as %s", name)
 		if removed := s.bmgrPruneKind("safety", "pre-restore-", bmgrSafetyKeep); len(removed) > 0 {
 			s.bmgrLog(j, "removed %d older safety snapshots (the newest %d are kept)", len(removed), bmgrSafetyKeep)
@@ -760,7 +778,8 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 	}
 
 	// Files are unpacked into a staging folder first: a full disk, a bad permission or an unsafe path
-	// stops the restore before the database is touched. After the database commit only renames remain.
+	// stops the restore before the database is touched. They are put in place with renames just
+	// before the database commits, and those renames are undone if it does not (backup_swap.go).
 	roots := s.bmgrFileRoots()
 	staged := map[string]string{} // group -> staging folder
 	defer func() {
@@ -773,14 +792,11 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		if root == "" {
 			continue
 		}
-		if err := os.MkdirAll(root, 0o755); err != nil {
-			return err
-		}
-		stage, err := os.MkdirTemp(filepath.Dir(root), ".wpgo-restore-"+g+"-")
+		resolved, stage, err := bmgrStageDir(root, g)
 		if err != nil {
 			return fmt.Errorf("preparing the %s files, nothing was restored: %w", g, err)
 		}
-		staged[g] = stage
+		roots[g], staged[g] = resolved, stage
 		prefix := "files/" + g + "/"
 		var n int
 		for _, f := range zr.File {
@@ -792,7 +808,7 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 			if err != nil {
 				return fmt.Errorf("unsafe path in the archive, nothing was restored: %s", f.Name)
 			}
-			if err := bmgrExtract(f, dst); err != nil {
+			if err := bmgrExtractLimited(f, dst, budget); err != nil {
 				return fmt.Errorf("unpacking %s, nothing was restored: %w", f.Name, err)
 			}
 			n++
@@ -812,12 +828,17 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		pluginsBefore = s.bmgrPluginGrants(ctx)
 	}
 
-	// Database: one transaction, all or nothing.
-	if len(plan.Tables) > 0 {
+	// Database: one transaction, all or nothing; the files are swapped in right before it commits.
+	var swap *bmgrSwap
+	if len(plan.Tables) == 0 {
+		if swap, err = s.bmgrSwapIn(ctx, j, plan.Groups, staged, roots); err != nil {
+			return fmt.Errorf("nothing was restored: %w", err)
+		}
+	} else {
 		// Secrets sealed under the archive's site secret are re-encrypted for this site (backup_secrets.go).
 		var reseal *bmgrResealer
-		if from, to := bmgrArchiveSecret(byName["database/settings.jsonl"]), s.siteSecret(); from != "" && to != "" && from != to {
-			reseal = &bmgrResealer{from: from, to: to}
+		if to := s.siteSecret(); to != "" {
+			reseal = &bmgrResealer{from: bmgrArchiveSecret(byName["database/settings.jsonl"]), to: to}
 		}
 		conn, err := s.store.Pool.Acquire(ctx)
 		if err != nil {
@@ -855,6 +876,11 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 				s.bmgrLog(j, "%d restored plugins had content:html or admin:scripts granted on the other site: grant them again on the Plugins screen", n)
 			}
 		}
+		if err == nil {
+			if swap, err = s.bmgrSwapIn(ctx, j, plan.Groups, staged, roots); err != nil {
+				err = fmt.Errorf("nothing was restored: %w", err)
+			}
+		}
 		if err != nil {
 			_ = tx.Rollback(ctx)
 			conn.Release()
@@ -862,12 +888,19 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		}
 		if err := tx.Commit(ctx); err != nil {
 			conn.Release()
-			return err
+			if rerr := swap.rollback(); rerr != nil {
+				return fmt.Errorf("saving the database failed (%w) and putting the previous files back failed too: %w", err, rerr)
+			}
+			return fmt.Errorf("saving the database failed, nothing was restored: %w", err)
 		}
 		conn.Release()
 		s.bmgrLog(j, "database restored: %d tables", len(plan.Tables))
 		if reseal != nil && reseal.n > 0 {
 			s.bmgrLog(j, "%d stored secrets (mail, CDN, payment, API and translation keys, two-factor apps) were re-encrypted for this site; Pursae Security backup codes made on the other site must be generated again", reseal.n)
+		}
+		if reseal != nil && reseal.unreadable > 0 {
+			s.bmgrUpdate(j, func(j *bmgrJob) { j.Warnings++; j.Unreadable = reseal.unreadable })
+			s.bmgrLog(j, "WARNING: %d stored secrets (mail, CDN, payment, API and translation keys, two-factor apps) cannot be decrypted on this site: the archive was made without the site's encryption key. They read as empty: enter them again, and users with an authenticator app must set it up again", reseal.unreadable)
 		}
 		if err := s.settings.Load(ctx); err != nil {
 			slog.Warn("backup: reloading settings", "err", err)
@@ -876,39 +909,18 @@ func (s *Server) bmgrRunRestore(ctx context.Context, j *bmgrJob, req bmgrRestore
 		s.purgeAll(ctx)
 	}
 
-	// Files: move the staged files into place.
-	for gi, g := range plan.Groups {
-		stage, root := staged[g], roots[g]
-		if stage == "" {
-			continue
+	for _, g := range plan.Groups {
+		if n, ok := swap.placed[g]; ok {
+			s.bmgrLog(j, "%s files restored: %d", g, n)
 		}
-		var n int
-		err := filepath.WalkDir(stage, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || !d.Type().IsRegular() {
-				return err
-			}
-			rel, _ := filepath.Rel(stage, p)
-			dst, err := bmgrPlaceWithin(root, filepath.Join(root, rel))
-			if err != nil {
-				return err
-			}
-			if err := os.Rename(p, dst); err != nil {
-				return err
-			}
-			n++
-			if n%25 == 0 {
-				s.bmgrProgress(j, "Files: "+g, 60+gi*35/max(len(plan.Groups), 1))
-			}
-			return ctx.Err()
-		})
-		if err != nil {
-			msg := fmt.Sprintf("the database was restored but moving the %s files failed: %v", g, err)
-			if safetyName != "" {
-				msg += "; to roll back, restore the safety snapshot " + safetyName + " from the Backups tab"
-			}
-			return errors.New(msg)
-		}
-		s.bmgrLog(j, "%s files restored: %d", g, n)
+	}
+	moved, where, qerr := swap.finish(s.bmgrQuarantineDir(), time.Now())
+	if moved > 0 {
+		s.bmgrUpdate(j, func(j *bmgrJob) { j.Warnings++; j.Quarantined, j.QuarantineDir = moved, where })
+		s.bmgrLog(j, "%d plugin or theme files that are not in the archive were moved to %s (not deleted): check them, then delete the folder", moved, where)
+	}
+	if qerr != nil {
+		s.bmgrLog(j, "WARNING: moving files that are not in the archive aside: %v", qerr)
 	}
 	if restoresPlugins {
 		s.bmgrVetRestoredPlugins(ctx, j, pluginsBefore)
@@ -1005,8 +1017,84 @@ func bmgrSafeJoin(root, rel string) (string, error) {
 	return filepath.Join(root, filepath.FromSlash(rel)), nil
 }
 
-// bmgrExtract writes one archive file atomically (temp file, then rename).
-func bmgrExtract(f *zip.File, dst string) error {
+// bmgrDefaultMaxUnpacked is the default of PURSAE_BACKUP_MAX_UNPACKED.
+const bmgrDefaultMaxUnpacked int64 = 20 << 30
+
+// bmgrUnpackRatio: an archive may always unpack to this many times its compressed size, so a
+// large real backup is not refused by the fixed cap.
+const bmgrUnpackRatio = 20
+
+// errBmgrTooLarge is a restore refused by the unpacked-size limit (a zip bomb or a mislabeled entry).
+var errBmgrTooLarge = errors.New("the archive unpacks to more than the allowed size (PURSAE_BACKUP_MAX_UNPACKED)")
+
+// bmgrMaxUnpacked is PURSAE_BACKUP_MAX_UNPACKED in bytes (plain number, or with a K/M/G/T suffix).
+func bmgrMaxUnpacked() int64 {
+	v := strings.ToUpper(strings.TrimSpace(config.Env("BACKUP_MAX_UNPACKED")))
+	v = strings.TrimSuffix(strings.TrimSuffix(v, "B"), "I")
+	mult := int64(1)
+	if v != "" {
+		switch v[len(v)-1] {
+		case 'K':
+			mult = 1 << 10
+		case 'M':
+			mult = 1 << 20
+		case 'G':
+			mult = 1 << 30
+		case 'T':
+			mult = 1 << 40
+		}
+		if mult > 1 {
+			v = v[:len(v)-1]
+		}
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || n <= 0 || n > math.MaxInt64/mult {
+		return bmgrDefaultMaxUnpacked
+	}
+	return n * mult
+}
+
+// bmgrUnpackBudget caps what a restore may write: the total of all unpacked entries is at most
+// max(bmgrUnpackRatio × the archive's compressed size, PURSAE_BACKUP_MAX_UNPACKED). The declared
+// sizes are checked up front, and the bytes actually written are counted, so an entry whose
+// header lies is cut off too.
+type bmgrUnpackBudget struct{ limit, used int64 }
+
+func bmgrNewUnpackBudget(zr *zip.Reader) *bmgrUnpackBudget {
+	var packed int64
+	for _, f := range zr.File {
+		packed += int64(min(f.CompressedSize64, uint64(math.MaxInt64/2)))
+	}
+	limit := bmgrMaxUnpacked()
+	if packed < math.MaxInt64/bmgrUnpackRatio && packed*bmgrUnpackRatio > limit {
+		limit = packed * bmgrUnpackRatio
+	}
+	return &bmgrUnpackBudget{limit: limit}
+}
+
+// precheck refuses an archive whose declared unpacked sizes already exceed the limit.
+func (b *bmgrUnpackBudget) precheck(zr *zip.Reader) error {
+	var total uint64
+	for _, f := range zr.File {
+		total += f.UncompressedSize64
+		if f.UncompressedSize64 > uint64(b.limit) || total > uint64(b.limit) {
+			return errBmgrTooLarge
+		}
+	}
+	return nil
+}
+
+// bmgrExtractLimited is bmgrExtractN charging the written bytes to budget.
+func bmgrExtractLimited(f *zip.File, dst string, b *bmgrUnpackBudget) error {
+	if f.UncompressedSize64 > uint64(b.limit-b.used) {
+		return errBmgrTooLarge
+	}
+	return bmgrExtractN(f, dst, &b.used, b.limit)
+}
+
+// bmgrExtractN writes one archive file atomically (temp file, then rename); *used counts the
+// written bytes against limit.
+func bmgrExtractN(f *zip.File, dst string, used *int64, limit int64) error {
 	if f.Mode()&fs.ModeSymlink != 0 {
 		return nil
 	}
@@ -1023,7 +1111,12 @@ func bmgrExtract(f *zip.File, dst string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, rc); err != nil {
+	n, err := io.Copy(out, io.LimitReader(rc, limit-*used+1))
+	*used += n
+	if err == nil && *used > limit {
+		err = errBmgrTooLarge
+	}
+	if err != nil {
 		out.Close()
 		os.Remove(tmp)
 		return err
@@ -1064,7 +1157,9 @@ func bmgrVerifyArchive(ctx context.Context, zr *zip.Reader, m *bmgrManifest) err
 			return fmt.Errorf("%s cannot be read: %w", f.Name, err)
 		}
 		h := sha256.New()
-		_, err = io.Copy(h, rc)
+		// Read at most the declared size plus one byte: archive/zip refuses an entry longer than
+		// its header says, and precheck has bounded the declared sizes.
+		_, err = io.Copy(h, io.LimitReader(rc, int64(min(f.UncompressedSize64, uint64(math.MaxInt64-1)))+1))
 		rc.Close()
 		if err != nil {
 			return fmt.Errorf("%s is damaged: %w", f.Name, err)

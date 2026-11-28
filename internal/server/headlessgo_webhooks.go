@@ -109,10 +109,30 @@ func (s *Server) hgWebhooks(ctx context.Context) []*hgWebhook {
 	var out []*hgWebhook
 	for rows.Next() {
 		if w, err := hgScanWebhook(rows); err == nil {
-			out = append(out, w)
+			out = append(out, s.hgRevealWebhook(w))
 		}
 	}
 	return out
+}
+
+// The signing secret and the custom header values (an Authorization token, an API key) are stored
+// sealed (sealSecret); a webhook read from the table holds them in clear. A plain value (a row from
+// before sealing) reads as it is, and sealWebhookSecrets seals it at start-up.
+func (s *Server) hgRevealWebhook(w *hgWebhook) *hgWebhook {
+	w.Secret = s.revealSecret(w.Secret)
+	for k, v := range w.Headers {
+		w.Headers[k] = s.revealSecret(v)
+	}
+	return w
+}
+
+func (s *Server) hgSealHeaders(hdr map[string]string) []byte {
+	sealed := make(map[string]string, len(hdr))
+	for k, v := range hdr {
+		sealed[k] = s.sealSecret(v)
+	}
+	raw, _ := json.Marshal(sealed)
+	return raw
 }
 
 func (s *Server) hgWebhookByID(ctx context.Context, id int64) *hgWebhook {
@@ -120,7 +140,7 @@ func (s *Server) hgWebhookByID(ctx context.Context, id int64) *hgWebhook {
 	if err != nil {
 		return nil
 	}
-	return w
+	return s.hgRevealWebhook(w)
 }
 
 // hgSaveWebhook validates and stores a webhook (ID 0 creates it).
@@ -156,13 +176,13 @@ func (s *Server) hgSaveWebhook(ctx context.Context, w *hgWebhook) error {
 		hdr[k] = strings.TrimSpace(v)
 	}
 	w.Headers = hdr
-	raw, _ := json.Marshal(hdr)
+	raw, secret := s.hgSealHeaders(hdr), s.sealSecret(w.Secret)
 	if w.ID == 0 {
 		return s.store.Pool.QueryRow(ctx, `INSERT INTO hg_webhooks(name, url, events, headers, secret, enabled) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-			w.Name, w.URL, w.Events, raw, w.Secret, w.Enabled).Scan(&w.ID)
+			w.Name, w.URL, w.Events, raw, secret, w.Enabled).Scan(&w.ID)
 	}
 	_, err := s.store.Pool.Exec(ctx, `UPDATE hg_webhooks SET name = $2, url = $3, events = $4, headers = $5, secret = $6, enabled = $7, updated_at = now() WHERE id = $1`,
-		w.ID, w.Name, w.URL, w.Events, raw, w.Secret, w.Enabled)
+		w.ID, w.Name, w.URL, w.Events, raw, secret, w.Enabled)
 	return err
 }
 

@@ -18,7 +18,7 @@ Added in 0.5.1. The metric names and labels below are stable from then on (see
 | Variable | Meaning |
 |----------|---------|
 | `PURSAE_METRICS=1` | enables the counters and the endpoint. **Not enough alone**: with neither of the two below set, Pursae logs a warning and stays off, so the counters are never readable by anyone on the public site |
-| `PURSAE_METRICS_ADDR` | serve `/metrics` on its own listener (`127.0.0.1:9100`, `10.0.0.5:9100`), separate from the site. Not reachable from the internet unless you bind a public address; keep it on loopback or a private network |
+| `PURSAE_METRICS_ADDR` | serve `/metrics` on its own listener (`127.0.0.1:9100`, `10.0.0.5:9100`), separate from the site. Without `PURSAE_METRICS_TOKEN` the listener starts only on a loopback address (`127.0.0.1`, `[::1]`, `localhost`); any other address needs the token, or the listener is not started (an error is logged) |
 | `PURSAE_METRICS_TOKEN` | a bearer token: scrapers send `Authorization: Bearer <token>`. With `PURSAE_METRICS_ADDR` it protects that listener too; without it, `/metrics` is served **on the site's own port**, and only to a request that carries the token. Any other request to `/metrics` (no header, wrong token) continues to the site as if the endpoint did not exist, so a page whose slug is `metrics` keeps working |
 | `PURSAE_SLOW_QUERY` | log and count queries at least this slow: a duration (`250ms`, `1s`) or whole milliseconds (`250`). Unset, `0` or invalid: off. Independent of `PURSAE_METRICS` |
 

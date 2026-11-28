@@ -86,6 +86,8 @@ func TestProxyPurgeConfigured(t *testing.T) {
 // A purge of the page cache reaches the configured front proxy, the settings map onto the engine,
 // and "Enable Cache" no longer deactivates the plugin.
 func TestPageCacheProxyPurgeAndSettings(t *testing.T) {
+	// The test proxy listens on 127.0.0.1: a private purge target needs the operator switch.
+	t.Setenv("PURSAE_ALLOW_PRIVATE_ENDPOINTS", "1")
 	ts, c0, srv := newTestServer(t, false)
 	installClassic(t, c0, ts.URL)
 	got := make(chan *http.Request, 4)

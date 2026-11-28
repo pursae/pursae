@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -57,7 +58,11 @@ func (s *Server) gcStoreApply(c *gin.Context, req *restRequest) {
 	cart := s.gooCartFor(c)
 	code, _ := req.Str(c, "code")
 	if _, err := s.gcApply(c, code); err != nil {
-		s.gooStoreCartErr(c, http.StatusBadRequest, "woocommerce_rest_cart_gift_card_error", err.Error(), cart)
+		status := http.StatusBadRequest
+		if errors.Is(err, errGooThrottled) {
+			status = http.StatusTooManyRequests
+		}
+		s.gooStoreCartErr(c, status, "woocommerce_rest_cart_gift_card_error", err.Error(), cart)
 		return
 	}
 	cart.Calculate()

@@ -333,6 +333,13 @@ func renderLatestPosts(ctx context.Context, b *blocks.Block, _ string) string {
 					class = "wp-block-latest-posts__post-full-content"
 				}
 				fmt.Fprintf(&items, `<div class="%s">This content is password protected.</div>`, class)
+			} else if msg, hidden := rc.s.gmemNestedRestricted(ctx, rc.user, p.ID, attrStr(b, "displayPostContentRadio", "excerpt") == "excerpt"); hidden {
+				// Memberships: a restricted post shows the restriction message, like its own page.
+				class := "wp-block-latest-posts__post-excerpt"
+				if attrStr(b, "displayPostContentRadio", "excerpt") != "excerpt" {
+					class = "wp-block-latest-posts__post-full-content"
+				}
+				fmt.Fprintf(&items, `<div class="%s">%s</div>`, class, msg)
 			} else if attrStr(b, "displayPostContentRadio", "excerpt") == "excerpt" {
 				ex := wp.KsesPost(p.Excerpt) // excerpts saved before excerpt_save_pre sanitizing existed
 				if ex == "" {
@@ -639,6 +646,11 @@ func renderSyncedPattern(ctx context.Context, b *blocks.Block, _ string) string 
 	if err != nil || p.Type != "wp_block" || p.Status != "publish" {
 		return ""
 	}
+	// Memberships: a pattern restricted to a plan shows a non-member the restriction message
+	// wherever it is placed, not only on its own page.
+	if msg, hidden := rc.s.gmemNestedRestricted(ctx, rc.user, p.ID, false); hidden {
+		return msg
+	}
 	if rc.seenRefs == nil {
 		rc.seenRefs = map[int64]bool{}
 	}
@@ -648,7 +660,7 @@ func renderSyncedPattern(ctx context.Context, b *blocks.Block, _ string) string 
 		rc.depth--
 		delete(rc.seenRefs, ref)
 	}()
-	return blocks.Render(ctx, rc.s.cspTrustContent(ctx, p.Content)) // the stored scripts of an unfiltered_html author
+	return blocks.Render(ctx, rc.s.gmemNestedShortcodes(ctx, rc.user, rc.s.cspTrustContent(ctx, p.Content))) // the stored scripts of an unfiltered_html author
 }
 
 func boolInt(b bool) int {

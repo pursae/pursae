@@ -47,8 +47,10 @@ files/uploads/…  files/themes/…  files/plugins/…
 2. One transaction: foreign keys are made deferrable, the chosen tables emptied, the rows inserted in batches,
    orphans of a partial restore repaired by each key's own `ON DELETE` rule, sequences reset, constraints
    checked, foreign keys made immediate again. Any failure rolls the database back untouched.
-3. Files are extracted afterwards (atomic writes, path traversal refused, symlinks skipped); existing files
-   with other names are left alone.
+3. Files are unpacked into a staging folder first (path traversal refused, symlinks skipped) and swapped in
+   with renames just before the database commits, so a failure on either side leaves the site as it was.
+   Extra media files are left alone; a full restore of **plugins** or **themes** makes those folders exactly
+   the archive's, moving files the archive does not have to `<uploads>/../backup-quarantine/<time>/` (0.6.3+).
 4. Settings are reloaded and the page cache purged.
 
 Kept from the target site: `auth_secret`, `siteurl`, `home`, the plugin's own switch and the trusted plugin
@@ -139,7 +141,14 @@ the option and is shown read-only.
   uploads directory) with mode 0600, named `backup-<time>-<random>.zip`.
 * Download, delete, upload and restore need an administrator and a nonce; file names are validated against
   `^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$`.
-* A backup holds password hashes and site secrets; the screen says so.
+* A backup holds password hashes and site secrets; the screen says so. By default it does **not** hold the
+  site's encryption key (0.6.3+), so the encrypted secrets in it (SMTP, CDN, payment keys, webhook secrets, …)
+  cannot be read from the archive alone. Tick *Include the site's encryption key (for moving to a new
+  server)* (or `wpgo backup create --include-key`) when moving a site; such archives are marked in the list.
+  Restored elsewhere without the key, those secrets are empty and the restore says how many to enter again
+  ([backups](developer/operations/backups.md)).
+* A restore unpacks at most `PURSAE_BACKUP_MAX_UNPACKED` (default `20G`, and always up to 20× the archive's
+  size); a larger archive is refused before anything changes (0.6.3+).
 * Uploads are streamed to disk (no memory buffering, 16 GB cap). Very large archives can instead be copied into
   the backups folder and appear in the list.
 * The manifest lists a SHA-256 for every archive entry. A restore first reads the whole archive and
@@ -148,8 +157,7 @@ the option and is shown read-only.
 * Media that exists only in the Pursae CDN bucket ("Remove files from the server") is not in the archive;
   the job log warns about it and the manifest records `remote_only`.
 * A restore unpacks files into a staging folder next to their target first; the database is replaced only
-  after that succeeds, and only renames follow. If moving files then fails, the error names the safety
-  snapshot to restore.
+  after that succeeds, and only renames follow.
 * Scheduled backups: hourly, daily or weekly, with a time of day (site time zone) and an e-mail to the
   admin address on failure (or after every run).
 * One backup or restore runs at a time; progress is polled from `action=status`.

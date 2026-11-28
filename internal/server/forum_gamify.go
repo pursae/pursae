@@ -1077,6 +1077,7 @@ func (s *Server) forumSetBlocked(ctx context.Context, actor *store.User, targetI
 	if err != nil {
 		return err
 	}
+	access := s.userAccessKey(ctx, target.ID)
 	if block {
 		exc[capForumParticipate] = "deny"
 	} else if exc[capForumParticipate] == "deny" {
@@ -1087,6 +1088,9 @@ func (s *Server) forumSetBlocked(ctx context.Context, actor *store.User, targetI
 	if err := s.store.SetUserCapExceptions(ctx, target.ID, exc); err != nil {
 		return err
 	}
+	// A blocked member's open sessions end, like any other access change (never the actor's: the
+	// gate refuses self-blocks).
+	s.endSessionsAfterAccessChange(ctx, nil, target.ID, access)
 	s.forumPurge(ctx)
 	return nil
 }
@@ -1136,9 +1140,12 @@ func (s *Server) forumSetForumRole(ctx context.Context, actor *store.User, targe
 		}
 		extra = append(extra, r)
 	}
+	access := s.userAccessKey(ctx, target.ID)
 	if err := s.store.SetUserRoles(ctx, target.ID, primary, extra); err != nil {
 		return err
 	}
+	// A role change ends the member's sessions, as everywhere else roles change.
+	s.endSessionsAfterAccessChange(ctx, nil, target.ID, access)
 	s.forumPurge(ctx)
 	return nil
 }

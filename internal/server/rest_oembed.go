@@ -242,6 +242,9 @@ func (s *Server) embedPage(c *gin.Context, p *store.Post) string {
 		}
 		sb.WriteString("\t<p class=\"wp-embed-heading\">\n\t\t<a href=\"" + link + "\" target=\"_top\">\n\t\t\t" + theTitle(p) + "\t\t</a>\n\t</p>\n\n")
 		excerpt := s.theExcerpt(p, lb)
+		if msg, hidden := s.gmemListingExcerpt(c.Request.Context(), currentUser(c), p.ID); hidden {
+			excerpt = msg // Memberships: restricted content is not excerpted (show_excerpts off)
+		}
 		if p.Password != "" {
 			// the_excerpt_embed() shows the password form instead of the content.
 			excerpt = "<p>This content is password protected. To view it please enter your password below:</p>\n" +

@@ -161,6 +161,11 @@ func (s *Server) gooShortcode(c *gin.Context, tag string, a map[string]string) s
 		if p == nil || p.Status != "publish" || s.gooHiddenProduct(ctx, p.ID) {
 			return ""
 		}
+		if p.Post != nil && s.passwordRequired(c, p.Post) {
+			// content-single-product.php: post_password_required() prints the password form instead
+			// of the product until the visitor entered the password (wp-postpass cookie).
+			return `<div class="single-product" data-product-page-preselected-id="0"><div class="woocommerce">` + s.passwordForm(p.Post, s.links(ctx)) + `</div></div>`
+		}
 		return `<div class="single-product" data-product-page-preselected-id="0"><div class="woocommerce">` + s.gooProductBody(c, p, true) + `</div></div>`
 	case "add_to_cart":
 		p := s.gooShortcodeProduct(ctx, a)

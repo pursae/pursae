@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -31,6 +32,10 @@ func gooSite(t *testing.T) (string, *http.Client, *Server) {
 	if !srv.gooOn() {
 		t.Fatal("Pursae Commerce is not active after activation")
 	}
+	// Tests check out and try codes from one address many times: the per-IP limits are raised here
+	// and tested on their own (gooRealThrottles).
+	gooGuestCheckoutThrottles.Store(srv, newGooThrottle(1<<30, 10*time.Minute))
+	gooGiftCardThrottles.Store(srv, newGooThrottle(1<<30, 10*time.Minute))
 	return ts.URL, c, srv
 }
 

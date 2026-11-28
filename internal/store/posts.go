@@ -253,6 +253,7 @@ type PostQuery struct {
 	ParentID                 *int64
 	Search                   string
 	searchArg, searchLikeArg string  // placeholders where() bound for Search, reused by the relevance order
+	searched                 bool    // where() saw a search (positive or exclusion terms)
 	TermIDs                  []int64 // posts in any of these terms
 	Year                     int
 	Month                    int
@@ -339,7 +340,16 @@ func (q *PostQuery) where(args *[]any) string {
 		conds = append(conds, "coalesce(parent_id,0) = "+add(*q.ParentID))
 	}
 	if q.Search != "" {
-		q.Search = ValidText(q.Search)
+		q.searched = true
+		var exclude []string
+		q.Search, exclude = normalizeSearch(ValidText(q.Search))
+		// "-term" excludes posts containing term, as in WordPress (plainto_tsquery would just drop the minus).
+		for _, ex := range exclude {
+			ph := FoldedArgSQL(add(ex))
+			conds = append(conds, "NOT (search @@ plainto_tsquery('simple', "+ph+") OR "+FoldedTitleSQL("title")+" LIKE "+FoldedArgSQL(add(likeContains(ex)))+")")
+		}
+	}
+	if q.Search != "" {
 		// The term and the searched text are folded alike by the database (lower(), then ı, İ → i; migration
 		// 0105), so "IŞIK" finds "ışık" whatever the database collation lower-cases I to.
 		q.searchArg, q.searchLikeArg = FoldedArgSQL(add(q.Search)), FoldedArgSQL(add(likeContains(q.Search)))
@@ -587,6 +597,12 @@ func limitOffset(perPage, page int) string {
 func (s *Store) QueryPosts(ctx context.Context, q PostQuery) ([]*Post, int, error) {
 	var args []any
 	where := q.where(&args) + QueryFilter.cond(ctx, "post", &args)
+	if q.searched {
+		// Full-text search is the one public query whose cost the visitor controls; bound it.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, SearchTimeout)
+		defer cancel()
+	}
 	var total int
 	countRows := !q.NoTotal && (q.PerPage > 0 || q.Offset != nil)
 	if countRows {
@@ -1256,4 +1272,40 @@ func (s *Store) DuplicatePost(ctx context.Context, src *Post, authorID int64, ti
 		return nil, err
 	}
 	return p, nil
+}
+
+// Search limits: a visitor-controlled search is bounded in length, in the number of terms and in time, so one
+// request cannot build a huge tsquery/LIKE scan (anonymous search DoS). Excess input is dropped, not rejected.
+const (
+	searchMaxRunes = 200
+	searchMaxTerms = 32
+)
+
+// SearchTimeout bounds a QueryPosts call that searches.
+var SearchTimeout = 5 * time.Second
+
+// normalizeSearch caps the search string and splits off WordPress-style "-term" exclusions. The returned search
+// keeps the remaining terms in order, deduplicated; a quoted phrase is kept as typed.
+func normalizeSearch(s string) (string, []string) {
+	if r := []rune(s); len(r) > searchMaxRunes {
+		s = string(r[:searchMaxRunes])
+	}
+	seen := map[string]bool{}
+	var keep, exclude []string
+	for _, w := range strings.Fields(s) {
+		lw := strings.ToLower(w)
+		if seen[lw] {
+			continue
+		}
+		if len(seen) >= searchMaxTerms {
+			break
+		}
+		seen[lw] = true
+		if len(w) > 1 && w[0] == '-' {
+			exclude = append(exclude, w[1:])
+			continue
+		}
+		keep = append(keep, w)
+	}
+	return strings.Join(keep, " "), exclude
 }

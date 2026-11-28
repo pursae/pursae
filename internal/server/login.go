@@ -125,6 +125,12 @@ func (s *Server) login(c *gin.Context) {
 		v.Error = template.HTML(msg)
 		s.renderAdminTemplate(c, http.StatusOK, "admin/login", v)
 	}
+	// Login CSRF: another site's page must not sign the visitor in to an account of its choosing.
+	if s.crossSitePost(c) {
+		v.Error = "<strong>Error:</strong> The log in form was sent from another site. Please log in on this page."
+		s.renderAdminTemplate(c, http.StatusForbidden, "admin/login", v)
+		return
+	}
 	if msg := s.loginCaptchaFailed(c); msg != "" {
 		fail(string(msg))
 		return

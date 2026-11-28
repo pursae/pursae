@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/textproto"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -31,6 +32,58 @@ type SMTP struct {
 	TLSConfig  *tls.Config // nil: verify the server name
 	Debug      io.Writer   // SMTP transcript ("C: …" / "S: …"), optional
 	Timeout    time.Duration
+	// Control, when set, runs on every connection's resolved address (net.Dialer.Control): the
+	// admin-configured SMTP mailer passes the private-address guard here so the host cannot be
+	// used to probe the server's internal network, DNS rebinding included.
+	Control func(network, address string, c syscall.RawConn) error
+}
+
+// SMTP failure stages, for SendError.
+const (
+	StageConnect  = "connect"  // TCP connect, implicit TLS, or the server greeting
+	StageTLS      = "tls"      // STARTTLS
+	StageAuth     = "auth"     // AUTH
+	StageRejected = "rejected" // HELO, MAIL, RCPT, DATA
+)
+
+// SendError is a failed SMTP.Send with the stage it failed in, so callers can show a fixed
+// category instead of raw dial errors and server banners (ErrorCategory).
+type SendError struct {
+	Stage string
+	Err   error
+}
+
+func (e *SendError) Error() string { return e.Err.Error() }
+func (e *SendError) Unwrap() error { return e.Err }
+
+// ErrorCategory is a fixed, banner-free description of an SMTP.Send error: connection failed,
+// timed out, TLS failed, authentication failed or rejected.
+func ErrorCategory(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+		return "SMTP error: the connection timed out."
+	}
+	var cv *tls.CertificateVerificationError
+	var rh tls.RecordHeaderError
+	if errors.As(err, &cv) || errors.As(err, &rh) {
+		return "SMTP error: the TLS negotiation failed."
+	}
+	var se *SendError
+	if !errors.As(err, &se) {
+		return "SMTP error: could not connect to the SMTP host."
+	}
+	switch se.Stage {
+	case StageTLS:
+		return "SMTP error: the TLS negotiation failed."
+	case StageAuth:
+		return "SMTP error: authentication failed."
+	case StageRejected:
+		return "SMTP error: the server rejected the message."
+	}
+	return "SMTP error: could not connect to the SMTP host."
 }
 
 type smtpSession struct {
@@ -101,6 +154,15 @@ func (s *SMTP) tlsConfig() *tls.Config {
 // Send delivers raw (an RFC 5322 message) from the envelope sender to the recipients and returns
 // the server's final reply (often carrying the queue id).
 func (s *SMTP) Send(ctx context.Context, from string, rcpt []string, raw []byte) (string, error) {
+	stage := StageConnect
+	msg, err := s.send(ctx, from, rcpt, raw, &stage)
+	if err != nil && s.Host != "" {
+		return "", &SendError{Stage: stage, Err: err}
+	}
+	return msg, err
+}
+
+func (s *SMTP) send(ctx context.Context, from string, rcpt []string, raw []byte, stage *string) (string, error) {
 	if s.Host == "" {
 		return "", errors.New("SMTP host is not set")
 	}
@@ -118,7 +180,7 @@ func (s *SMTP) Send(ctx context.Context, from string, rcpt []string, raw []byte)
 	addr := net.JoinHostPort(s.Host, port)
 	x := &smtpSession{s: s}
 	x.logf("Connecting to %s (encryption: %s)", addr, map[bool]string{true: s.Encryption, false: "none"}[s.Encryption != ""])
-	d := &net.Dialer{Timeout: 15 * time.Second}
+	d := &net.Dialer{Timeout: 15 * time.Second, Control: s.Control}
 	var err error
 	if s.Encryption == "ssl" {
 		x.conn, err = (&tls.Dialer{NetDialer: d, Config: s.tlsConfig()}).DialContext(ctx, "tcp", addr)
@@ -137,10 +199,12 @@ func (s *SMTP) Send(ctx context.Context, from string, rcpt []string, raw []byte)
 	if err != nil {
 		return "", err
 	}
+	*stage = StageRejected
 	if err := x.hello(); err != nil {
 		return "", err
 	}
 	_, canTLS := x.ext["STARTTLS"]
+	*stage = StageTLS
 	if s.Encryption == "tls" && !canTLS {
 		return "", errors.New("the SMTP server does not support STARTTLS; choose another encryption")
 	}
@@ -161,6 +225,7 @@ func (s *SMTP) Send(ctx context.Context, from string, rcpt []string, raw []byte)
 		}
 	}
 	if s.Auth && s.User != "" {
+		*stage = StageAuth
 		mechs := strings.ToUpper(x.ext["AUTH"])
 		switch {
 		case strings.Contains(mechs, "PLAIN") || mechs == "":
@@ -182,6 +247,7 @@ func (s *SMTP) Send(ctx context.Context, from string, rcpt []string, raw []byte)
 			return "", fmt.Errorf("the SMTP server offers no supported authentication mechanism (%s)", mechs)
 		}
 	}
+	*stage = StageRejected
 	if _, _, err := x.cmd(250, "", "MAIL FROM:<%s>", from); err != nil {
 		return "", err
 	}

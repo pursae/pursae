@@ -34,6 +34,22 @@ func (a *hgAuth) canUpload() bool {
 	return a.Kind == "token" && (a.Token.Kind == "full-access" || a.Token.Upload)
 }
 
+// hgUploadTokenMeta records which API token uploaded a file: a custom upload token reads back its
+// own uploads, not the whole media library.
+const hgUploadTokenMeta = "_hg_upload_token" //nolint:gosec // G101: a post meta key, not a credential
+
+func (a *hgAuth) fullAccess() bool {
+	return a.Kind == "token" && a.Token != nil && a.Token.Kind == "full-access"
+}
+
+// ownUpload reports whether the caller's token uploaded the file.
+func (a *hgAuth) ownUpload(att *store.Attachment) bool {
+	if a == nil || a.Kind != "token" || a.Token == nil || att == nil {
+		return false
+	}
+	return gooInt(att.Meta[hgUploadTokenMeta]) == a.Token.ID
+}
+
 func (s *Server) hgUploadAPI(c *gin.Context, a *hgAuth, segs []string, method string) {
 	switch {
 	case len(segs) == 0 && method == http.MethodPost:
@@ -45,7 +61,9 @@ func (s *Server) hgUploadAPI(c *gin.Context, a *hgAuth, segs []string, method st
 		}
 		id, _ := strconv.ParseInt(segs[1], 10, 64)
 		att, err := s.store.GetAttachment(c, id)
-		if err != nil || id <= 0 {
+		// Uploading does not make the whole library readable: the file must be one this caller
+		// may read anyway (hgMediaReadable), or its own upload.
+		if err != nil || id <= 0 || !s.hgMediaReadable(c, a, s.hgWPUser(c, a), att) {
 			hgNotFound(c)
 			return
 		}
@@ -182,7 +200,7 @@ func (s *Server) hgUploadPost(c *gin.Context, a *hgAuth) {
 			info = infos[i]
 		}
 		name := fh.Filename
-		att, err := s.insertAttachmentFile(c, name, f, 0, 0)
+		att, err := s.insertAttachmentFileWithMeta(c, name, f, 0, 0, map[string]any{hgUploadTokenMeta: a.Token.ID})
 		f.Close()
 		if err != nil {
 			if !rollback() {

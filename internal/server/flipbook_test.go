@@ -81,12 +81,20 @@ func TestFlipbookAdminAndRoute(t *testing.T) {
 	adminBook := books[0].ID
 
 	// An author creates their own book but may not edit or delete the admin's.
-	asCreateUser(t, srv, "writer", "author", asStrongPass)
+	writerID := asCreateUser(t, srv, "writer", "author", asStrongPass)
 	ac := asNewClient()
 	if code, _, _ := asLogin(t, ac, base, "/wp-login", "writer", asStrongPass); code != http.StatusFound {
 		t.Fatalf("login: %d", code)
 	}
-	if loc := create(ac, url.Values{"attachment_id": {itoa64(pdf.ID)}}); !strings.Contains(loc, "pfb-msg=created") {
+	// Not from the administrator's PDF: only a file the author may edit.
+	if loc := create(ac, url.Values{"attachment_id": {itoa64(pdf.ID)}}); !strings.Contains(loc, "pfb-error") {
+		t.Fatalf("author made a book of the administrator's PDF: %s", loc)
+	}
+	own := &store.Attachment{UploaderID: writerID, Slug: "writer-pdf", FilePath: "2026/11/writer.pdf", Mime: "application/pdf", Title: "Writer"}
+	if err := srv.store.InsertAttachment(ctx, own); err != nil {
+		t.Fatal(err)
+	}
+	if loc := create(ac, url.Values{"attachment_id": {itoa64(own.ID)}}); !strings.Contains(loc, "pfb-msg=created") {
 		t.Fatalf("author create: %s", loc)
 	}
 	_, list, _ := get(t, ac, base+"/wp-admin/admin?page="+flipbookSlug)

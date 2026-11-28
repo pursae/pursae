@@ -23,6 +23,12 @@ func TestT2GatesFirewallStaticExemption(t *testing.T) {
 		{http.MethodPost, "/wp-content/uploads/a.png", false},
 		{http.MethodGet, "/", false},
 		{http.MethodGet, "/wp-json/wp/v2/posts", false},
+		// #33: the asset trees are answered by the site router too when no file exists.
+		{http.MethodGet, "/wp-content/?s=foo", false},
+		{http.MethodGet, "/wp-content/x", false},
+		{http.MethodGet, "/wp-includes/?p=1", false},
+		{http.MethodGet, "/wp-content/a.css?s=foo", false},
+		{http.MethodGet, "/wp-content/a.css?ver=1&s=foo", false},
 	}
 	for _, tc := range cases {
 		r := httptest.NewRequest(tc.method, tc.url, nil)

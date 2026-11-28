@@ -186,7 +186,7 @@ func TestGooEmailAccountsAndStock(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := gooMailsWith(t, srv, "Your Toggle Site account has been created!")
-	if len(m) != 1 || gooMailTo(m[0]) != "new@example.test" || !strings.Contains(gooStr(m[0]["HTML"]), "action=rp&amp;key=") {
+	if len(m) != 1 || gooMailTo(m[0]) != "new@example.test" || !strings.Contains(gooStr(m[0]["HTML"]), "/my-account/lost-password/?key=") {
 		t.Fatalf("new account mail: %v", m)
 	}
 	// Stock notices go to the stock recipient.

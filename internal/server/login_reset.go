@@ -10,9 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -62,13 +60,19 @@ const resetResponseTime = 250 * time.Millisecond
 // machinery when there is one (Close waits for it). c is a copy of the request's context (gin.Context.Copy),
 // so it stays usable after the request was answered.
 func (s *Server) goResetRequest(c *gin.Context, login string) {
+	s.goResetRequestVia(c, login, "")
+}
+
+// goResetRequestVia is goResetRequest whose mailed link opens at via (the My Account lost-password
+// endpoint) instead of wp-login.php; "" keeps wp-login.
+func (s *Server) goResetRequestVia(c *gin.Context, login, via string) {
 	run := func(context.Context) {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("lost password request panicked", "panic", r)
 			}
 		}()
-		s.lostPasswordRequest(c, login)
+		s.lostPasswordRequest(c, login, via)
 	}
 	if s.rt.bgCtx != nil {
 		s.goBackground(run)
@@ -79,27 +83,45 @@ func (s *Server) goResetRequest(c *gin.Context, login string) {
 
 // lostPasswordRequest is the work behind a lost-password form: when login names an account and the
 // request is within the reset throttle, log it and mail the account a reset link.
-func (s *Server) lostPasswordRequest(c *gin.Context, login string) {
+func (s *Server) lostPasswordRequest(c *gin.Context, login, via string) {
 	u, err := s.store.UserByLoginOrEmail(c, login)
 	if err != nil || !s.resetRequestAllowed(c, u) {
 		return
 	}
 	s.asAudit(c, asEvent{Event: "password_reset_requested", Severity: "notice", User: u, Username: u.Login, Message: "A password reset link was requested."})
-	s.sendResetLink(c, u)
+	s.sendResetLinkVia(c, u, via)
 }
 
 // resetLink is get_password_reset_key() + the wp-login.php?action=rp URL: a fresh key (hashed in user
 // meta, valid for a day) and the link that carries it.
 func (s *Server) resetLink(c *gin.Context, u *store.User) string {
+	return s.resetLinkVia(c, u, "")
+}
+
+// resetLinkVia is resetLink opening at via (an absolute URL built from the configured home, never the
+// request Host); "" is wp-login.php?action=rp.
+func (s *Server) resetLinkVia(c *gin.Context, u *store.User, via string) string {
 	key := auth.RandomToken(20)
 	sum := sha256.Sum256([]byte(key))
 	_ = s.setUserMeta(c, u, "password_reset", map[string]any{"hash": hex.EncodeToString(sum[:]), "expires": time.Now().Add(24 * time.Hour).Unix()})
+	if via != "" {
+		sep := "?"
+		if strings.Contains(via, "?") {
+			sep = "&"
+		}
+		return via + sep + "key=" + key + "&login=" + url.QueryEscape(u.Login)
+	}
 	return s.configuredLinks(c).HomeURL(s.loginPath() + "?action=rp&key=" + key + "&login=" + url.QueryEscape(u.Login))
 }
 
 // sendResetLink is retrieve_password(): the "[Site] Password Reset" message.
 func (s *Server) sendResetLink(c *gin.Context, u *store.User) {
-	link := s.resetLink(c, u)
+	s.sendResetLinkVia(c, u, "")
+}
+
+// sendResetLinkVia is sendResetLink with the link opening at via (see resetLinkVia).
+func (s *Server) sendResetLinkVia(c *gin.Context, u *store.User, via string) {
+	link := s.resetLinkVia(c, u, via)
 	// A store customer gets the store's own "Reset password" e-mail (Settings > Emails) when it is
 	// enabled; every other account, and every site without the store, gets the core message.
 	if s.gooOn() && containsStr(u.Roles, "customer") {
@@ -115,6 +137,9 @@ func (s *Server) sendResetLink(c *gin.Context, u *store.User) {
 	}
 	s.sendMail(c, mail.Message{Kind: "password_reset", To: []string{u.Email}, Subject: "[" + site + "] Password Reset", Body: body})
 }
+
+// wpRegisterPerHour is how many accounts wp-login.php?action=register creates per client network an hour.
+const wpRegisterPerHour = 5
 
 // register is wp-login.php?action=register (register_new_user()).
 func (s *Server) register(c *gin.Context, v loginView) {
@@ -148,6 +173,11 @@ func (s *Server) register(c *gin.Context, v loginView) {
 			errs = append(errs, "<strong>Error:</strong> The email address isn&#8217;t correct.")
 		case et:
 			errs = append(errs, "<strong>Error:</strong> This email address is already registered. <a href=\""+s.loginPath()+"\">Log in</a> with this address or choose another one.")
+		}
+		// A per-network cap on new accounts (like the Forum and Headless sign-ups): only a sign-up that would
+		// create an account counts, so typos in the form never use it up.
+		if len(errs) == 0 && !forumAllow("wp-register:"+gooikeTruncateIP(clientIP(c)), wpRegisterPerHour, time.Hour) {
+			errs = append(errs, "<strong>Error:</strong> Too many registrations from your network. Please try again later.")
 		}
 		if len(errs) == 0 {
 			// The password is random; the user sets their own from the link in the notification.
@@ -212,46 +242,57 @@ func (s *Server) resetPassword(c *gin.Context, v loginView) {
 	}
 	v.Login, v.ResetKey = u.Login, key
 	if c.Request.Method == http.MethodPost {
-		p1, p2 := c.PostForm("pass1"), c.PostForm("pass2")
+		msg, invalid := s.applyPasswordReset(c, u, key, c.PostForm("pass1"), c.PostForm("pass2"))
 		switch {
-		case p1 == "":
-			v.Error = "<strong>Error:</strong> Please enter a new password."
-		case p1 != p2:
-			v.Error = "<strong>Error:</strong> The passwords do not match."
-		case s.adminsecUserPasswordProblem(u, p1) != "": // AdminSecGo password policy
-			v.Error = template.HTML("<strong>Error:</strong> " + template.HTMLEscapeString(s.adminsecUserPasswordProblem(u, p1)))
-		default:
-			hash, err := auth.HashPassword(p1)
-			if err != nil {
-				v.Error = template.HTML("<strong>Error:</strong> " + template.HTMLEscapeString(err.Error()))
-				break
-			}
-			// Spend the key first and atomically: two requests with the same key can't both reset.
-			sum := sha256.Sum256([]byte(key))
-			if ok, err := s.store.ConsumePasswordReset(c, u.ID, hex.EncodeToString(sum[:])); err != nil || !ok {
-				c.Redirect(http.StatusFound, s.loginPath()+"?action=lostpassword&error=invalidkey")
-				return
-			}
-			if err := s.store.SetUserPassword(c, u.ID, hash); err != nil {
-				v.Error = template.HTML("<strong>Error:</strong> " + template.HTMLEscapeString(err.Error()))
-				break
-			}
-			delete(u.Meta, "password_reset")
-			s.revokeCredentialsAfterPasswordChange(c, u.ID)
-			s.adminsecPasswordChanged(c, u)
-			// The password is already changed, so the reset still succeeds; sessions left alive after
-			// a reset must at least be visible in the log.
-			if _, err := s.store.Pool.Exec(c, `DELETE FROM sessions WHERE user_id = $1`, u.ID); err != nil {
-				slog.Error("login: session revocation after password reset failed", "user_id", u.ID, "err", err)
-			}
-			site := s.settings.String("blogname")
-			s.sendMail(c, mail.Message{Kind: "password_changed", To: []string{s.settings.String("admin_email")}, Subject: "[" + site + "] Password Changed",
-				Body: fmt.Sprintf("Password changed for user: %s\n", u.Login)})
+		case invalid:
+			c.Redirect(http.StatusFound, s.loginPath()+"?action=lostpassword&error=invalidkey")
+			return
+		case msg == "":
 			c.Redirect(http.StatusFound, s.loginPath()+"?password=changed")
 			return
 		}
+		v.Error = template.HTML("<strong>Error:</strong> " + msg)
 	}
 	s.renderAdminTemplate(c, http.StatusOK, "admin/login-reset", v)
+}
+
+// applyPasswordReset sets u's new password from a reset form (wp-login.php?action=rp and the My Account
+// lost-password endpoint share it): the checks, the password policy, the key spent atomically, the sessions
+// and credentials revoked and the admin told. msg is an HTML-safe error ("" on success); invalid means the
+// key was already used.
+func (s *Server) applyPasswordReset(c *gin.Context, u *store.User, key, p1, p2 string) (msg string, invalid bool) {
+	switch {
+	case p1 == "":
+		return "Please enter a new password.", false
+	case p1 != p2:
+		return "The passwords do not match.", false
+	case s.adminsecUserPasswordProblem(u, p1) != "": // AdminSecGo password policy
+		return template.HTMLEscapeString(s.adminsecUserPasswordProblem(u, p1)), false
+	}
+	hash, err := auth.HashPassword(p1)
+	if err != nil {
+		return template.HTMLEscapeString(err.Error()), false
+	}
+	// Spend the key first and atomically: two requests with the same key can't both reset.
+	sum := sha256.Sum256([]byte(key))
+	if ok, err := s.store.ConsumePasswordReset(c, u.ID, hex.EncodeToString(sum[:])); err != nil || !ok {
+		return "", true
+	}
+	if err := s.store.SetUserPassword(c, u.ID, hash); err != nil {
+		return template.HTMLEscapeString(err.Error()), false
+	}
+	delete(u.Meta, "password_reset")
+	s.revokeCredentialsAfterPasswordChange(c, u.ID)
+	s.adminsecPasswordChanged(c, u)
+	// The password is already changed, so the reset still succeeds; sessions left alive after
+	// a reset must at least be visible in the log.
+	if _, err := s.store.Pool.Exec(c, `DELETE FROM sessions WHERE user_id = $1`, u.ID); err != nil {
+		slog.Error("login: session revocation after password reset failed", "user_id", u.ID, "err", err)
+	}
+	site := s.settings.String("blogname")
+	s.sendMail(c, mail.Message{Kind: "password_changed", To: []string{s.settings.String("admin_email")}, Subject: "[" + site + "] Password Changed",
+		Body: fmt.Sprintf("Password changed for user: %s\n", u.Login)})
+	return "", false
 }
 
 // notifyComment is wp_new_comment_notify_moderator() / wp_new_comment_notify_postauthor().
@@ -266,14 +307,14 @@ func (s *Server) notifyComment(c *gin.Context, cm *store.Comment) {
 	admin := s.links(c).HomeURL("/wp-admin/edit-comments?comment_status=")
 	switch cm.Status {
 	case "pending":
-		if !s.settings.Bool("moderation_notify") {
+		if !s.settings.Bool("moderation_notify") || !s.notifyMailAllowed("comment", cm.AuthorIP) {
 			return
 		}
 		body := fmt.Sprintf("A new comment on the post \"%s\" is waiting for your approval\n%s\n\n%s\nApprove it: %s\nTrash it: %s\nSpam it: %s\n\nCurrently 1 comment is waiting for approval. Please visit the moderation panel:\n%s\n",
 			p.Title, link, text, admin+"pending", admin+"pending", admin+"pending", admin+"moderated")
 		s.sendMail(c, mail.Message{Kind: "comment_moderation", To: []string{s.settings.String("admin_email")}, Subject: fmt.Sprintf("[%s] Please moderate: \"%s\"", site, p.Title), Body: body})
 	case "approved":
-		if !s.settings.Bool("comments_notify") || cm.UserID == p.AuthorID {
+		if !s.settings.Bool("comments_notify") || cm.UserID == p.AuthorID || !s.notifyMailAllowed("comment", cm.AuthorIP) {
 			return
 		}
 		author, err := s.store.UserByID(c, p.AuthorID)
@@ -307,38 +348,18 @@ const (
 	resetRequestWindow = 15 * time.Minute
 )
 
-var (
-	resetReqMu   sync.Mutex
-	resetReqSeen = map[string][]time.Time{}
-)
-
 // resetRequestAllowed reports whether a reset mail may be sent for u from this request, and records it.
 func (s *Server) resetRequestAllowed(c *gin.Context, u *store.User) bool {
-	ip := clientIP(c)
+	return s.resetRequestAllowedFor(c, clientIP(c), u.Login)
+}
+
+// resetRequestAllowedFor is resetRequestAllowed for any reset form (wp-login, My Account): the
+// counts live in the database (login_attempts, auth.AllowResetRequest), so they hold across restarts
+// and processes. A database error refuses: the visitor sees the same answer either way.
+func (s *Server) resetRequestAllowedFor(ctx context.Context, ip, login string) bool {
 	if st := s.asLoad(); s.adminsecOn() && st.BlockList != "" && maintIPAllowed(st.BlockList, ip) && !maintIPAllowed(st.AllowList, ip) {
 		return false
 	}
-	now := time.Now()
-	resetReqMu.Lock()
-	defer resetReqMu.Unlock()
-	for k, v := range resetReqSeen { // drop expired entries
-		for len(v) > 0 && now.Sub(v[0]) > resetRequestWindow {
-			v = v[1:]
-		}
-		if len(v) == 0 {
-			delete(resetReqSeen, k)
-		} else {
-			resetReqSeen[k] = v
-		}
-	}
-	keys := []string{"ip:" + auth.ClientNet(ip), "user:" + strconv.FormatInt(u.ID, 10)} // IPv6 by its /64
-	for _, k := range keys {
-		if len(resetReqSeen[k]) >= resetRequestMax {
-			return false
-		}
-	}
-	for _, k := range keys {
-		resetReqSeen[k] = append(resetReqSeen[k], now)
-	}
-	return true
+	ok, err := s.auth.AllowResetRequest(ctx, ip, login, resetRequestMax, resetRequestWindow)
+	return err == nil && ok
 }

@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,7 +30,7 @@ import (
 func (s *Server) gooLoginFormHTML(c *gin.Context, redirect string, toggle bool) string {
 	return s.gooTpl("goo/form-login", map[string]any{
 		"Action": s.gooPageURL(c.Request.Context(), "myaccount"), "Toggle": toggle, "Username": c.PostForm("username"),
-		"Nonce": s.nonce(c, "woocommerce-login"), "Redirect": redirect, "LostURL": s.loginPath() + "?action=lostpassword",
+		"Nonce": s.nonce(c, "woocommerce-login"), "Redirect": redirect, "LostURL": s.gooAccountURL(c.Request.Context(), "lost-password"),
 		"Captcha": string(s.gooLoginCaptchaWidget(c)), // Pursae Security: CAPTCHA on the account forms
 	})
 }
@@ -57,6 +58,12 @@ func (s *Server) gooAccountPageHTML(c *gin.Context) string {
 	u := currentUser(c)
 	var b strings.Builder
 	b.WriteString(`<div class="woocommerce">`)
+	if fv := gooViewFrom(c); fv != nil && fv.Kind == "myaccount" && fv.Endpoint == "lost-password" {
+		b.WriteString(s.gooLostPasswordHTML(c))
+		b.WriteString(`</div>`)
+		s.gooSaveSession(c)
+		return b.String()
+	}
 	if u == nil {
 		b.WriteString(s.gooNoticesHTML(c))
 		reg := s.gooOptBool("enable_myaccount_registration")
@@ -434,7 +441,7 @@ func (s *Server) gooLoginPost(c *gin.Context) {
 			}
 			return
 		}
-		fail(`<strong>Error:</strong> The password you entered for the username <strong>` + gooEsc(login) + `</strong> is incorrect. <a href="` + s.loginPath() + `?action=lostpassword">Lost your password?</a>`)
+		fail(`<strong>Error:</strong> The password you entered for the username <strong>` + gooEsc(login) + `</strong> is incorrect. <a href="` + gooEsc(s.gooAccountURL(ctx, "lost-password")) + `">Lost your password?</a>`)
 		return
 	}
 	target := s.gooSafeURL(ctx, c.PostForm("redirect"), account)
@@ -451,6 +458,104 @@ func (s *Server) gooLoginPost(c *gin.Context) {
 		return
 	}
 	s.gooRedirect(c, target)
+}
+
+// gooLostPasswordHTML is the lost-password endpoint (form-lost-password.php, lost-password-confirmation.php
+// and form-reset-password.php): the request form, the "email sent" answer, or the new-password form when
+// the URL carries a valid reset key.
+func (s *Server) gooLostPasswordHTML(c *gin.Context) string {
+	ctx := c.Request.Context()
+	action := s.gooAccountURL(ctx, "lost-password")
+	notices := s.gooNoticesHTML(c)
+	if c.Query("reset-link-sent") == "true" {
+		return notices + s.gooTpl("goo/lost-password-confirmation", nil)
+	}
+	if key, login := c.Query("key"), c.Query("login"); key != "" || login != "" {
+		if _, ok := s.checkResetKey(ctx, login, key); ok {
+			return notices + s.gooTpl("goo/form-reset-password", map[string]any{
+				"Action": action, "Key": key, "Login": login, "Nonce": s.nonce(c, "reset_password"),
+			})
+		}
+		notices += `<ul class="woocommerce-error" role="alert"><li>` + gooInvalidResetKey + `</li></ul>`
+	}
+	return notices + s.gooTpl("goo/form-lost-password", map[string]any{
+		"Action": action, "Nonce": s.nonce(c, "lost_password"), "Captcha": string(s.loginCaptchaWidget(c)),
+	})
+}
+
+const gooInvalidResetKey = "This key is invalid or has already been used. Please reset your password again if needed."
+
+// gooAddQuery appends k=v to a URL that may already have a query (plain permalinks).
+func gooAddQuery(u, kv string) string {
+	if strings.Contains(u, "?") {
+		return u + "&" + kv
+	}
+	return u + "?" + kv
+}
+
+// gooLostPasswordPost is WC_Form_Handler::process_lost_password() through the core reset: the same
+// throttle, mail and key as wp-login.php?action=lostpassword, with the link opening this endpoint. The
+// answer is the same, after the same time, whether or not the account exists.
+func (s *Server) gooLostPasswordPost(c *gin.Context) {
+	ctx := c.Request.Context()
+	lost := s.gooAccountURL(ctx, "lost-password")
+	fail := func(msg string) {
+		s.gooAddNotice(c, "error", msg)
+		s.gooRedirect(c, lost)
+	}
+	if !s.checkNonceValue(c, c.PostForm("woocommerce-lost-password-nonce"), "lost_password") {
+		fail("Your session has expired. Please reload the page and try again.")
+		return
+	}
+	if msg := s.loginCaptchaFailed(c); msg != "" { // Pursae Security
+		fail(string(msg))
+		return
+	}
+	login := strings.TrimSpace(c.PostForm("user_login"))
+	if login == "" {
+		fail("Enter a username or email address.")
+		return
+	}
+	start := time.Now()
+	// The mailed link is built from the configured home, never this request's Host.
+	s.goResetRequestVia(c.Copy(), login, s.gooAccountURL(withConfiguredOrigin(ctx), "lost-password"))
+	wait := time.NewTimer(resetResponseTime - time.Since(start))
+	select {
+	case <-wait.C:
+	case <-ctx.Done():
+	}
+	wait.Stop()
+	s.gooRedirect(c, gooAddQuery(lost, "reset-link-sent=true"))
+}
+
+// gooResetPasswordPost is WC_Form_Handler::process_reset_password(): the new password for a valid key.
+func (s *Server) gooResetPasswordPost(c *gin.Context) {
+	ctx := c.Request.Context()
+	lost := s.gooAccountURL(ctx, "lost-password")
+	key, login := c.PostForm("reset_key"), c.PostForm("reset_login")
+	if !s.checkNonceValue(c, c.PostForm("woocommerce-reset-password-nonce"), "reset_password") {
+		s.gooAddNotice(c, "error", "Your session has expired. Please reload the page and try again.")
+		s.gooRedirect(c, gooAddQuery(lost, "key="+url.QueryEscape(key)+"&login="+url.QueryEscape(login)))
+		return
+	}
+	u, ok := s.checkResetKey(ctx, login, key)
+	if !ok {
+		s.gooAddNotice(c, "error", gooInvalidResetKey)
+		s.gooRedirect(c, lost)
+		return
+	}
+	msg, invalid := s.applyPasswordReset(c, u, key, c.PostForm("password_1"), c.PostForm("password_2"))
+	switch {
+	case invalid:
+		s.gooAddNotice(c, "error", gooInvalidResetKey)
+		s.gooRedirect(c, lost)
+	case msg != "":
+		s.gooAddNotice(c, "error", msg)
+		s.gooRedirect(c, gooAddQuery(lost, "key="+url.QueryEscape(key)+"&login="+url.QueryEscape(login)))
+	default:
+		s.gooAddNotice(c, "success", "Your password has been reset successfully.")
+		s.gooRedirect(c, gooAddQuery(s.gooPageURL(ctx, "myaccount"), "password-reset=true"))
+	}
 }
 
 // gooRegisterPost is WC_Form_Handler::process_registration().

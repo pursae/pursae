@@ -455,7 +455,9 @@ func (api *restAPI) search(c *gin.Context, r *restRequest) {
 			}
 		}
 		posts, n, _ := s.store.QueryPosts(c, store.PostQuery{Types: types, Statuses: []string{"publish"}, Search: c.Query("search"), PerPage: per, Page: page,
-			ExcludePassworded: c.Query("search") != "" && restCurrent(c) == nil}) // WP_Query::parse_search() for logged-out requests
+			ExcludePassworded: c.Query("search") != "" && restCurrent(c) == nil, // WP_Query::parse_search() for logged-out requests
+			// Memberships "hide completely": same exclusion as the front search and wp/v2/posts.
+			ExcludeID: s.gooListingKinds(withPluginUser(c.Request.Context(), restCurrent(c)), types)})
 		total = n
 		for _, p := range posts {
 			out = append(out, map[string]any{"id": p.ID, "title": p.Title, "url": s.links(c).Permalink(p), "type": "post", "subtype": p.Type})
@@ -532,7 +534,10 @@ func (api *restAPI) registerTerms() {
 
 func (api *restAPI) listTerms(c *gin.Context, r *restRequest, tax string) {
 	s := api.s
-	page, per := pageArgs(c)
+	page, per, ok := listArgs(c, restTermOrderBy)
+	if !ok {
+		return
+	}
 	q := store.TermQuery{Taxonomy: tax, Search: c.Query("search"), OrderBy: c.DefaultQuery("orderby", "name"),
 		Order: c.DefaultQuery("order", "asc"), Page: page, PerPage: per, HideEmpty: c.Query("hide_empty") == "true"}
 	if ids, ok := r.IDs(c, "include"); ok {
@@ -621,6 +626,13 @@ func (api *restAPI) saveTerm(c *gin.Context, r *restRequest, tax string, id int6
 		t.Description = v
 	}
 	if v, ok := r.Int(c, "parent"); ok && tax == "category" {
+		// WP_REST_Terms_Controller: an unknown parent is a 400, not a foreign-key 500.
+		if v != 0 {
+			if par, err := s.store.GetTerm(c, v); err != nil || par.Taxonomy != tax {
+				restErr(c, http.StatusBadRequest, "rest_term_invalid", "Parent term does not exist.")
+				return
+			}
+		}
 		t.ParentID = v
 	}
 	if !s.acfgoRESTValidateFor(c, r.Body, &acfScreen{Taxonomy: tax}) { // ACF-Go: the "acf" object
@@ -679,6 +691,12 @@ func (api *restAPI) deleteTerm(c *gin.Context, r *restRequest, tax string) {
 	}
 	if tax == "category" && t.ID == int64(s.settings.Int("default_category")) {
 		restErr(c, http.StatusForbidden, "rest_cannot_delete", "Sorry, you are not allowed to delete this term.")
+		return
+	}
+	// Terms have no trash: like WordPress, deleting needs force=true so a client never removes
+	// one for good while believing it went to a trash it could restore from.
+	if force, _ := r.Bool(c, "force"); !force {
+		restErr(c, http.StatusNotImplemented, "rest_trash_not_supported", "Terms do not support trashing. Set 'force=true' to delete.")
 		return
 	}
 	prev := s.restTerm(c, t, "edit")
@@ -782,7 +800,10 @@ func (api *restAPI) getUser(c *gin.Context, r *restRequest) {
 func (api *restAPI) listUsers(c *gin.Context, r *restRequest) {
 	s := api.s
 	cur := restCurrent(c)
-	page, per := pageArgs(c)
+	page, per, ok := listArgs(c, restUserOrderBy)
+	if !ok {
+		return
+	}
 	ctxName := restContext(c)
 	canList := cur != nil && cur.Can("list_users", nil)
 	orderby := c.DefaultQuery("orderby", "name")
@@ -1087,8 +1108,9 @@ func (api *restAPI) saveUser(c *gin.Context, r *restRequest, u *store.User) {
 		if len(roles) > 0 {
 			primary, extra = roles[0], roles[1:]
 		}
-		before := strings.Join(u.Roles, ",")
+		before, access := strings.Join(u.Roles, ","), s.userAccessKey(c, u.ID)
 		_ = s.store.SetUserRoles(c, u.ID, primary, extra)
+		s.endSessionsAfterAccessChange(c, c, u.ID, access)
 		s.adminsecRoleChanged(c, u.ID, u.Login, before, strings.Join(roles, ","))
 	}
 	if meta, ok := r.Body["meta"].(map[string]any); ok {
@@ -1172,6 +1194,13 @@ func (api *restAPI) createUser(c *gin.Context, r *restRequest) {
 	}
 	if !hasRoles || len(roles) == 0 {
 		roles = []string{s.settings.String("default_role")}
+		// The default role counts as a role the actor gives, as on Add User: a promoter may only give
+		// it within actorMayGiveRole (an omitted or empty roles list must not reach editor or
+		// administrator past the check an explicit list gets).
+		if cur.Can("promote_users", nil) && !s.actorMayGiveRole(c, cur, roles[0]) {
+			restErr(c, http.StatusForbidden, "rest_user_invalid_role", "Sorry, you are not allowed to give users that role.")
+			return
+		}
 	}
 	if msg := s.adminsecPasswordProblem(roles, login, email, pass); msg != "" { // AdminSecGo password policy
 		restErr(c, http.StatusBadRequest, "rest_user_invalid_password", msg)
@@ -1403,7 +1432,7 @@ func (api *restAPI) mediaReadable(c *gin.Context, a *store.Attachment) bool {
 	if mediaLibraryReader(restCurrent(c)) {
 		return true
 	}
-	return api.s.attachmentPublic(c, a)
+	return api.s.attachmentPublicFor(c, restCurrent(c), a)
 }
 
 // mediaLibraryReader reports whether u browses the whole media library (upload_files or edit_others_posts).
@@ -1414,6 +1443,13 @@ func mediaLibraryReader(u *store.User) bool {
 // attachmentPublic reports whether anyone may read an attachment: it is unattached, or attached
 // to a published post without a password.
 func (s *Server) attachmentPublic(ctx context.Context, a *store.Attachment) bool {
+	return s.attachmentPublicFor(ctx, nil, a)
+}
+
+// attachmentPublicFor is attachmentPublic for viewer u: a file of a post Memberships restricts is
+// readable only by those with access to the post (gmemHidesPost). The file's own URL stays
+// public: uploads are static files.
+func (s *Server) attachmentPublicFor(ctx context.Context, u *store.User, a *store.Attachment) bool {
 	if a == nil {
 		return false
 	}
@@ -1421,7 +1457,46 @@ func (s *Server) attachmentPublic(ctx context.Context, a *store.Attachment) bool
 		return true
 	}
 	p, err := s.store.GetPost(ctx, a.PostID)
-	return err == nil && p.Status == "publish" && p.Password == ""
+	return err == nil && p.Status == "publish" && p.Password == "" && !s.gmemHidesPost(ctx, u, p.ID)
+}
+
+// gmemHiddenMediaParents lists the public posts with attachments that memberships hide from u, so
+// the media query leaves their files out of the page and of X-WP-Total alike.
+func (s *Server) gmemHiddenMediaParents(ctx context.Context, u *store.User) []int64 {
+	if !s.gooOn() || !s.gooExtOn(gmemKey) || gmemIsManager(u) {
+		return nil
+	}
+	// Only posts a plan names, directly or through a term, can be restricted: the candidates come from
+	// the plans' rules, so a site with many posts does not check each one (gmemPostPlans).
+	var postIDs, termIDs []int64
+	for _, p := range s.gmemPlans(ctx) {
+		postIDs = append(postIDs, p.Rules.ContentPostIDs...)
+		termIDs = append(termIDs, p.Rules.ContentTermIDs...)
+	}
+	if len(postIDs) == 0 && len(termIDs) == 0 {
+		return nil
+	}
+	rows, err := s.store.Pool.Query(ctx, `SELECT DISTINCT p.id FROM media m JOIN posts p ON p.id = m.post_id
+		WHERE p.status = 'publish' AND coalesce(p.password, '') = ''
+		  AND (p.id = ANY($1) OR p.id IN (SELECT post_id FROM post_terms WHERE term_id = ANY($2)))`, postIDs, termIDs)
+	if err != nil {
+		return nil
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	var out []int64
+	for _, id := range ids {
+		if s.gmemHidesPost(ctx, u, id) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (api *restAPI) listMedia(c *gin.Context, r *restRequest) {
@@ -1432,10 +1507,14 @@ func (api *restAPI) listMedia(c *gin.Context, r *restRequest) {
 		forbidden(c, "rest_forbidden_context", "Sorry, you are not allowed to edit media.")
 		return
 	}
-	page, per := pageArgs(c)
+	page, per, ok := listArgs(c, restPostOrderBy)
+	if !ok {
+		return
+	}
 	q := store.AttachmentQuery{Search: c.Query("search"), Page: page, PerPage: per, OrderBy: c.DefaultQuery("orderby", "date"), Order: c.DefaultQuery("order", "desc")}
 	if u == nil || !u.Can("upload_files", nil) {
 		q.PublicParentsOnly = true
+		q.ExcludeParentIDs = s.gmemHiddenMediaParents(c, u)
 	}
 	if mt := c.Query("media_type"); mt != "" {
 		if mt == "application" || mt == "text" || mt == "image" || mt == "audio" || mt == "video" {
@@ -1459,6 +1538,10 @@ func (api *restAPI) listMedia(c *gin.Context, r *restRequest) {
 	}
 	out := []map[string]any{}
 	for _, a := range list {
+		// Memberships: already left out in SQL (ExcludeParentIDs); kept as a safety net.
+		if q.PublicParentsOnly && a.PostID != 0 && s.gmemHidesPost(c, u, a.PostID) {
+			continue
+		}
 		out = append(out, s.restMedia(c, a, restContext(c)))
 	}
 	paginate(c, total, per, page)

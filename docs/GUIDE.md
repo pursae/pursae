@@ -168,6 +168,7 @@ adds release roots for a key rotation; it never removes the pinned one.
 | `PURSAE_THEMES_DIR` | `<data>/themes` | Where edited theme files are saved |
 | `PURSAE_DISALLOW_FILE_EDIT` | off | Set to make the Theme File Editor read-only |
 | `PURSAE_PLUGIN_KEYS` | — | Comma-separated Ed25519 public keys trusted to sign plugin packages |
+| `PURSAE_PLUGIN_KEYS_LOCKED` | — | `1`/`true`/`locked` (or a `locked` entry in `PURSAE_PLUGIN_KEYS`): administrators cannot add or remove trusted keys and keys stored on the Trusted Keys screen are ignored; for hosts that control which publishers may run code |
 | `PURSAE_MARKET_DIR` | — | Local plugin packages offered on Plugins › Add Plugin (besides the Hub catalog) |
 | `PURSAE_DEV_HUB_URL` | `http://pursae-manager.test:8090` in compose | **Development builds only** (`-tags devhub`): the Pursae Manager to use instead of `https://hub.pursae.com` (`off` disables it). Production binaries ignore it |
 | `PURSAE_TRUST_HUB_KEYS` | unset | **Development builds only** (`-tags devhub`): `1` trusts every signing key the Manager lists, endorsed by the release root or not (a local Manager's key). Production binaries ignore it |
@@ -411,7 +412,8 @@ first build; make sure Docker has network access. Later builds are cached.
   (grid with the real `wp.media` modal, list, uploads with image sizes, replacing a file in place with
   its ID and URL kept, focal points for cropped sizes and cover images; Media › Optimization
   writes uploads as smaller WebP files, keeping or dropping the original, and optimizes the existing
-  library in the background), Comments, Appearance
+  library in the background; since 0.6.3 location and camera data is removed from uploaded JPEGs unless
+  Settings › Media says otherwise or `PURSAE_KEEP_EXIF=1`), Comments, Appearance
   (Themes with Live Preview, Customize, Widgets, Menus, Theme File Editor), Plugins, Users,
   Tools (Import/Export WXR, Site Health, personal data export/erase), Settings (General,
   Writing, Reading, Discussion, Media, Permalinks, Privacy), Updates, About.

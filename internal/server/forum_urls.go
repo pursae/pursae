@@ -219,15 +219,15 @@ func forumLocalPath(abs string) string {
 
 // forumURLsFor are the links every forum view and the theme functions use. Login and Register carry
 // ?redirect=<this page> when the visitor is on another forum page; Logout is core's log-out link
-// with its nonce and redirect_to the forum index; LostPassword is core's (the Pursae Security custom
-// login URL included); GoogleStart / GoogleLink are the gin routes under /forum-auth/.
+// with its nonce and redirect_to the forum index; LostPassword is lostPasswordURL (never a hidden login
+// address); GoogleStart / GoogleLink are the gin routes under /forum-auth/.
 func (s *Server) forumURLsFor(c *gin.Context) forumURLs {
 	ctx := c.Request.Context()
 	index := s.forumURL(ctx)
 	st := s.forumLoad()
 	u := forumURLs{Index: index, Search: s.forumURL(ctx, "search"), Login: s.forumURL(ctx, "login"),
 		Register: s.forumURL(ctx, "register"), Account: s.forumURL(ctx, "account"),
-		LostPassword: s.loginPath() + "?action=lostpassword",
+		LostPassword: s.lostPasswordURL(ctx),
 		Topics:       s.forumURL(ctx, "topics"), Tags: s.forumURL(ctx, "tags"), NewAny: s.forumURL(ctx, "new"), Rules: st.RulesURL}
 	here := ""
 	if c.Request.Method == "GET" {

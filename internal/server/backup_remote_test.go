@@ -431,7 +431,8 @@ func TestBmgrRemoteTurkish(t *testing.T) {
 }
 
 // An archive never carries the remote storage settings: they hold the bucket credentials and the
-// encryption passphrase sealed with the site secret, which the same archive carries in auth_secret.
+// encryption passphrase sealed with the site secret (an archive made with the key carries it); by
+// default the archive carries no auth_secret either.
 func TestBmgrRemoteSettingsNotInArchive(t *testing.T) {
 	ts, c, srv := testServerBuilderOff(t)
 	installAndLogin(t, ts, c)
@@ -467,10 +468,10 @@ func TestBmgrRemoteSettingsNotInArchive(t *testing.T) {
 		}
 		b, _ := io.ReadAll(rc)
 		rc.Close()
-		if !strings.Contains(string(b), `"auth_secret"`) {
+		if !strings.Contains(string(b), `"blogname"`) {
 			t.Fatal("settings.jsonl does not look like the settings table")
 		}
-		for _, leak := range []string{bmgrOptRemote, bmgrRemoteSealPfx, "AKIAARCHIVETEST"} {
+		for _, leak := range []string{bmgrOptRemote, bmgrRemoteSealPfx, "AKIAARCHIVETEST", `"auth_secret"`} {
 			if strings.Contains(string(b), leak) {
 				t.Errorf("the archive carries %q", leak)
 			}

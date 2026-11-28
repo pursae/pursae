@@ -96,7 +96,7 @@ Also:
 | Endpoint | Answers 200 when | Use it for |
 |----------|------------------|------------|
 | `GET /healthz` | the process serves HTTP (the database is not touched) | liveness: Docker `HEALTHCHECK`, a Kubernetes `livenessProbe` |
-| `GET /readyz` | the database answers a ping within 2 s, every migration of the binary is applied and the binary is not older than the schema allows (`PURSAE_ALLOW_OLDER_BINARY`, [configuration](configuration.md)); `503` otherwise. A schema migrated by a newer but compatible release still answers `200` (the body says so) | readiness: load balancers, a Kubernetes `readinessProbe`; a core update is confirmed only once the new binary's `/readyz` answers `200` |
+| `GET /readyz` | the database answers a ping within 2 s, every migration of the binary is applied and the binary is not older than the schema allows (`PURSAE_ALLOW_OLDER_BINARY`, [configuration](configuration.md)); `503` otherwise. A schema migrated by a newer but compatible release still answers `200`. The answer names no versions (0.6.3+); the reason is in the server log | readiness: load balancers, a Kubernetes `readinessProbe`; a core update is confirmed only once the new binary's `/readyz` answers `200` |
 
 Both are unauthenticated, answer before maintenance mode, Pursae Security and the page cache,
 send `Cache-Control: no-store` and are not written to the access log. The image's `HEALTHCHECK` runs

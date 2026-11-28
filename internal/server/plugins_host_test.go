@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"wpgo/internal/auth"
+	"wpgo/internal/caps"
 	"wpgo/internal/plugins"
 	"wpgo/internal/store"
 )
@@ -650,5 +652,32 @@ func TestUnsignedPluginsNeedEnvironmentOptIn(t *testing.T) {
 	srv.cfg.AllowUnsignedPlugins = true
 	if _, err := srv.installPackage(ctx, demoPackage(t)); err != nil {
 		t.Fatalf("with both switches on: %v", err)
+	}
+}
+
+// A user who may install but not activate plugins cannot replace an active plugin's code.
+func TestPluginUpdateOfActivePluginNeedsActivate(t *testing.T) {
+	ts, c, srv := testServerBuilderOff(t)
+	installAndLogin(t, ts, c)
+	installDemo(t, srv)
+	u := &store.User{ID: 99, Login: "installer", Caps: caps.Grants{"install_plugins": true}}
+	ctx := withExtActor(context.Background(), u)
+	if _, _, err := srv.installAndReload(ctx, demoPackageVersion(t, "1.0.1"), pluginSourceUpload, "", false); !errors.Is(err, errPluginReloadDenied) {
+		t.Fatalf("active plugin replaced without activate_plugins: %v", err)
+	}
+}
+
+// The Hub update path applies the same rule to a web/REST actor; a caller with no actor (CLI,
+// background updates) is not refused by it.
+func TestHubUpdateOfActivePluginNeedsActivate(t *testing.T) {
+	ts, c, srv := testServerBuilderOff(t)
+	installAndLogin(t, ts, c)
+	installDemo(t, srv)
+	u := &store.User{ID: 99, Login: "updater", Caps: caps.Grants{"update_plugins": true}}
+	if _, err := srv.hubUpdatePlugin(withExtActor(context.Background(), u), "shortcode-demo"); !errors.Is(err, errPluginReloadDenied) {
+		t.Fatalf("active plugin updated from the Hub without activate_plugins: %v", err)
+	}
+	if _, err := srv.hubUpdatePlugin(context.Background(), "shortcode-demo"); errors.Is(err, errPluginReloadDenied) {
+		t.Fatal("an update with no acting user was refused by the activate rule")
 	}
 }

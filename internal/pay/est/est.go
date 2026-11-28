@@ -257,7 +257,7 @@ func (p *provider) Complete(ctx context.Context, in pay.CallbackInput, a pay.Att
 	if !capturedSale(st) || (st.OrderID != "" && st.OrderID != oid) {
 		return nil, errors.New("pay: EST callback does not match the order at the bank")
 	}
-	if c, ok := captureAmount(st); ok && c != paid {
+	if c, ok := captureAmount(st, currency); ok && c != paid {
 		return nil, errors.New("pay: EST callback amount differs from the order at the bank")
 	}
 	txn := f["TransId"]
@@ -303,7 +303,7 @@ func (p *provider) charge(ctx context.Context, f map[string]string, a pay.Attemp
 	}
 	st, qerr := p.orderStatus(ctx, a.Ref)
 	if qerr == nil && capturedSale(st) && (st.OrderID == "" || st.OrderID == a.Ref) {
-		if c, ok := captureAmount(st); !ok || c == a.Amount {
+		if c, ok := captureAmount(st, a.Currency); !ok || c == a.Amount {
 			return &pay.Result{Status: pay.StatusSuccess, TxnID: st.TransID, PaidAmount: a.Amount,
 				Currency: a.Currency, Installment: a.Installment, ProviderCode: st.ProcReturnCode}, nil
 		}
@@ -332,7 +332,7 @@ func (p *provider) Query(ctx context.Context, a pay.Attempt) (*pay.Result, error
 		r.Status, r.Code, r.ProviderMessage = pay.StatusFailure, mapCode(st.ProcReturnCode), st.ErrMsg
 	case capturedSale(st):
 		r.Status = pay.StatusSuccess
-		if c, ok := captureAmount(st); ok {
+		if c, ok := captureAmount(st, a.Currency); ok && c >= 0 {
 			r.PaidAmount = c
 		}
 	default:
@@ -431,14 +431,26 @@ func installment(s string) int {
 	return n
 }
 
-// captureAmount reads CAPTURE_AMT of an order status answer, which EST gives in minor units.
-func captureAmount(r *response) (int64, bool) {
-	s := r.Extra["CAPTURE_AMT"]
+// captureAmount reads CAPTURE_AMT of an order status answer in minor units. EST gives minor units,
+// but some banks answer a decimal ("100.50"): that is parsed in the currency's decimals instead of
+// skipping the comparison. A value that cannot be read reports -1 with ok true, so a comparison
+// with it fails closed rather than being skipped.
+func captureAmount(r *response, currency string) (int64, bool) {
+	s := strings.TrimSpace(r.Extra["CAPTURE_AMT"])
 	if s == "" {
 		return 0, false
 	}
+	if strings.ContainsAny(s, ".,") {
+		if n, err := pay.ParseMinor(s, currency); err == nil {
+			return n, true
+		}
+		return -1, true
+	}
 	n, err := strconv.ParseInt(s, 10, 64)
-	return n, err == nil
+	if err != nil || n < 0 {
+		return -1, true
+	}
+	return n, true
 }
 
 // capturedSale: an approved answer with TRANS_STAT S, C or A, charge type S and a captured amount.

@@ -201,8 +201,9 @@ func (s *Server) acfgoRESTUser(c *gin.Context, u *store.User, out map[string]any
 }
 
 // acfgoRESTInput maps a REST "acf" object (by field name) to field-key input for a post screen.
-func (s *Server) acfgoRESTInput(ctx context.Context, raw any, p *store.Post) (map[string]any, []string) {
-	return s.acfgoRESTInputFor(ctx, raw, s.acfgoPostScreen(ctx, p, nil))
+// u is the requester: groups located by current user or role apply to their writes as on the edit screen.
+func (s *Server) acfgoRESTInput(ctx context.Context, raw any, p *store.Post, u *store.User) (map[string]any, []string) {
+	return s.acfgoRESTInputFor(ctx, raw, s.acfgoPostScreen(ctx, p, u))
 }
 
 // acfgoRESTInputFor is acfgoRESTInput for any object: screen says which field groups apply to it.
@@ -275,7 +276,7 @@ func acfgoKeyed(ctx context.Context, s *Server, f acfField, v any) any {
 // acfgoRESTValidate checks the "acf" object of a REST write before the post is saved; false
 // means an error response was sent.
 func (s *Server) acfgoRESTValidate(c *gin.Context, body map[string]any, p *store.Post) bool {
-	return s.acfgoRESTValidateFor(c, body, s.acfgoPostScreen(c.Request.Context(), p, nil))
+	return s.acfgoRESTValidateFor(c, body, s.acfgoPostScreen(c.Request.Context(), p, restCurrent(c)))
 }
 
 // acfgoRESTValidateFor is acfgoRESTValidate for any object (user, term, comment, attachment).
@@ -302,8 +303,8 @@ func (s *Server) acfgoRESTSave(c *gin.Context, body map[string]any, p *store.Pos
 	if !ok || !s.acfgoOn() {
 		return
 	}
-	in, _ := s.acfgoRESTInput(c.Request.Context(), raw, p)
 	u := restCurrent(c)
+	in, _ := s.acfgoRESTInput(c.Request.Context(), raw, p, u)
 	_ = s.acfgoSaveInput(acfgoWithEditor(c.Request.Context(), u), s.acfgoPostObject(p), in, u != nil && u.Can("unfiltered_html", nil))
 }
 

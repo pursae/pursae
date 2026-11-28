@@ -721,6 +721,7 @@ func cliUserRoleChange(c *cli.Ctx, e *cliEnv, op string) error {
 	if err := s.store.SetUserRoles(ctx, u.ID, primary, extra); err != nil {
 		return err
 	}
+	_ = s.auth.DestroyOthers(ctx, u.ID, 0) // sessions opened under the old roles end (endSessionsAfterAccessChange)
 	before, after := strings.Join(u.Roles, ","), strings.Join(next, ",")
 	if s.adminsecOn() && before != after {
 		if before == "" {
@@ -765,6 +766,7 @@ func cliUserCapChange(c *cli.Ctx, e *cliEnv, op string) error {
 	if err := st.SetUserCapExceptions(ctx, u.ID, next); err != nil {
 		return err
 	}
+	_, _ = st.Pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, u.ID) // sessions opened under the old capabilities end
 	switch op {
 	case "add":
 		c.Success("Added capabilities to %s: %s.", u.Login, strings.Join(changed, ", "))

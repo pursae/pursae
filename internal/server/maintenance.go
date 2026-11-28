@@ -375,7 +375,7 @@ func (s *Server) maintenanceServe(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	switch {
-	case strings.HasPrefix(p, "/wp-json") || (r.URL.Query().Has("rest_route") && strings.Trim(p, "/") == ""):
+	case pathUnder(p, "/wp-json") || (r.URL.Query().Has("rest_route") && strings.Trim(p, "/") == ""):
 		// Role bypass is maintBypass, already applied above: administrators and the roles in
 		// BypassRoles (when ShowLoggedIn is on), plus the IP list, secret link and site password.
 		// Logged-in users who can edit content keep the block editor's REST calls (wp-admin stays

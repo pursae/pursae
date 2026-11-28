@@ -108,19 +108,27 @@ var fwStaticExt = map[string]bool{".css": true, ".js": true, ".mjs": true, ".map
 	".gif": true, ".webp": true, ".avif": true, ".svg": true, ".ico": true, ".woff": true, ".woff2": true, ".ttf": true, ".otf": true,
 	".eot": true, ".mp4": true, ".webm": true, ".mp3": true, ".ogg": true, ".wav": true, ".pdf": true}
 
-// fwStaticRequest reports requests that never count toward the rate limit: GET/HEAD for the asset
-// trees, or for a static file type elsewhere only without a query string, because the site router
-// and plugin hooks answer any path (/x.css?s=term, POST /x.css?wc-ajax=...) dynamically.
+// fwStaticRequest reports requests that never count toward the rate limit: GET/HEAD for a static file
+// type without a query string, because the site router and plugin hooks answer any path dynamically
+// (/x.css?s=term, /wp-content/?s=term, POST /x.css?wc-ajax=...). In the asset trees a lone cache-busting
+// ?ver= is allowed too, since every enqueued script and style carries one.
 func fwStaticRequest(r *http.Request) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return false
 	}
 	p := r.URL.Path
-	if strings.HasPrefix(p, "/wp-includes/") || strings.HasPrefix(p, "/wp-content/") || strings.HasPrefix(p, "/wp-admin/assets/") ||
-		strings.HasPrefix(p, "/wp-admin/css/") || strings.HasPrefix(p, "/wp-admin/js/") || strings.HasPrefix(p, "/wp-admin/images/") {
+	if !fwStaticExt[strings.ToLower(path.Ext(p))] {
+		return false
+	}
+	if r.URL.RawQuery == "" {
 		return true
 	}
-	return r.URL.RawQuery == "" && fwStaticExt[strings.ToLower(path.Ext(p))]
+	if strings.HasPrefix(p, "/wp-includes/") || strings.HasPrefix(p, "/wp-content/") || strings.HasPrefix(p, "/wp-admin/assets/") ||
+		strings.HasPrefix(p, "/wp-admin/css/") || strings.HasPrefix(p, "/wp-admin/js/") || strings.HasPrefix(p, "/wp-admin/images/") {
+		q := r.URL.Query()
+		return len(q) == 1 && len(q["ver"]) == 1
+	}
+	return false
 }
 
 // fwRule is one WAF rule: a name for the log and the pattern it looks for.

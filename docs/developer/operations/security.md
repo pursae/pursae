@@ -15,6 +15,32 @@ section: operations
   name. Each attempt is counted before its password is checked, so parallel requests cannot slip past
   the limit. REST Basic authentication counts too. An unknown user name costs as much time as a wrong
   password, and at most twice as many password hashes as the server has CPUs run at once.
+- **Lost-password requests** (wp-login and the store's My Account form) are limited to 3 per 15 minutes
+  per client network and per account (0.6.3+). The count is kept in the database, so every instance
+  behind a load balancer shares it, and the answer is the same whether or not the account exists.
+- **Cross-site form posts** (0.6.3+): a `POST` to the login page, and a comment `POST` from a signed-in
+  user, is refused with `403` when the browser marks it as coming from another site
+  (`Sec-Fetch-Site: cross-site`, or an `Origin` that is neither the request's host nor the site
+  address). Requests without those headers (scripts, older clients) are handled as before; anonymous
+  comments are not affected.
+- **Access changes end sessions** (0.6.3+): when another administrator changes a user's role or
+  capabilities, that user's open sessions end and they sign in again. Blocking a forum member or
+  changing their forum rank does the same. Editing your own profile keeps your current session.
+- **Plugin and theme updates from the web** (0.6.3+): uploading a new package for an *active* plugin
+  needs `activate_plugins` (the new code runs at once); overwriting an installed theme needs
+  `update_themes`. The CLI is not affected.
+- **Visitor address behind a proxy**: `X-Forwarded-For` is read right to left, and the first address
+  that is not a trusted proxy is the visitor, so a value the client adds itself is ignored. Trusted
+  proxies default to loopback and private ranges; set `PURSAE_TRUSTED_PROXIES` to your proxy's
+  addresses (the list replaces the default), or `none` when Pursae faces the internet directly
+  ([reverse proxy](reverse-proxy-and-tls.md)).
+- **Hidden login address**: with Pursae Security's *Hide login* on, the store's My Account
+  lost-password form and the reset e-mail never show the hidden address (0.6.3+).
+- **Operational endpoints**: `/readyz` names no versions in its answer (they are in the server log)
+  (0.6.3+); the `/metrics` listener starts without `PURSAE_METRICS_TOKEN` only on a loopback address
+  ([metrics](metrics.md)).
+- **Locked plugin keys**: `PURSAE_PLUGIN_KEYS_LOCKED=1` stops administrators from adding or removing
+  trusted plugin signing keys; only `PURSAE_PLUGIN_KEYS` counts ([configuration](configuration.md)).
 - **Nonces** protect every admin form and the REST API (`X-WP-Nonce`), exactly like WordPress.
 - **Security headers** on every response: `X-Content-Type-Options: nosniff`,
   `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, a

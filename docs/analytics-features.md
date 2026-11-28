@@ -20,7 +20,7 @@ screen and the REST route answer 404, and the menu entry is gone. Deactivating k
 
 - **No cookies, no local or session storage, no fingerprinting script.** Nothing is stored in the browser.
 - **No IP address is stored.** A visitor is `SHA-256(day salt, IP address, user agent, host)` cut to 63
-  bits. The day's salt is random, shared by all instances through `analytics_salts`, and deleted the
+  bits; the host is the site's configured address, not the request's `Host` header (0.6.3+). The day's salt is random, shared by all instances through `analytics_salts`, and deleted the
   next day, after which nobody can recompute or link the hashes: a visitor is counted within a day and
   can never be followed across days or identified.
 - Signed-in users are not counted (setting), Do Not Track and Global Privacy Control are respected
@@ -44,7 +44,9 @@ and the country when a proxy or CDN reports it (`CF-IPCountry`, `CloudFront-View
 `X-Vercel-IP-Country`, `X-Country-Code`, `X-Geo-Country`). There is no GeoIP database.
 
 Dropped: requests without a user agent, bots and monitors (user-agent patterns, `navigator.webdriver`),
-prefetches, admin paths, and more than 300 requests a minute from one address. Web Vitals can be
+prefetches, admin paths, and more than 300 requests a minute from one address. Page views are counted
+at most 60 a minute per address, and beacons sent from another site's page (by `Origin`, else
+`Referer`) are ignored (0.6.3+). Web Vitals can be
 sampled (percent of page views).
 
 ## The Analytics screen

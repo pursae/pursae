@@ -53,6 +53,15 @@ func (s *Server) analyticsCollect(c *gin.Context) {
 	if ua == "" || analyticsBotRe.MatchString(ua) || r.Header.Get("Purpose") == "prefetch" || r.Header.Get("Sec-Purpose") != "" {
 		return
 	}
+	// The beacon is sent by this site's pages: a browser on another site's page (Origin, else Referer)
+	// is someone filling the statistics with made-up visits.
+	if o := r.Header.Get("Origin"); o != "" {
+		if !s.siteHostIs(c, o) {
+			return
+		}
+	} else if ref := r.Header.Get("Referer"); ref != "" && !s.siteHostIs(c, ref) {
+		return
+	}
 	st := s.analyticsLoad()
 	if st.RespectDNT && (r.Header.Get("DNT") == "1" || r.Header.Get("Sec-GPC") == "1") {
 		return
@@ -79,7 +88,9 @@ func (s *Server) analyticsCollect(c *gin.Context) {
 		return
 	}
 	ctx := r.Context()
-	visitor, err := s.analyticsVisitor(ctx, ip, ua, r.Host)
+	// The site's configured host, not the request's Host: a client could otherwise become a new
+	// visitor per request by changing the header.
+	visitor, err := s.analyticsVisitor(ctx, ip, ua, s.analyticsSiteHost())
 	if err != nil {
 		return
 	}
@@ -87,6 +98,9 @@ func (s *Server) analyticsCollect(c *gin.Context) {
 	path := analyticsTrim(u.Path, 512)
 	switch h.T {
 	case "v":
+		if !forumAllow("analytics-view:"+wbFormIPKey(ip), analyticsViewsPerMinute, time.Minute) {
+			return
+		}
 		q := u.Query()
 		device, browser, osName := analyticsUA(ua, h.W)
 		_, _ = s.store.Pool.Exec(ctx, `INSERT INTO analytics_events (visitor, page_id, name, path, referrer, utm_source, utm_medium,
@@ -113,6 +127,18 @@ func (s *Server) analyticsCollect(c *gin.Context) {
 			pageID, visitor, int(min(max(h.D, 0), 30*60*1000)), analyticsMs(h.LCP), analyticsMs(h.INP),
 			analyticsCLS(h.CLS), analyticsMs(h.TTFB), analyticsMs(h.FCP))
 	}
+}
+
+// analyticsViewsPerMinute caps the page views one address records a minute: far above a reader's pace,
+// low enough that one machine cannot invent a crowd.
+const analyticsViewsPerMinute = 60
+
+// analyticsSiteHost is the configured home's host, the site part of the visitor hash.
+func (s *Server) analyticsSiteHost() string {
+	if u, err := url.Parse(s.configuredHome()); err == nil {
+		return u.Host
+	}
+	return ""
 }
 
 // analyticsMs is a timing in ms for the database: nil when missing or out of range (0–60 s).

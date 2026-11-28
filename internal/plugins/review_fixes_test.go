@@ -236,3 +236,34 @@ func TestAdminStyleNeedsAdminPermission(t *testing.T) {
 		t.Fatalf("admin style with admin:settings: %+v", s)
 	}
 }
+
+// A callback that runs out its own budget is the plugin's fault and counts toward MaxFailures,
+// even when the caller's deadline ends right after it (a REST request); a caller whose own
+// deadline ends first does not count against the plugin.
+func TestOwnBudgetTimeoutCountsCallerDeadlineDoesNot(t *testing.T) {
+	rt := newTestRuntime(t, Config{CallTimeout: 150 * time.Millisecond, MaxFailures: 2})
+	p := loadPlugin(t, rt, "internal/plugins/testdata/probe", NewMemoryHost())
+	hooks := rt.Hooks()
+
+	// The caller gives up first: not counted, however often it happens.
+	for range 3 {
+		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+		hooks.ApplyFilters(ctx, "probe_loop", "v")
+		cancel()
+	}
+	if d, _ := p.Disabled(); d {
+		t.Fatal("disabled for callers that gave up")
+	}
+	// The plugin's own budget runs out; the caller's deadline is later
+	// (as servePluginRest's request deadline is to RestTimeout), with room
+	// for a slow runner such as -race.
+	for range 2 {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		hooks.ApplyFilters(ctx, "probe_loop", "v")
+		cancel()
+	}
+	if d, reason := p.Disabled(); !d || !strings.Contains(reason, "budget") {
+		dumpLogs(t, p)
+		t.Fatalf("two own-budget timeouts did not disable the plugin: %q", reason)
+	}
+}

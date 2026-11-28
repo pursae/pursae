@@ -16,21 +16,23 @@ import (
 
 // processStateHas reports, per registered variable, whether it holds an entry for s.
 var processStateHas = map[string]func(s *Server) bool{
-	"acfgoBlockCaches":  syncMapHas(&acfgoBlockCaches),
-	"acfgoCaches":       syncMapHas(&acfgoCaches),
-	"fwLimiters":        syncMapHas(&fwLimiters),
-	"gocdnRuntimes":     syncMapHas(&gocdnRuntimes),
-	"hgBrokers":         syncMapHas(&hgBrokers),
-	"hgEngines":         syncMapHas(&hgEngines),
-	"hgRateBuckets":     syncMapHas(&hgRateBuckets),
-	"hgRegStates":       syncMapHas(&hgRegStates),
-	"pllCapturers":      syncMapHas(&pllCapturers),
-	"pllMediaLangSet":   syncMapHas(&pllMediaLangSet),
-	"pllOptionMigrated": syncMapHas(&pllOptionMigrated),
-	"pllStates":         syncMapHas(&pllStates),
-	"seogoState":        syncMapHas(&seogoState),
-	"wbFormLimiters":    syncMapHas(&wbFormLimiters),
-	"wbTemplateStates":  syncMapHas(&wbTemplateStates),
+	"acfgoBlockCaches":          syncMapHas(&acfgoBlockCaches),
+	"acfgoCaches":               syncMapHas(&acfgoCaches),
+	"fwLimiters":                syncMapHas(&fwLimiters),
+	"gooGiftCardThrottles":      syncMapHas(&gooGiftCardThrottles),
+	"gooGuestCheckoutThrottles": syncMapHas(&gooGuestCheckoutThrottles),
+	"gocdnRuntimes":             syncMapHas(&gocdnRuntimes),
+	"hgBrokers":                 syncMapHas(&hgBrokers),
+	"hgEngines":                 syncMapHas(&hgEngines),
+	"hgRateBuckets":             syncMapHas(&hgRateBuckets),
+	"hgRegStates":               syncMapHas(&hgRegStates),
+	"pllCapturers":              syncMapHas(&pllCapturers),
+	"pllMediaLangSet":           syncMapHas(&pllMediaLangSet),
+	"pllOptionMigrated":         syncMapHas(&pllOptionMigrated),
+	"pllStates":                 syncMapHas(&pllStates),
+	"seogoState":                syncMapHas(&seogoState),
+	"wbFormLimiters":            syncMapHas(&wbFormLimiters),
+	"wbTemplateStates":          syncMapHas(&wbTemplateStates),
 	"forumSiteCache": func(s *Server) bool {
 		forumSiteCache.Lock()
 		defer forumSiteCache.Unlock()
@@ -120,6 +122,8 @@ func fillProcessState(t *testing.T, s *Server) {
 	s.hgEngine()
 	s.seogoRT()
 	s.wbFormLimiter()
+	s.gooGuestCheckoutThrottle()
+	s.gooGiftCardThrottle()
 	s.wbTemplateState()
 	s.gooTemplates()
 	s.forumTemplates()

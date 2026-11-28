@@ -70,12 +70,14 @@ func registerOpsBackupCLI(r *cli.Registry, e *cliEnv) {
 			{Name: "parts", Usage: "Comma-separated parts, or all.", Default: "all"},
 			{Name: "users", Usage: "Which users go with the users part: all, roles:<role,…> or ids:<id,…>.", Default: "all"},
 			{Name: "note", Usage: "A note stored in the archive (max 300 characters)."},
+			{Name: "include-key", Bool: true, Usage: "Include the site's encryption key (for moving to a new server). Anyone with the archive can then read the stored passwords and API keys."},
 			{Name: "porcelain", Bool: true, Usage: "Print only the archive name."},
 		},
 		Examples: []string{
 			"backup create",
 			"backup create --parts=content,media,settings --note=\"before the redesign\"",
 			"backup create --parts=users --users=roles:administrator,editor --porcelain",
+			"backup create --include-key   # moving to a new server: keeps saved passwords and API keys readable",
 		},
 		Run: func(c *cli.Ctx) error {
 			cats, err := bmgrParseParts(c.Flag("parts"))
@@ -102,7 +104,7 @@ func registerOpsBackupCLI(r *cli.Registry, e *cliEnv) {
 				return err
 			}
 			stop := opsFollowBackupLog(c, s, j, c.Bool("porcelain"))
-			name, err := s.bmgrRunBackup(c.Context, j, bmgrSelection{Categories: cats, UserMode: mode, Roles: roles, UserIDs: ids, Note: note})
+			name, err := s.bmgrRunBackup(c.Context, j, bmgrSelection{Categories: cats, UserMode: mode, Roles: roles, UserIDs: ids, Note: note, IncludeKey: c.Bool("include-key")})
 			s.bmgrUpdate(j, func(j *bmgrJob) { j.File = name })
 			s.bmgrFinish(j, err)
 			stop()

@@ -8,12 +8,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -220,6 +222,12 @@ func (s *Server) hgAPI(c *gin.Context) {
 	if method == http.MethodOptions {
 		c.Header("Allow", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Status(http.StatusNoContent)
+		return
+	}
+	// Filters and _q go into SQL text parameters: PostgreSQL refuses NUL and invalid UTF-8 (a 500), so
+	// such a query string is the client's mistake.
+	if q, err := url.QueryUnescape(c.Request.URL.RawQuery); err == nil && (!utf8.ValidString(q) || strings.IndexByte(q, 0) >= 0) {
+		hgErr(c, http.StatusBadRequest, "ValidationError", "The query string must be valid UTF-8 without NUL characters", nil)
 		return
 	}
 	a, ok := s.hgAuthenticate(c, st)
@@ -652,7 +660,7 @@ func hgBody(c *gin.Context) (map[string]any, bool) {
 		return nil, false
 	}
 	var body map[string]any
-	if err := json.Unmarshal(raw, &body); err != nil {
+	if !utf8.Valid(raw) || restJSONHasNUL(raw) || json.Unmarshal(raw, &body) != nil { // text columns hold neither
 		hgErr(c, http.StatusBadRequest, "ValidationError", "Invalid JSON body", nil)
 		return nil, false
 	}
@@ -686,6 +694,12 @@ func (s *Server) hgWrite(c *gin.Context, a *hgAuth, sc *hgSchema, doc, action st
 	status := c.DefaultQuery("status", "draft")
 	if status != "draft" && status != "published" {
 		hgErr(c, http.StatusBadRequest, "ValidationError", "Invalid status: use draft or published", nil)
+		return
+	}
+	// Publishing is what POST /{documentId}/publish does, and that needs update: create alone may only
+	// store a draft of a type with draft & publish.
+	if status == "published" && sc.DraftAndPublish && action == "create" && !a.can(sc.UID, "update") {
+		hgForbidden(c, a)
 		return
 	}
 	e, events, err := s.hgSaveEntry(c, sc, doc, data, hgSaveOpts{Locale: loc, Publish: status == "published", Auth: a, UserID: a.userID()})
@@ -724,29 +738,21 @@ func (s *Server) hgWrite(c *gin.Context, a *hgAuth, sc *hgSchema, doc, action st
 // hgWriteView narrows the answer of a write that returns an existing document's draft for a caller
 // that may not read drafts: the draft may hold someone else's unpublished changes, so only the
 // attributes the request wrote (and the entry's metadata) are shown. It returns the fields and the
-// populate to serialize with (nil fields: everything).
+// populate to serialize with (nil fields: everything). Only written scalar attributes come back: a
+// written component or dynamic zone is merged over the stored draft (keys the request left out keep
+// their draft values) and a relation written with connect/disconnect keeps the draft's other ids, so
+// echoing them would show the unpublished changes this view hides.
 func hgWriteView(a *hgAuth, sc *hgSchema, written map[string]any, pop *hgPop) ([]string, *hgPop) {
 	if a == nil || !sc.DraftAndPublish || a.drafts(sc.UID) {
 		return nil, pop
 	}
 	fields := []string{"createdAt", "updatedAt", "publishedAt", "locale"} // never empty: empty means all
-	narrowed := &hgPop{Populate: map[string]*hgPop{}}
 	for name := range written {
-		f := sc.Field(name)
-		if f == nil {
-			continue
-		}
-		fields = append(fields, name)
-		if pop == nil || f.scalar() {
-			continue
-		}
-		if sub, ok := pop.Populate[name]; ok {
-			narrowed.Populate[name] = sub
-		} else if pop.All {
-			narrowed.Populate[name] = &hgPop{Populate: map[string]*hgPop{}}
+		if f := sc.Field(name); f != nil && f.scalar() {
+			fields = append(fields, name)
 		}
 	}
-	return fields, narrowed
+	return fields, &hgPop{Populate: map[string]*hgPop{}}
 }
 
 // hgDelete deletes a document: the given ?locale= version, or every locale (locale=* or none).
@@ -941,17 +947,17 @@ func (s *Server) hgWPUser(ctx context.Context, a *hgAuth) *store.User {
 }
 
 // hgMediaReadable reports whether a caller may read (and link) an attachment, as core
-// /wp/v2/media decides it (mediaReadable): the admin (a == nil), upload-capable tokens and users
-// who browse the whole library read every file; everyone else reads unattached files and files of
-// a published post without a password.
+// /wp/v2/media decides it (mediaReadable): the admin (a == nil), full-access tokens and users
+// who browse the whole library read every file; an upload token also reads its own uploads;
+// everyone else reads unattached files and files of a published post without a password.
 func (s *Server) hgMediaReadable(ctx context.Context, a *hgAuth, u *store.User, att *store.Attachment) bool {
 	if att == nil {
 		return false
 	}
-	if a == nil || a.canUpload() || mediaLibraryReader(u) {
+	if a == nil || a.fullAccess() || a.ownUpload(att) || mediaLibraryReader(u) {
 		return true
 	}
-	return s.attachmentPublic(ctx, att)
+	return s.attachmentPublicFor(ctx, u, att)
 }
 
 func (h *hgSer) ca() *hgSerCache {
@@ -1293,6 +1299,9 @@ func (h *hgSer) relation(f *hgField, ids []any, pop *hgPop, depth int) ([]any, b
 					u = nil
 				}
 				h.ca().users[id] = u
+			}
+			if u != nil && h.s.hgHidesUsers(h.a) && !h.s.hgUserPublished(ctx, u.ID) {
+				continue // no names of accounts the site does not show (blocked user enumeration)
 			}
 			if u != nil {
 				out = append(out, hgPick(map[string]any{"id": u.ID, "username": u.Nicename, "name": u.DisplayName}, pop.Fields))
@@ -1664,9 +1673,17 @@ func (s *Server) hgMenuFull(c *gin.Context, menus []*store.Menu, key string) (ma
 	}
 	byParent := map[int64][]*store.EditItem{}
 	for _, it := range items {
-		if defaultStr(it.Status, "publish") == "publish" {
-			byParent[it.ParentID] = append(byParent[it.ParentID], it)
+		if defaultStr(it.Status, "publish") != "publish" {
+			continue
 		}
+		// Like the front end (resolveMenu): an item whose post is gone or not public is left out, so a
+		// draft or private page's title and link are not served to anonymous clients.
+		if it.Kind == "post_type" {
+			if p, err := s.store.GetPost(c, it.TargetID); err != nil || (p.Status != "publish" && !(p.Type == "attachment" && p.Status == "inherit")) {
+				continue
+			}
+		}
+		byParent[it.ParentID] = append(byParent[it.ParentID], it)
 	}
 	var build func(parent int64, depth int) []any
 	build = func(parent int64, depth int) []any {

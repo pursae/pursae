@@ -127,6 +127,9 @@ func (s *Server) startPlugins(ctx context.Context) {
 	}
 	s.applySiteKeys() // the environment's keys plus the Trusted Keys screen's
 	rt, err := plugins.NewRuntime(ctx, ps.hooks, plugins.Config{CoreVersion: Version, MaxHTTPBody: pluginHTTPMaxBody, Logger: slog.Default(),
+		// Shorter than servePluginRest's 10s request deadline, so a handler that runs out its
+		// own budget is counted as a plugin failure instead of looking like a client cancel.
+		RestTimeout: pluginRestBudget,
 		OnDisable: func(slug, reason string) {
 			slog.Warn("plugin disabled by the runtime", "plugin", slug, "reason", reason)
 			s.recordPluginDisabled(context.Background(), slug, reason)
@@ -221,6 +224,10 @@ func (s *Server) syncPluginsOnce(ctx context.Context, pending map[string]string)
 			want[slug] = "load"
 		case r.status == "active" && loaded && p.Manifest().Version != r.version:
 			want[slug] = "reload"
+		case r.status == "active" && loaded && !samePermissions(p, r.perms):
+			// Permissions granted or revoked on another replica (or by SQL): the runtime only
+			// applies them at load, so reload to converge instead of waiting for a restart.
+			want[slug] = "reload"
 		case r.status != "active" && loaded:
 			want[slug] = "unload"
 		}
@@ -264,6 +271,29 @@ func (s *Server) syncPluginsOnce(ctx context.Context, pending map[string]string)
 	}
 	ps.failMu.Unlock()
 }
+
+// samePermissions reports whether a loaded plugin runs with exactly the permissions the stored
+// grant gives it (declared ∩ granted, as Runtime.Load computes them).
+func samePermissions(p *plugins.Plugin, rawPerms []byte) bool {
+	var granted []plugins.Permission
+	if len(rawPerms) > 0 && json.Unmarshal(rawPerms, &granted) != nil {
+		return true // unreadable grant: never reload-loop on it
+	}
+	want := p.Manifest().PermissionSet().Intersect(plugins.NewPermissionSet(granted...))
+	have := p.Permissions()
+	if len(have) != len(want.List()) {
+		return false
+	}
+	for _, perm := range have {
+		if !want.Has(perm) {
+			return false
+		}
+	}
+	return true
+}
+
+// pluginRestBudget is the runtime budget of one plugin REST/admin-page callback.
+const pluginRestBudget = 8 * time.Second
 
 func lastLine(v string) string {
 	ls := lines(v)
@@ -600,8 +630,28 @@ func (h *pluginHost) StorageGet(ctx context.Context, plugin, key string) (string
 	return v, true, nil
 }
 
+// Per-plugin storage quota: one value is already capped (abi.go), but without these a plugin
+// could fill the database with unlimited keys. Vars so tests can lower them.
+var (
+	pluginStorageMaxKeys  = 10000
+	pluginStorageMaxBytes = int64(64 << 20)
+)
+
 func (h *pluginHost) StorageSet(ctx context.Context, plugin, key, value string) error {
 	raw, _ := json.Marshal(value)
+	var keys, total, old int64
+	var exists bool
+	if err := h.s.store.Pool.QueryRow(ctx, `SELECT count(*), COALESCE(sum(octet_length(d.value::text)), 0),
+		COALESCE(bool_or(d.key = $2), false), COALESCE(sum(octet_length(d.value::text)) FILTER (WHERE d.key = $2), 0)
+		FROM plugin_data d JOIN plugins p ON p.id = d.plugin_id WHERE p.slug = $1`, plugin, key).Scan(&keys, &total, &exists, &old); err != nil {
+		return err
+	}
+	if !exists && keys >= int64(pluginStorageMaxKeys) {
+		return fmt.Errorf("storage quota exceeded: at most %d keys per plugin (delete unused keys first)", pluginStorageMaxKeys)
+	}
+	if total-old+int64(len(raw)) > pluginStorageMaxBytes {
+		return fmt.Errorf("storage quota exceeded: at most %d MiB of data per plugin (delete unused keys first)", pluginStorageMaxBytes>>20)
+	}
 	_, err := h.s.store.Pool.Exec(ctx, `INSERT INTO plugin_data (plugin_id, key, value) SELECT id, $2, $3::jsonb FROM plugins WHERE slug = $1
 		ON CONFLICT (plugin_id, key) DO UPDATE SET value = EXCLUDED.value`, plugin, key, raw)
 	return err
@@ -1376,6 +1426,20 @@ func (s *Server) reloadPlugin(ctx context.Context, slug string, m *plugins.Manif
 	return nil
 }
 
+// extActorCtx carries the user installing a plugin or theme package from a web request (withExtActor);
+// the CLI sets none and may replace active plugins and installed themes.
+type extActorCtx struct{}
+
+func withExtActor(ctx context.Context, u *store.User) context.Context {
+	return context.WithValue(ctx, extActorCtx{}, u)
+}
+
+// errThemeUpdateDenied refuses to overwrite an installed theme for a user without update_themes.
+var errThemeUpdateDenied = errors.New("Sorry, you are not allowed to update themes on this site.")
+
+// errPluginReloadDenied refuses a new package for an active plugin to a user without activate_plugins.
+var errPluginReloadDenied = errors.New("Sorry, you are not allowed to update an active plugin: that needs the activate_plugins capability.")
+
 // pluginReplaceUpload is "Replace current with uploaded": it installs the upload kept by the refused
 // install and, when the plugin is active, loads the new package.
 func (s *Server) pluginReplaceUpload(ctx context.Context, slug string) (*plugins.Manifest, error) {
@@ -1416,6 +1480,12 @@ func (s *Server) installAndReload(ctx context.Context, data []byte, source, want
 			Scan(&installed, &status, &oldSource, &perms, &digest, &signer)
 	}
 	updated = installed != ""
+	if status == "active" {
+		if u, ok := ctx.Value(extActorCtx{}).(*store.User); ok && !u.Can("activate_plugins", nil) {
+			// Replacing an active plugin runs the new code at once: that is activating it.
+			return nil, updated, errPluginReloadDenied
+		}
+	}
 	zipPath := filepath.Join(s.plugins.dir, filepath.Base(slug)+".zip")
 	var prev []byte
 	prevErr := errors.New("not installed")
@@ -1543,7 +1613,7 @@ func (s *Server) pluginInstall(c *gin.Context) {
 		c.String(http.StatusForbidden, "Sorry, you are not allowed to install plugins on this site.")
 		return
 	}
-	ctx := c.Request.Context()
+	ctx := withExtActor(c.Request.Context(), u)
 	if c.Request.Method == http.MethodPost {
 		if !s.checkNonce(c, "plugin-upload") {
 			s.denyNonce(c)

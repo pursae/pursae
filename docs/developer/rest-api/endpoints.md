@@ -8,11 +8,22 @@ section: rest-api
 Routes are regular expressions; `{id}` stands for `(?P<id>[\d]+)`. Methods are the registered
 ones; `HEAD` works wherever `GET` does and `PUT`/`PATCH` wherever `POST` does.
 
+**Request checks (0.6.3+)**, as in WordPress:
+
+- The `wp/v2` collections (posts, pages, blocks, media, terms, users, comments) validate `page` (≥ 1),
+  `per_page` (1–100), `order` (`asc`/`desc`) and `orderby` (the route's own list); a value outside
+  them is a 400 `rest_invalid_param` naming every bad parameter. `per_page=-1` is still accepted
+  and returns at most 100 items per page.
+- A JSON body that is not valid UTF-8 or contains a NUL character is a 400 `rest_invalid_json`.
+- `search` uses at most 200 characters and 32 words; `-word` excludes items containing that word.
+  A search stops after 5 seconds.
+- `GET /wp-json/<namespace>` (for example `/wp-json/wp/v2`) lists that namespace and its routes.
+
 ## Posts, pages, blocks (`wp/v2`)
 
 | Route | Methods | Notes |
 |-------|---------|-------|
-| `/posts`, `/pages`, `/blocks` | GET, POST | `page`, `per_page`, `offset`, `search`, `author`, `author_exclude`, `categories`, `categories_exclude`, `tags`, `tags_exclude`, `tax_relation` (`AND` default, or `OR`), `after`, `before`, `modified_after`, `modified_before`, `status`, `orderby`, `order`, `slug` (comma list or `slug[]`), `include`, `exclude`, `parent`, `parent_exclude`, `sticky` (posts only), `_embed`, `_fields`; a malformed filter value is a 400 `rest_invalid_param`. Without `edit_others_posts` other statuses list only what the caller may read. `/blocks` (synced patterns) needs `edit_posts` to read, and a new pattern is published only for users with `publish_posts`; `context=edit` for raw content (needs `edit_posts`/`edit_pages`; items the caller cannot edit omit `password`, and password-protected or members-only ones also omit `content.raw` and `excerpt.raw`). `meta.footnotes` (the block editor's footnotes, a JSON string) is read and written |
+| `/posts`, `/pages`, `/blocks` | GET, POST | `page`, `per_page`, `offset`, `search`, `author`, `author_exclude`, `categories`, `categories_exclude`, `tags`, `tags_exclude`, `tax_relation` (`AND` default, or `OR`), `after`, `before`, `modified_after`, `modified_before`, `status`, `orderby`, `order`, `slug` (comma list or `slug[]`), `include`, `exclude`, `parent`, `parent_exclude`, `sticky` (posts only), `_embed`, `_fields`; a malformed filter value is a 400 `rest_invalid_param`. Without `edit_others_posts` other statuses list only what the caller may read. `/blocks` (synced patterns) needs `edit_posts` to read, and a new pattern is published only for users with `publish_posts`; `context=edit` for raw content (needs `edit_posts`/`edit_pages`; items the caller cannot edit omit `password`, and password-protected or members-only ones also omit `content.raw` and `excerpt.raw`). `meta.footnotes` (the block editor's footnotes, a JSON string) is read and written. Writing an unknown `author`, `featured_media` or `parent` is a 400 (`rest_invalid_author`, `rest_invalid_featured_media`, `rest_post_invalid_id`) (0.6.3+) |
 | `/posts/{id}`, `/pages/{id}`, `/blocks/{id}` | GET, POST, DELETE | `?force=true` deletes instead of trashing. Pages read and write `template` (`_wp_page_template`): `""` is the default template, otherwise one of the theme's page templates (a package's `page_templates`) or the page's current template; another value is a 400 |
 | `/posts/{id}/autosaves`, `/pages/{id}/autosaves`, `/blocks/{id}/autosaves` | GET, POST | the editor's autosave |
 | `/posts/{parent}/autosaves/{id}`, `/pages/{parent}/autosaves/{id}`, `/blocks/{parent}/autosaves/{id}` | GET | one autosave of the parent (404 `rest_post_invalid_id` when it is not one) |
@@ -30,7 +41,7 @@ language, of the same type, that the user may edit; an entry for the saved objec
 
 | Route | Methods | Notes |
 |-------|---------|-------|
-| `/media` | GET, POST | upload with `multipart/form-data` (`file`) or a raw body with `Content-Disposition: attachment; filename=…`; image sizes are generated (in the format of Settings › Media › Image output format) |
+| `/media` | GET, POST | upload with `multipart/form-data` (`file`) or a raw body with `Content-Disposition: attachment; filename=…`; image sizes are generated (in the format of Settings › Media › Image output format). Location and camera data (EXIF/XMP) is removed from uploaded JPEGs unless Settings › Media › *Remove location and camera data from uploaded photos* is unticked or the server sets `PURSAE_KEEP_EXIF=1` (0.6.3+). For callers without `upload_files`, attachments of members-only posts the caller cannot read are not listed |
 | `/media/{id}` | GET, POST, DELETE | `title`, `caption`, `alt_text`, `description`, `post`; images also `focal_point` (`{"x": 0.3, "y": 0.2}` from the top left, 0–1, or `null` for the centre): cropped sizes are made again around it, and `media_details.focal_point` returns it. A replaced or re-cropped file has `media_details.file_version`, and its URLs end in `?v=<version>`. With Pursae Multi Language and its Media module on: `?lang=` returns that language's texts, `context=edit` adds `pll_i18n` (per-language overrides) and updates accept it |
 | `/media/{id}/edit` | POST | the block editor's image crop / rotate / flip: `modifiers` are applied in order and the result is saved as a new item `<name>-edited.<ext>` (201); the original is untouched. JPEG, PNG, GIF and WebP only |
 | `/media/{id}/post-process` | POST | |
@@ -40,14 +51,14 @@ language, of the same type, that the user may edit; an entry for the saved objec
 | Route | Methods | Notes |
 |-------|---------|-------|
 | `/categories`, `/tags`, `/wp_pattern_category` | GET, POST | `search`, `parent`, `post`, `slug`, `hide_empty`, `orderby`. `/wp_pattern_category` holds the categories of synced patterns |
-| `/categories/{id}`, `/tags/{id}`, `/wp_pattern_category/{id}` | GET, POST, DELETE | updating or deleting needs `manage_categories` (creating a tag or pattern category only needs `edit_posts`) |
+| `/categories/{id}`, `/tags/{id}`, `/wp_pattern_category/{id}` | GET, POST, DELETE | updating or deleting needs `manage_categories` (creating a tag or pattern category only needs `edit_posts`). Terms cannot be trashed: `DELETE` needs `?force=true`, otherwise 501 `rest_trash_not_supported` (0.6.3+). An unknown `parent` is a 400 `rest_term_invalid` |
 | `/taxonomies`, `/taxonomies/{taxonomy}` | GET | |
 
 ## Users and comments
 
 | Route | Methods | Notes |
 |-------|---------|-------|
-| `/users` | GET, POST | `GET`: public profiles (`who=authors`), or all users with `list_users`; `capabilities`, `offset`. Without `list_users`, `search` matches only the id, login, slug and display name. `POST` creates a user (`create_users`; `username`, `email`, `password`) |
+| `/users` | GET, POST | `GET`: public profiles (`who=authors`), or all users with `list_users`; `capabilities`, `offset`. Without `list_users`, `search` matches only the id, login, slug and display name. `POST` creates a user (`create_users`; `username`, `email`, `password`); without `roles` the site's default role is given only if the caller may give that role (0.6.3+) |
 | `/users/{id}` | GET, POST, DELETE | `POST` updates; `DELETE` needs `?force=true` (users cannot be trashed) and `delete_users`, and `reassign` moves the user's content to another user |
 | `/users/me` | GET, POST, DELETE | the current user; `context=edit` for the full record (and `meta.persisted_preferences`, which only that context returns) |
 | `/comments` | GET, POST | `post`, `parent`, `parent_exclude`, `include`, `exclude`, `author`, `author_exclude`, `author_email`, `type`, `status`, `offset`; anonymous comments honour the Discussion settings |

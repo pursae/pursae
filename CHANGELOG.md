@@ -10,6 +10,43 @@ under a new `## [x.y.z] - YYYY-MM-DD` heading, which `tools/release.sh` publishe
 
 ## [Unreleased]
 
+### Security
+
+Hardening from the internal review. Upgrade every site.
+
+- Backups leave out the site's encryption key unless *Include the site's encryption key* (`--include-key`) is
+  ticked; restores stage files, quarantine plugin/theme files the archive lacks, and respect
+  `PURSAE_BACKUP_MAX_UNPACKED`.
+- Admin-set SMTP hosts and the cache purge URL reach private networks only with `PURSAE_ALLOW_PRIVATE_ENDPOINTS=1`.
+- Cross-site `POST`s to the login page and signed-in comment posts are refused (403).
+- `POST /wp/v2/users` without `roles` checks that the caller may give the default role.
+- Password-protected products keep their text hidden in the `[product_page]` shortcode and Web Builder product slots;
+  an unpaid renewal no longer reactivates a cancelled-renewal subscription.
+- A role or capability change by another administrator, a forum block or forum role change ends that user's sessions.
+- Lost-password requests: 3 per 15 minutes per network and per account, counted in the database.
+- Updating an active plugin from the web needs `activate_plugins`; overwriting a theme needs `update_themes`.
+- `PURSAE_PLUGIN_KEYS_LOCKED` lets the host fix the trusted plugin keys.
+- Headless webhook secrets and header values are stored encrypted; Headless upload tokens read only public files
+  and their own uploads; `create` alone cannot publish.
+- Memberships restricted content stays out of ACF fields, footnotes, Web Builder slots, the Latest Posts block,
+  SEO images and sitemaps, GraphQL and the media API; non-members cannot comment on restricted posts.
+- `/readyz` names no versions; the `/metrics` listener without a token starts only on loopback.
+
+### Changed
+
+- Uploaded JPEGs lose their location and camera data by default (Settings › Media; `PURSAE_KEEP_EXIF=1` keeps it).
+- Visitor-triggered notification e-mails (comments, contact form) are capped; the entries are still saved.
+- REST: `page`/`per_page`/`order`/`orderby` are validated (400 `rest_invalid_param`; `per_page=-1` still
+  works, capped at 100); unknown `author`/`featured_media`/`parent` are 400; deleting a term needs `force=true`;
+  `GET /wp-json/<namespace>` lists a namespace's routes; NUL or invalid UTF-8 in JSON is 400; searches use at
+  most 200 characters / 32 words, support `-word`, and stop after 5 s.
+- Pursae Commerce: My Account lost-password form; password-protected products; coupon uses claimed at checkout
+  (released when an unpaid order is cancelled); guest checkout and gift card code limits; state names turned into
+  codes before totals; `wc/v3` batch delete needs the delete capability.
+- Pursae Analytics ignores beacons from other sites and counts at most 60 page views a minute per address.
+- Menus leave out items whose target is not published, on the front end and in Headless `/wp/menus`.
+- Pursae SMTP's Email Test shows a fixed error category.
+
 ## [0.6.2] - 2026-11-28
 
 ### Changed

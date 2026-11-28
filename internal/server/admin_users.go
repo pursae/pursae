@@ -103,8 +103,9 @@ func (s *Server) usersScreen(c *gin.Context) {
 				if err != nil || !s.actorMayEditUserRoles(ctx, u, x) || s.removingLastAdmin(ctx, x, []string{r}) {
 					continue
 				}
-				before := strings.Join(x.Roles, ",")
+				before, access := strings.Join(x.Roles, ","), s.userAccessKey(ctx, raw)
 				_ = s.store.SetUserRoles(ctx, raw, r, nil)
+				s.endSessionsAfterAccessChange(ctx, c, raw, access)
 				s.adminsecRoleChanged(c, raw, x.Login, before, r)
 			}
 			c.Redirect(http.StatusFound, "/wp-admin/users?update=promote")
@@ -634,4 +635,24 @@ func (s *Server) userNew(c *gin.Context) {
 		d.Values.Set("role", d.Def)
 	}
 	s.adminPage(c, "user-new", "Add User", "user-new-php", "admin/user-new", d)
+}
+
+// userAccessKey is a user's roles and per-user capability exceptions as one comparable string.
+func (s *Server) userAccessKey(ctx context.Context, userID int64) string {
+	var k string
+	_ = s.store.Pool.QueryRow(ctx, `SELECT
+		coalesce((SELECT string_agg(r.slug || ':' || ur.is_primary::text, ',' ORDER BY r.slug) FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = $1), '') || '|' ||
+		coalesce((SELECT string_agg(capability || ':' || effect, ',' ORDER BY capability) FROM user_capabilities WHERE user_id = $1), '')`, userID).Scan(&k)
+	return k
+}
+
+// endSessionsAfterAccessChange ends the user's sessions when their roles or capability exceptions
+// differ from before (userAccessKey): a session opened under the old role must not keep running, and
+// a stolen session must not profit from a promotion. The acting user's own current session is kept
+// when they edit themselves (endSessionsAfterPasswordChange). WordPress keeps sessions here; Pursae
+// ends them on purpose.
+func (s *Server) endSessionsAfterAccessChange(ctx context.Context, c *gin.Context, userID int64, before string) {
+	if s.userAccessKey(ctx, userID) != before {
+		s.endSessionsAfterPasswordChange(ctx, c, userID)
+	}
 }

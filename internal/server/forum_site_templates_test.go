@@ -95,9 +95,10 @@ func TestForumSiteTemplates(t *testing.T) {
 	}
 
 	// Only an administrator (unfiltered_html and edit_theme_options) writes them.
-	_, author := mcpTestAgentRole(t, base, c, "forumauthor", "author")
-	if r := author("forum_set_template", map[string]any{"view": "login", "source": "<p>x</p>"}); r["isError"] != true {
-		t.Error("an author saved a forum site template")
+	// An author is not even offered the tool (tools/list follows the handler's capability).
+	authorPass, _ := mcpTestAgentRole(t, base, c, "forumauthor", "author")
+	if list := mcpJ(mcpRPC(t, base, authorPass, "tools/list", nil)); strings.Contains(list, `"forum_set_template"`) {
+		t.Error("an author is offered forum_set_template")
 	}
 
 	if r := call("forum_delete_template", map[string]any{"view": "index"}); r["isError"] == true {

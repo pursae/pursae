@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -106,6 +107,10 @@ func phpMap(v string) map[string]string {
 // seogoMeta reads one logical field: Pursae SEO's own key first, then Yoast's, then Rank Math's.
 func seogoMeta(m map[string]any, field string) string {
 	if v, ok := seogoRaw(m, seogoKey(field)); ok {
+		switch field {
+		case "noindex", "og_image", "tw_image":
+			return seogoNormalize(field, v) // rows saved before these values were normalized
+		}
 		return v
 	}
 	keys := seogoFields[field]
@@ -187,7 +192,7 @@ var yoastVarRe = regexp.MustCompile(`%%([a-zA-Z0-9_]+)%%`)
 // seogoSetMeta writes one field under Pursae SEO's key ("" removes it so the fallbacks apply again
 // only when no Yoast/Rank Math value exists; otherwise an empty override is stored).
 func seogoSetMeta(m map[string]any, field, value string) {
-	value = strings.TrimSpace(value)
+	value = seogoNormalize(field, strings.TrimSpace(value))
 	if value == "" {
 		keys := seogoFields[field]
 		has := false
@@ -238,4 +243,48 @@ func seogoFocusList(v string) []string {
 		}
 	}
 	return out
+}
+
+// seogoNormalize maps the values API clients send for a field onto the ones the front end reads:
+// noindex takes "noindex"/"index" (a truthy "1"/"true" meant noindex but was ignored), and og_image
+// must be an http(s) or site-relative URL (it lands in og:image and JSON-LD; javascript: is dropped).
+func seogoNormalize(field, v string) string {
+	switch field {
+	case "noindex":
+		switch strings.ToLower(v) {
+		case "noindex", "1", "true", "yes", "on":
+			return "noindex"
+		case "index":
+			return "index"
+		case "0", "false", "no", "off":
+			return ""
+		}
+	case "nofollow":
+		switch strings.ToLower(v) {
+		case "1", "true", "yes", "on", "nofollow":
+			return "1"
+		case "0", "false", "no", "off":
+			return ""
+		}
+	case "og_image", "tw_image":
+		if v != "" && !seogoSafeURL(v) {
+			return ""
+		}
+	}
+	return v
+}
+
+// seogoSafeURL reports whether v is an absolute http(s) URL or a site-relative path.
+func seogoSafeURL(v string) bool {
+	u, err := url.Parse(v)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return u.Host != ""
+	case "":
+		return strings.HasPrefix(v, "/") && !strings.HasPrefix(v, "//") || u.Host == "" && !strings.Contains(v, ":")
+	}
+	return false
 }

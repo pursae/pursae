@@ -95,9 +95,20 @@ var bmgrKeepSettings = []string{"auth_secret", "siteurl", "home", bmgrSetting, b
 	bmgrOptRemote, "plugin_trusted_keys", "plugin_allow_unsigned"}
 
 // bmgrNoExportSettings are options never written into an archive: the remote storage settings hold
-// the bucket credentials and the encryption passphrase (sealed with the site secret, which the
-// archive also carries), and a restore keeps this site's own values anyway (bmgrKeepSettings).
+// the bucket credentials and the encryption passphrase (sealed with the site secret, which an
+// archive made with "include the encryption key" carries), and a restore keeps this site's own
+// values anyway (bmgrKeepSettings).
 var bmgrNoExportSettings = []string{bmgrOptRemote}
+
+// bmgrExcludedSettings are the options left out of an archive: bmgrNoExportSettings, and the site's
+// encryption key unless the backup was asked to include it (bmgrSelection.IncludeKey). Without the
+// key an archive that leaks does not open the sealed secrets, nor forge Sign() tokens.
+func bmgrExcludedSettings(includeKey bool) []string {
+	if includeKey {
+		return bmgrNoExportSettings
+	}
+	return append([]string{"auth_secret"}, bmgrNoExportSettings...)
+}
 
 // bmgrCategoryOf returns the category key a table belongs to.
 func bmgrCategoryOf(table string) string {
@@ -142,6 +153,11 @@ type bmgrJob struct {
 	// local archive is kept either way).
 	Remote      string `json:"remote,omitempty"`
 	RemoteError string `json:"remote_error,omitempty"`
+	// A restore's notices: plugin/theme files not in the archive moved to QuarantineDir, and stored
+	// secrets that cannot be decrypted here (an archive made without the site's encryption key).
+	Quarantined   int    `json:"quarantined,omitempty"`
+	QuarantineDir string `json:"quarantine_dir,omitempty"`
+	Unreadable    int    `json:"unreadable,omitempty"`
 }
 
 // bmgrRuntime is the plugin's in-memory state: one job runs at a time.

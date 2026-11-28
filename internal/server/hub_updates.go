@@ -17,6 +17,7 @@ import (
 
 	"wpgo/internal/i18n"
 	"wpgo/internal/plugins"
+	"wpgo/internal/store"
 )
 
 // Updates of plugins installed from Pursae Manager (plugins.source = 'hub'). The catalog
@@ -203,6 +204,13 @@ func (s *Server) hubUpdatePlugin(ctx context.Context, slug string) (*plugins.Man
 	if err := s.store.Pool.QueryRow(ctx, `SELECT version, status, source, permissions, signature, signer FROM plugins WHERE slug = $1`, slug).Scan(&installed, &status, &source, &perms, &digest, &signer); err != nil {
 		return nil, errors.New("That plugin is not installed.")
 	}
+	if status == "active" {
+		if u, ok := ctx.Value(extActorCtx{}).(*store.User); ok && !u.Can("activate_plugins", nil) {
+			// Same rule as installAndReload: a new package for an active plugin runs at once. Callers
+			// with no acting user (CLI, background updates) carry no actor and stay allowed.
+			return nil, errPluginReloadDenied
+		}
+	}
 	if source != pluginSourceHub {
 		return nil, errors.New("Only plugins installed from Pursae Manager can be updated here; upload the new version instead.")
 	}
@@ -266,7 +274,7 @@ func (s *Server) pluginUpgrade(c *gin.Context) {
 		c.String(http.StatusForbidden, "Sorry, you are not allowed to update plugins for this site.")
 		return
 	}
-	m, err := s.hubUpdatePlugin(c.Request.Context(), slug)
+	m, err := s.hubUpdatePlugin(withExtActor(c.Request.Context(), currentUser(c)), slug)
 	if err != nil {
 		c.Redirect(http.StatusFound, "/wp-admin/plugins?error="+url.QueryEscape(s.updateFailed(c, err.Error())))
 		return
@@ -288,7 +296,7 @@ func (s *Server) updatePlugins(c *gin.Context) {
 	sort.Strings(slugs)
 	var done, errs []string
 	for _, slug := range slugs {
-		m, err := s.hubUpdatePlugin(c.Request.Context(), slug)
+		m, err := s.hubUpdatePlugin(withExtActor(c.Request.Context(), currentUser(c)), slug)
 		if err != nil {
 			errs = append(errs, slug+": "+err.Error())
 			continue

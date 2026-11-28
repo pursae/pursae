@@ -207,8 +207,14 @@ func (s *Server) gcApply(c *gin.Context, code string) (string, error) {
 	if code == "" {
 		return "", fmt.Errorf("Please enter a gift card code.")
 	}
+	// A per-IP limit on codes that do not match keeps codes (and their balances) from being guessed.
+	th := s.gooGiftCardThrottle()
+	if th.Blocked(clientIP(c)) {
+		return "", errGooThrottled
+	}
 	g, err := s.gcByCode(ctx, code)
 	if err != nil {
+		th.Fail(clientIP(c))
 		return "", fmt.Errorf("Gift card not found. Please enter a valid code.")
 	}
 	if err := s.gcUsable(g); err != nil {
@@ -238,8 +244,13 @@ func (s *Server) gcAddToAccount(c *gin.Context, code string) (string, error) {
 	if !s.checkNonceValue(c, c.PostForm("_wpnonce"), "wc_gc_redeem_giftcard") {
 		return "", fmt.Errorf("The link you followed has expired.")
 	}
+	th := s.gooGiftCardThrottle()
+	if th.Blocked(clientIP(c)) {
+		return "", errGooThrottled
+	}
 	g, err := s.gcByCode(ctx, code)
 	if err != nil {
+		th.Fail(clientIP(c))
 		return "", fmt.Errorf("Gift card not found. Please enter a valid code.")
 	}
 	if g.RedeemedBy != 0 && g.RedeemedBy != u.ID {

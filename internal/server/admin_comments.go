@@ -97,8 +97,10 @@ func (s *Server) commentsScreen(c *gin.Context) {
 		}
 	}
 	if pid, _ := strconv.ParseInt(c.Query("p"), 10, 64); pid > 0 {
-		q.PostID, d.PostID = pid, pid
-		if p, err := s.store.GetPost(ctx, pid); err == nil {
+		// The filter names the post in the heading: only for a post the user may read, else it is ignored
+		// (a private or draft post's title is not theirs to see).
+		if p, err := s.store.GetPost(ctx, pid); err == nil && (p.Status == "publish" || u.Can("read_post", p)) {
+			q.PostID, d.PostID = pid, pid
 			d.PostTitle = p.Title
 		}
 	}

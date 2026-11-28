@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,9 +9,11 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -32,7 +35,12 @@ func restErr(c *gin.Context, status int, code, msg string, extra ...map[string]a
 	if restInternalError(code, msg) {
 		// The database's own words (engine, table and column names, the failing value) stay in the log.
 		slog.Error("rest: request failed", "code", code, "status", status, "method", c.Request.Method, "path", c.Request.URL.Path, "err", msg)
-		msg = restInternalMessage
+		if restOutOfRange(msg) {
+			// A number too large for its column is the client's mistake, not the server's.
+			status, code, msg = http.StatusBadRequest, "rest_invalid_param", "A number in the request is out of range."
+		} else {
+			msg = restInternalMessage
+		}
 	}
 	data := map[string]any{"status": status}
 	for _, e := range extra {
@@ -50,7 +58,27 @@ const restInternalMessage = "The request could not be completed because of a dat
 // carries a store error, and any message with a PostgreSQL SQLSTATE is the server's text
 // (pgconn.PgError.Error()), whatever the code the handler chose.
 func restInternalError(code, msg string) bool {
-	return code == "rest_query_error" || strings.Contains(msg, "(SQLSTATE ")
+	if code == "rest_query_error" || strings.Contains(msg, "(SQLSTATE ") {
+		return true
+	}
+	// pgx's own client-side errors carry no SQLSTATE but still name column types and values.
+	for _, m := range restDriverMarkers {
+		if strings.Contains(msg, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// restDriverMarkers are the beginnings of pgx / pgconn error texts (encoding, scanning, connection).
+var restDriverMarkers = []string{"failed to encode args", "unable to encode", "can't scan into", "cannot scan ",
+	"pgx:", "pgconn", "(OID ", "failed to connect to", "conn closed", "conn busy", "no rows in result set"}
+
+// restOutOfRange reports whether a database error is a number out of range for its column: SQLSTATE
+// 22003 or pgx refusing to encode a value its column type cannot hold.
+func restOutOfRange(msg string) bool {
+	return strings.Contains(msg, "(SQLSTATE 22003)") || strings.Contains(msg, "is greater than maximum value for") ||
+		strings.Contains(msg, "is less than minimum value for")
 }
 
 // restRoute describes one registered route for routing, OPTIONS and the index.
@@ -200,6 +228,9 @@ func (s *Server) restAuthUser(c *gin.Context, route, method string) (*store.User
 		if err != nil || u == nil || !appPasswordsAvailable(u) { // no API tokens for front-end members (admin_access.go)
 			return nil, errors.New("invalid_token")
 		}
+		if s.adminsecBlocked(c, u) != "" { // a forced password change / expired 2FA blocks tokens too
+			return nil, errors.New("adminsec_account_blocked")
+		}
 		return scopedUser(u, restScopes(c)), nil
 	}
 	if user, pass, ok := c.Request.BasicAuth(); ok {
@@ -221,6 +252,9 @@ func (s *Server) restAuthUser(c *gin.Context, route, method string) (*store.User
 			// A password that matched recently is not a guess: no throttle row, so parallel requests of a
 			// working client cannot count against the limits. checkAppPassword still confirms it is stored.
 			if s.checkAppPassword(c, u, pass) {
+				if s.adminsecBlocked(c, u) != "" {
+					return nil, errors.New("adminsec_account_blocked")
+				}
 				return scopedUser(u, restScopes(c)), nil
 			}
 		}
@@ -236,7 +270,10 @@ func (s *Server) restAuthUser(c *gin.Context, route, method string) (*store.User
 		}
 		// Application Passwords skip the second factor: they are the way REST clients sign in.
 		if s.checkAppPassword(c, u, pass) {
-			s.auth.DropAttempt(c, attemptID)         // not a failure
+			s.auth.DropAttempt(c, attemptID) // not a failure
+			if s.adminsecBlocked(c, u) != "" {
+				return nil, errors.New("adminsec_account_blocked")
+			}
 			return scopedUser(u, restScopes(c)), nil // scopes only narrow the user's capabilities
 		}
 		s.restLoginFailed(c, user, u, "Wrong application password (REST API).", attemptID)
@@ -410,6 +447,9 @@ func (api *restAPI) serve(c *gin.Context, route string) {
 		h(c, req)
 		return
 	}
+	if (method == http.MethodGet || method == http.MethodHead) && api.namespaceIndex(c, route) {
+		return
+	}
 	if s.servePluginRest(c, route, method) { // plugin routes (plugins_host.go), never shadowing core ones
 		return
 	}
@@ -442,6 +482,29 @@ func restJSONLimit(u *store.User) int64 {
 // caller's limit is refused with 413 before it is read (Content-Length) or as soon as the limit is
 // passed (a chunked body), and before anything is decoded; so is a body with too many values. It
 // reports false when it answered the request.
+// restJSONHasNUL reports whether a JSON text holds a NUL character: a raw byte, or a \u0000 escape
+// (an escaped backslash before "u0000" is no escape).
+func restJSONHasNUL(body []byte) bool {
+	if bytes.IndexByte(body, 0) >= 0 {
+		return true
+	}
+	for i := 0; ; {
+		j := bytes.Index(body[i:], []byte(`\u0000`))
+		if j < 0 {
+			return false
+		}
+		j += i
+		n := 0 // backslashes in a row before this one: odd means it is itself escaped
+		for k := j - 1; k >= 0 && body[k] == '\\'; k-- {
+			n++
+		}
+		if n%2 == 0 {
+			return true
+		}
+		i = j + 1
+	}
+}
+
 func restDecodeJSON(c *gin.Context, u *store.User, req *restRequest) bool {
 	limit := restJSONLimit(u)
 	tooLarge := func() bool {
@@ -465,6 +528,16 @@ func restDecodeJSON(c *gin.Context, u *store.User, req *restRequest) bool {
 	}
 	if len(body) == 0 {
 		return true
+	}
+	// PostgreSQL stores no NUL in text (22021) and json.Unmarshal turns invalid UTF-8 into U+FFFD
+	// silently: refuse both here instead of failing later with a 500.
+	if !utf8.Valid(body) {
+		restErr(c, http.StatusBadRequest, "rest_invalid_json", "The request body is not valid UTF-8.")
+		return false
+	}
+	if restJSONHasNUL(body) {
+		restErr(c, http.StatusBadRequest, "rest_invalid_json", "The request body must not contain NUL characters.")
+		return false
 	}
 	if !jsonValuesWithin(body, restJSONMaxValues) {
 		restErr(c, http.StatusRequestEntityTooLarge, "rest_request_too_large", "The request body holds too many values.", map[string]any{"limit_values": restJSONMaxValues})
@@ -558,9 +631,9 @@ func (api *restAPI) canWrite(u *store.User, pattern string) bool {
 	return u.Can("edit_posts", nil)
 }
 
-func (api *restAPI) index(c *gin.Context) {
+// indexRoutes lists the visible routes (the /wp-json index) and their namespaces.
+func (api *restAPI) indexRoutes() (map[string]any, []string) {
 	s := api.s
-	lb := s.links(c)
 	routes := map[string]any{}
 	nsSet := map[string]bool{}
 	builderOn := s.wbOn()
@@ -585,6 +658,32 @@ func (api *restAPI) index(c *gin.Context) {
 		namespaces = append(namespaces, ns)
 	}
 	sort.Strings(namespaces)
+	return routes, namespaces
+}
+
+// namespaceIndex answers GET /wp-json/<namespace> as WP_REST_Server::get_namespace_index() does:
+// the namespace and its routes, so a client can discover one API without the whole index.
+func (api *restAPI) namespaceIndex(c *gin.Context, route string) bool {
+	ns := strings.Trim(route, "/")
+	routes, namespaces := api.indexRoutes()
+	if !slices.Contains(namespaces, ns) {
+		return false
+	}
+	own := map[string]any{"/" + ns: map[string]any{"namespace": ns, "methods": []string{http.MethodGet}}}
+	for p, r := range routes {
+		if r.(map[string]any)["namespace"] == ns {
+			own[p] = r
+		}
+	}
+	restJSON(c, http.StatusOK, map[string]any{"namespace": ns, "routes": own,
+		"_links": map[string]any{"up": []map[string]string{{"href": api.s.links(c).HomeURL("/wp-json/")}}}})
+	return true
+}
+
+func (api *restAPI) index(c *gin.Context) {
+	s := api.s
+	lb := s.links(c)
+	routes, namespaces := api.indexRoutes()
 	icon := ""
 	out := map[string]any{
 		"name": s.settings.String("blogname"), "description": s.settings.String("blogdescription"),
@@ -701,6 +800,55 @@ func pageArgs(c *gin.Context) (int, int) {
 		per = 100
 	}
 	return page, per
+}
+
+// WordPress' orderby enums for the core collections (each controller's get_collection_params()).
+var (
+	restPostOrderBy    = []string{"author", "date", "id", "include", "modified", "parent", "relevance", "slug", "include_slugs", "title", "menu_order"}
+	restTermOrderBy    = []string{"id", "include", "name", "slug", "include_slugs", "term_group", "description", "count"}
+	restUserOrderBy    = []string{"id", "include", "name", "registered_date", "slug", "include_slugs", "email", "url"}
+	restCommentOrderBy = []string{"date", "date_gmt", "id", "include", "post", "parent", "type"}
+)
+
+// listArgs is pageArgs for the wp/v2 collections: like WordPress, a page, per_page, order or
+// orderby outside the schema is a 400 rest_invalid_param naming every bad parameter, instead of
+// being silently replaced (a client would otherwise believe it got what it asked for).
+// per_page=-1 stays accepted: older editor code asks for "everything" that way.
+func listArgs(c *gin.Context, orderby []string) (int, int, bool) {
+	bad := map[string]string{}
+	var names []string
+	fail := func(k, msg string) {
+		if _, ok := bad[k]; !ok {
+			names = append(names, k)
+		}
+		bad[k] = msg
+	}
+	if v, ok := c.GetQuery("page"); ok {
+		if n, err := strconv.Atoi(v); err != nil {
+			fail("page", "page is not of type integer.")
+		} else if n < 1 {
+			fail("page", "page must be greater than or equal to 1")
+		}
+	}
+	if v, ok := c.GetQuery("per_page"); ok {
+		if n, err := strconv.Atoi(v); err != nil {
+			fail("per_page", "per_page is not of type integer.")
+		} else if n != -1 && (n < 1 || n > 100) {
+			fail("per_page", "per_page must be between 1 (inclusive) and 100 (inclusive)")
+		}
+	}
+	if v, ok := c.GetQuery("order"); ok && v != "asc" && v != "desc" {
+		fail("order", "order is not one of asc and desc.")
+	}
+	if v, ok := c.GetQuery("orderby"); ok && orderby != nil && !slices.Contains(orderby, v) {
+		fail("orderby", "orderby is not one of "+strings.Join(orderby[:len(orderby)-1], ", ")+" and "+orderby[len(orderby)-1]+".")
+	}
+	if len(names) > 0 {
+		restErr(c, http.StatusBadRequest, "rest_invalid_param", "Invalid parameter(s): "+strings.Join(names, ", "), map[string]any{"params": bad})
+		return 0, 0, false
+	}
+	page, per := pageArgs(c)
+	return page, per, true
 }
 
 func restContext(c *gin.Context) string {

@@ -1136,6 +1136,7 @@ func (s *Server) forumPostBlock(c *gin.Context, rt forumRoute, u *store.User, bl
 		c.String(http.StatusInternalServerError, "The member could not be updated.")
 		return
 	}
+	access := s.userAccessKey(ctx, target.ID)
 	if block {
 		exc[capForumParticipate] = "deny"
 	} else if exc[capForumParticipate] == "deny" {
@@ -1145,6 +1146,8 @@ func (s *Server) forumPostBlock(c *gin.Context, rt forumRoute, u *store.User, bl
 		c.String(http.StatusInternalServerError, "The member could not be updated.")
 		return
 	}
+	// Blocking ends the member's open sessions, like any other access change.
+	s.endSessionsAfterAccessChange(ctx, c, target.ID, access)
 	s.forumPurge(ctx)
 	msg := "unblocked"
 	if block {

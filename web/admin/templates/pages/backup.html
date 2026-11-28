@@ -42,7 +42,7 @@
 	<div id="bmgr-result"></div>
 	<p id="bmgr-cancel-wrap"><button type="button" class="button" id="bmgr-cancel" data-nonce="{{.Nonce}}">Cancel</button></p>
 	<pre class="bmgr-log" id="bmgr-log"></pre>
-	<span hidden id="bmgr-t-fetched">Downloaded and decrypted.</span><span hidden id="bmgr-t-continue">Continue to restore</span><span hidden id="bmgr-t-uploaded">Uploaded to remote storage.</span><span hidden id="bmgr-t-upfail">The backup was created on this server, but the upload to remote storage failed:</span>
+	<span hidden id="bmgr-t-fetched">Downloaded and decrypted.</span><span hidden id="bmgr-t-continue">Continue to restore</span><span hidden id="bmgr-t-uploaded">Uploaded to remote storage.</span><span hidden id="bmgr-t-upfail">The backup was created on this server, but the upload to remote storage failed:</span><span hidden id="bmgr-t-quar">Plugin or theme files that are not in the backup were moved out of the site (not deleted), to:</span><span hidden id="bmgr-t-unread">Stored passwords and API keys that cannot be decrypted on this site (the backup was made without the site's encryption key). Enter them again: mail, CDN, payment and API settings; users with an authenticator app must set it up again.</span>
 </div>
 {{end}}
 
@@ -75,6 +75,7 @@
 {{end}}
 </div>
 <p><label for="bmgr-note"><strong>Note</strong> (optional)</label><br><input type="text" class="regular-text" id="bmgr-note" name="note" maxlength="300" placeholder="Before the redesign"></p>
+<p><label><input type="checkbox" name="include_key" value="1"> Include the site's encryption key (for moving to a new server)</label><br><span class="description">Without the key, saved passwords and API keys (mail, CDN, payments, two-factor apps) cannot be read on another server and must be entered again there. With it, anyone who has the archive can read them.</span></p>
 <p class="description bmgr-warn"><span class="dashicons dashicons-lock"></span> A backup contains password hashes and site secrets. It is kept outside the web root and only administrators can download it. Keep downloaded copies private.</p>
 <p><button type="submit" class="button button-primary button-hero">Create backup</button></p>
 </form>
@@ -88,7 +89,7 @@
 <tbody>
 {{range .Entries}}
 <tr>
-	<td><strong>{{.Name}}</strong><br><span class="description">{{.When}}{{if .Kind}} · {{.Kind}}{{end}}{{if .Site}} · {{.Site}}{{end}}</span>{{if .Note}}<br><em>{{.Note}}</em>{{end}}{{if .Err}}<br><span style="color:#b32d2e">{{.Err}}</span>{{end}}</td>
+	<td><strong>{{.Name}}</strong><br><span class="description">{{.When}}{{if .Kind}} · {{.Kind}}{{end}}{{if .Site}} · {{.Site}}{{end}}</span>{{if .SiteKey}}<br><span class="bmgr-tag" style="border-color:#dba617">Contains the encryption key</span>{{end}}{{if .Note}}<br><em>{{.Note}}</em>{{end}}{{if .Err}}<br><span style="color:#b32d2e">{{.Err}}</span>{{end}}</td>
 	<td>{{range .Parts}}<span class="bmgr-tag">{{.}}</span>{{end}}</td>
 	<td>{{.SizeText}}</td>
 	<td>
@@ -290,7 +291,9 @@ if(job){
    if(j.kind==='upload'){res.innerHTML='<p><strong>'+esc($('#bmgr-t-uploaded').textContent)+'</strong></p>';return}
    if(j.kind==='backup'&&j.remote_error){res.innerHTML='<p style="color:#b32d2e"><strong>'+esc($('#bmgr-t-upfail').textContent)+'</strong> '+esc(j.remote_error)+'</p>';return}
    if(j.kind==='backup'){res.innerHTML='<p><strong>Backup created'+(j.warnings?' with '+j.warnings+' warning(s): see the log':'')+'.</strong> <a class="button button-primary" href="/wp-admin/admin?page=backup-manager&tab=backups">Go to Backups</a></p>'}
-   else{res.innerHTML='<p><strong>Restore finished.</strong> If you restored users or settings, <a href="/wp-login">log in again</a>. Restart Pursae if you restored plugins.</p>'}
+   else{res.innerHTML='<p><strong>Restore finished.</strong> If you restored users or settings, <a href="/wp-login">log in again</a>. Restart Pursae if you restored plugins.</p>'+
+    (j.quarantined?'<div class="notice notice-warning inline"><p><strong>'+j.quarantined+'</strong> · '+esc($('#bmgr-t-quar').textContent)+' <code>'+esc(j.quarantine_dir||'')+'</code></p></div>':'')+
+    (j.unreadable?'<div class="notice notice-warning inline"><p><strong>'+j.unreadable+'</strong> · '+esc($('#bmgr-t-unread').textContent)+'</p></div>':'')}
   }).catch(function(){setTimeout(tick,2000)});};
  $('#bmgr-cancel').addEventListener('click',function(){this.disabled=true;fetch('/wp-admin/admin?page=backup-manager&action=cancel&job='+encodeURIComponent(id)+'&_wpnonce='+encodeURIComponent(this.getAttribute('data-nonce')),{credentials:'same-origin'})});
  tick();

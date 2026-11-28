@@ -37,10 +37,10 @@ func registerOptionCLI(r *cli.Registry, e *cliEnv) {
 }
 
 // optionProtected are options `option delete` refuses: siteurl is the install marker (Installed),
-// auth_secret signs every cookie and nonce.
+// auth_secret is the key nonces, Sign() tokens and the sealed secrets derive from (without PURSAE_SECRET).
 var optionProtected = map[string]string{
 	"siteurl":     "it marks the site as installed; deleting it would reopen the installer",
-	"auth_secret": "it signs every login cookie and nonce; deleting it would log everyone out",
+	"auth_secret": "it signs nonces and links and encrypts stored passwords and API keys; deleting it would make them unreadable",
 }
 
 func registerOptionCommands(r *cli.Registry, e *cliEnv) {

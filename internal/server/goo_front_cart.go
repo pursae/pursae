@@ -682,6 +682,10 @@ func (s *Server) gooHandlePost(c *gin.Context, path string) bool {
 		s.gooLoginPost(c)
 	case has("woocommerce-register-nonce"):
 		s.gooRegisterPost(c)
+	case has("woocommerce-lost-password-nonce"):
+		s.gooLostPasswordPost(c)
+	case has("woocommerce-reset-password-nonce"):
+		s.gooResetPasswordPost(c)
 	case has("woocommerce-edit-address-nonce"):
 		s.gooSaveAddressPost(c)
 	case has("save-account-details-nonce"):

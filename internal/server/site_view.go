@@ -152,7 +152,7 @@ func (s *Server) buildSiteView(c *gin.Context, q *siteQuery) (*siteView, error) 
 	v.Sidebar1 = v.Areas["sidebar-1"]
 	for _, loc := range v.Theme.MenuLocations {
 		if items, _ := s.menuAt(ctx, cs, loc.Slug); len(items) > 0 {
-			s.resolveMenu(ctx, items, lb, q)
+			items = s.resolveMenu(ctx, items, lb, q)
 			v.Menus[loc.Slug] = items
 		}
 	}
@@ -548,6 +548,9 @@ func (s *Server) postView(ctx context.Context, c *gin.Context, p *store.Post, si
 	pv.ShowExcerpt = p.Excerpt != "" || (renderFrom(ctx) != nil && renderFrom(ctx).search != "")
 	if pv.ShowExcerpt {
 		pv.Excerpt = template.HTML(s.pllUC(ctx, s.theExcerpt(p, lb), 0))
+		if msg, hidden := s.gmemListingExcerpt(ctx, u, p.ID); hidden && p.Password == "" {
+			pv.Excerpt = template.HTML(msg) // Memberships: no excerpt of restricted content (show_excerpts off)
+		}
 	}
 
 	cats, tags := s.postTerms(ctx, p.ID, "category"), s.postTerms(ctx, p.ID, "post_tag") // request memo (site_memo.go)

@@ -239,14 +239,14 @@ var seogoAllImgRe = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
 func (s *Server) seogoPostImages(ctx context.Context, p *store.Post, media map[int64]*store.Attachment) []string {
 	var out []string
 	seen := map[string]bool{}
+	// The sitemap is public: the featured image and content images of a members-only post (or inside
+	// members-only shortcodes) are left out like the content itself.
+	p = s.seogoMembersPost(ctx, nil, p)
 	if a := media[p.FeaturedMediaID]; a != nil && strings.HasPrefix(a.Mime, "image/") {
 		u := s.uploadURL(ctx, a.FilePath)
 		out = append(out, u)
 		seen[u] = true
 	}
-	// The sitemap is public: content images of a members-only post (or inside members-only shortcodes)
-	// are left out like the content itself.
-	p = s.seogoMembersPost(ctx, nil, p)
 	for _, m := range seogoAllImgRe.FindAllStringSubmatch(p.Content, -1) {
 		u := html.UnescapeString(m[1])
 		if strings.HasPrefix(u, "/") {
@@ -372,6 +372,9 @@ func (s *Server) seogoSitemapURLs(reqCtx context.Context, typ string, page int) 
 	case "post":
 		posts, _, _ := s.store.QueryPosts(ctx, store.PostQuery{Types: []string{typ}, Statuses: []string{"publish"}, PerPage: per, Page: page, OrderBy: "id", Order: "asc", NoTotal: true})
 		excluded := idSet(o.SitemapExclude)
+		for _, id := range s.gooPublicExclude(ctx, []string{typ}) { // Memberships "hide completely"
+			excluded[id] = true
+		}
 		if typ == "page" {
 			for id := range s.seogoStorePrivatePages(ctx) {
 				excluded[id] = true
@@ -657,6 +660,9 @@ func (s *Server) seogoNewsSitemap(c *gin.Context) {
 	// Titles, links and dates only: the newest 1000 posts are loaded without their content.
 	posts, _, _ := s.store.QueryPosts(ctx, store.PostQuery{Types: []string{"post"}, Statuses: []string{"publish"}, PerPage: 1000, Page: 1, OrderBy: "date", Order: "desc", NoContent: true, NoTotal: true})
 	excluded := idSet(o.SitemapExclude)
+	for _, id := range s.gooPublicExclude(ctx, []string{"post"}) { // Memberships "hide completely"
+		excluded[id] = true
+	}
 	var sb strings.Builder
 	sb.WriteString(s.seogoXMLHead(ctx) + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">` + "\n")
 	cutoff := time.Now().Add(-48 * time.Hour)
@@ -704,6 +710,9 @@ func (s *Server) seogoVideoSitemap(c *gin.Context) {
 		posts, _, _ = s.store.QueryPosts(ctx, store.PostQuery{IDs: ids, Types: types, Statuses: []string{"publish"}, PerPage: -1, OrderBy: "id", Order: "asc", NoTotal: true})
 	}
 	excluded := idSet(o.SitemapExclude)
+	for _, id := range s.gooPublicExclude(ctx, types) { // Memberships "hide completely"
+		excluded[id] = true
+	}
 	var sb strings.Builder
 	sb.WriteString(s.seogoXMLHead(ctx) + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">` + "\n")
 	for _, p := range posts {

@@ -49,7 +49,7 @@ func (s *Server) golylangView(c *gin.Context, q *siteQuery, v *siteView, lb *lin
 			delete(v.Menus, loc.Slug)
 			if id := o.NavMenus[v.Theme.Slug][loc.Slug][l.Slug]; id > 0 {
 				if items := s.pllMenuItems(ctx, id); len(items) > 0 {
-					s.resolveMenu(ctx, items, lb, q)
+					items = s.resolveMenu(ctx, items, lb, q)
 					v.Menus[loc.Slug] = items
 				}
 			}

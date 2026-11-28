@@ -93,6 +93,7 @@ func (s *Server) healthTests(ctx context.Context) []healthTest {
 			Description: "Without SMTP, every message (password resets, order and privacy confirmations) is only saved as an .eml file and never reaches the recipient. Set PURSAE_SMTP_HOST or activate Pursae SMTP.",
 			Action:      `<a href="/wp-admin/plugins">Manage plugins</a>`})
 	}
+	tests = append(tests, s.privateEndpointHealthTests(ctx)...) // private_endpoint_notice.go
 	var failedJobs int
 	_ = s.store.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE status = 'failed'`).Scan(&failedJobs)
 	if failedJobs > 0 {

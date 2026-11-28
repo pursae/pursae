@@ -68,8 +68,17 @@ A restore keeps this site's own secret (`auth_secret`), address and Backup Manag
 the built-in plugins store encrypted under the archive site's secret (Pursae SMTP passwords and
 tokens, Pursae CDN credentials, the Multi Language translation key, Pursae Security authenticator
 apps, the Contact Form captcha secrets, Pursae Pixel API tokens, payment gateway keys such as the Stripe
-secret keys and webhook secrets, the Forum Google client secret and the license key) are re-encrypted
-for this site; plain secrets in an archive from an older version are encrypted by the restore, so they keep working after a move; Pursae Security backup codes
+secret keys and webhook secrets, the Forum Google client secret and the license key, Headless and
+Commerce webhook secrets) are re-encrypted for this site **only when the archive carries its site's
+encryption key**. By default it does not (whoever got hold of such an archive could decrypt every stored
+secret and forge signed links): tick *Include the site's encryption key (for moving to a new server)*
+on the Create tab, or `wpgo backup create --include-key`, when you move to a new server; such archives
+are marked on the Backups tab. Restored on another site without the key, those secrets read as empty and
+the restore says how many must be entered again. A full restore of **plugins** or **themes** makes those
+folders exactly the archive's: files the archive does not have are moved (not deleted) to
+`<uploads>/../backup-quarantine/<time>/`, outside the web root; extra media files are left in place.
+Files are staged first and swapped in with renames just before the database commits, so a failure on
+either side leaves the site as it was. Plain secrets in an archive from an older version are encrypted by the restore, so they keep working after a move; Pursae Security backup codes
 are only stored as hashes and have to be generated again. If the archive's site encrypted with
 `PURSAE_SECRET`, start this site with the same value instead. An archive with accounts whose username or
 e-mail differs only by case restores too: those columns then stay non-unique regardless of case, as

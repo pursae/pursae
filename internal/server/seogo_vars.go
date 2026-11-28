@@ -271,8 +271,8 @@ func (sc *seogoCtx) variable(name string) (string, bool) {
 		return "", true
 	case "parent_title":
 		if sc.Post != nil && sc.Post.ParentID > 0 {
-			if p, err := s.store.GetPost(sc.ctx, sc.Post.ParentID); err == nil {
-				return p.Title, true
+			if p, err := s.store.GetPost(sc.ctx, sc.Post.ParentID); err == nil && p.Status == "publish" {
+				return p.Title, true // a private or draft parent's title is not public
 			}
 		}
 		return "", true

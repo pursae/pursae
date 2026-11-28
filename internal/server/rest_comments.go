@@ -154,7 +154,10 @@ func (api *restAPI) listComments(c *gin.Context, r *restRequest) {
 			}
 		}
 	}
-	page, per := pageArgs(c)
+	page, per, ok := listArgs(c, restCommentOrderBy)
+	if !ok {
+		return
+	}
 	// Every filter runs in SQL, so a page costs one count and one page query whatever the
 	// number of comments on the site.
 	q := store.CommentQuery{Search: c.Query("search"), SearchPublic: !canModerate(u), Order: c.DefaultQuery("order", "desc"),
@@ -316,6 +319,11 @@ func (api *restAPI) createComment(c *gin.Context, r *restRequest) {
 	password, _ := r.Str(c, "password")
 	if !api.postReadableWithPassword(c, p, password) {
 		restErr(c, http.StatusForbidden, "rest_cannot_read_post", "Sorry, you are not allowed to read the post for this comment.")
+		return
+	}
+	if !u.Can("edit_post", p) && s.gmemHidesPost(c.Request.Context(), u, p.ID) {
+		// Memberships: the post's content (and its comments) is members-only.
+		restErr(c, http.StatusForbidden, "rest_cannot_create", "Sorry, you are not allowed to create this comment.")
 		return
 	}
 	if p.Status == "draft" || p.Status == "auto-draft" || p.Status == "pending" {

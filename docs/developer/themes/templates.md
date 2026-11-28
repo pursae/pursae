@@ -98,7 +98,7 @@ Every template receives the same **site view** (`.`):
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `.Menus` | map[location][]item | menu items per `menu_locations` id, nested. Item: `.ID`, `.Label`, `.URL`, `.Target`, `.Classes`, `.Children`, `.Current`, `.CurrentAncestor`, `.Kind`/`.Object`/`.TargetID` (what it links to) |
+| `.Menus` | map[location][]item | menu items per `menu_locations` id, nested. Item: `.ID`, `.Label`, `.URL`, `.Target`, `.Classes`, `.Children`, `.Current`, `.CurrentAncestor`, `.Kind`/`.Object`/`.TargetID` (what it links to). Items whose target is not published (draft, private, scheduled, trashed or deleted) are left out (0.6.3+) |
 | `.HasMenus` | bool | any location has a menu |
 | `.PrimaryMenu` (= `.FooterPrimary`), `.SocialMenu` (= `.FooterSocial`) | HTML | the core's rendering of the `primary` and `social` locations as `<ul class="menu">` lists (`wp_nav_menu()`), when the theme declares those ids; other locations are rendered from `.Menus` |
 | `.Areas` | map[id]HTML | rendered widget areas (`dynamic_sidebar()`), keyed by `widget_areas` id |

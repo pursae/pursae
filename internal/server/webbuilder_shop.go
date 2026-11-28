@@ -391,11 +391,13 @@ func (e *wbSlotEnv) shopHTML(slot webbuilder.SlotName, a webbuilder.SlotArgs) (s
 	case webbuilder.SlotProductRating:
 		return l10n(s.gooRatingBlockHTML(p))
 	case webbuilder.SlotProductShortDesc:
-		if p.Post != nil && strings.TrimSpace(p.Post.Excerpt) != "" {
+		if p.Post != nil && strings.TrimSpace(p.Post.Excerpt) != "" && !s.passwordRequired(c, p.Post) {
 			return l10n(`<div class="woocommerce-product-details__short-description">` + s.gooRenderContent(e.ctx, c, p.Post.Excerpt) + `</div>`)
 		}
 	case webbuilder.SlotProductDescription:
-		if p.Post != nil {
+		// A password-protected product's text stays behind its password (wp-postpass cookie), as on
+		// the product page, the [product_page] shortcode and the Store API.
+		if p.Post != nil && !s.passwordRequired(c, p.Post) {
 			return l10n(s.gooRenderContent(e.ctx, c, p.Post.Content))
 		}
 	case webbuilder.SlotProductAddToCart:
@@ -407,6 +409,9 @@ func (e *wbSlotEnv) shopHTML(slot webbuilder.SlotName, a webbuilder.SlotArgs) (s
 	case webbuilder.SlotProductStock:
 		return l10n(s.gooFrontStockHTML(c, p))
 	case webbuilder.SlotProductTabs:
+		if p.Post != nil && s.passwordRequired(c, p.Post) {
+			return "", false // the Description tab is the product's content
+		}
 		return l10n(s.gooTabsHTML(c, p))
 	case webbuilder.SlotProductRelated:
 		return l10n(s.gooRelatedHTML(c, p))
